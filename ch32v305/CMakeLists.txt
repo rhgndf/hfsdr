@@ -61,7 +61,7 @@ target_compile_options(${EXECUTABLE} PRIVATE
 
   -Wunused -Wuninitialized
 
-  -std=gnu99 -MMD -MP
+  -std=gnu23 -MMD -MP
   -flto
   -Wall
   -g3

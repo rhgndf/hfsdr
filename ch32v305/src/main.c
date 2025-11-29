@@ -42,7 +42,7 @@ void GPIO_Toggle_INIT(void)
     GPIO_Init(GPIOA, &GPIO_InitStructure);
 }
 
-static uint8_t buf[128];
+
 /*********************************************************************
  * @fn      main
  *
@@ -57,7 +57,7 @@ int main(void)
 
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
     SystemCoreClockUpdate();
-    //Delay_Init();
+    Delay_Init();
 
     //SysTick_Config(SystemCoreClock / 1000);
     USART_Printf_Init(115200);	
@@ -94,17 +94,13 @@ int main(void)
 
 void tud_cdc_rx_cb(uint8_t itf)
 {
-  uint32_t count;
-
   //if (tud_cdc_connected())
   {
     if(tud_cdc_available())
     {
       tud_cdc_n_read_flush(itf);
-      tud_vendor_write(cdc_buf, 512);
-
-      //tud_cdc_n_write(itf, buf, count);
-      //tud_cdc_n_write_flush(itf);
+      if (tud_vendor_n_write_available(0))
+        tud_vendor_write(cdc_buf, 512);
     }
   }
 }
@@ -185,9 +181,6 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint16_t bufsize) {
   //tud_vendor_read_flush();
 }
 
-uint32_t tud_vendor_n_write2 (uint8_t itf, const void* buffer, uint32_t bufsize);
-bool usbd_edpt_xfer(uint8_t rhport, uint8_t ep_addr, uint8_t* buffer, uint16_t total_bytes);
 void tud_vendor_tx_cb(uint8_t itf, uint32_t sent_bytes) {
   tud_vendor_write(cdc_buf, 512);
-  //usbd_edpt_xfer(0, 0x85, cdc_buf, 512);
 }
