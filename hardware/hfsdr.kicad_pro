@@ -572,6 +572,12 @@
           "label": "#",
           "name": "${ITEM_NUMBER}",
           "show": false
+        },
+        {
+          "group_by": false,
+          "label": "LCSC Part",
+          "name": "LCSC Part",
+          "show": false
         }
       ],
       "filter_string": "",
@@ -633,6 +639,10 @@
     [
       "34aaad8d-c78a-4b16-bc41-13b9a7defd8e",
       "Power"
+    ],
+    [
+      "f5294b00-7550-4c54-b9c8-01c9e56568b3",
+      "Audio"
     ]
   ],
   "text_variables": {}
