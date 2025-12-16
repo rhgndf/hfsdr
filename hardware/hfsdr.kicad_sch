@@ -5822,7 +5822,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "1nF"
+		(property "Value" "2.2nF"
 			(at 212.09 24.1299 0)
 			(effects
 				(font
