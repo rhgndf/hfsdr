@@ -2490,16 +2490,6 @@
 	)
 	(wire
 		(pts
-			(xy 130.81 118.11) (xy 132.08 118.11)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "4f1fd6e5-e007-45a5-b3db-9fae15135a07")
-	)
-	(wire
-		(pts
 			(xy 93.98 54.61) (xy 104.14 54.61)
 		)
 		(stroke
@@ -2550,16 +2540,6 @@
 	)
 	(wire
 		(pts
-			(xy 130.81 109.22) (xy 130.81 118.11)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "80b45f89-671a-4e48-80db-08f812172a46")
-	)
-	(wire
-		(pts
 			(xy 160.02 36.83) (xy 160.02 39.37)
 		)
 		(stroke
@@ -2600,7 +2580,7 @@
 	)
 	(wire
 		(pts
-			(xy 132.08 118.11) (xy 132.08 125.73)
+			(xy 130.81 109.22) (xy 130.81 130.81)
 		)
 		(stroke
 			(width 0)
@@ -2617,6 +2597,16 @@
 			(type default)
 		)
 		(uuid "bbbd7636-a989-44e2-a5db-0e3d702c1dfc")
+	)
+	(wire
+		(pts
+			(xy 130.81 130.81) (xy 132.08 130.81)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "bf7dcbd4-c7c6-4b6a-84fd-d34b8896f2d4")
 	)
 	(wire
 		(pts
@@ -3450,7 +3440,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "LED_SMD:LED_0805_2012Metric"
 			(at 132.08 40.64 0)
 			(effects
 				(font
@@ -3571,7 +3561,7 @@
 	)
 	(symbol
 		(lib_id "Switch:SW_SPDT")
-		(at 137.16 125.73 0)
+		(at 137.16 130.81 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -3580,7 +3570,7 @@
 		(fields_autoplaced yes)
 		(uuid "5d807567-6c0e-4505-b90c-894efa99c676")
 		(property "Reference" "SW8"
-			(at 137.16 117.9025 0)
+			(at 137.16 122.9825 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3588,7 +3578,7 @@
 			)
 		)
 		(property "Value" "SW_SPDT"
-			(at 137.16 120.3268 0)
+			(at 137.16 125.4068 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3596,7 +3586,7 @@
 			)
 		)
 		(property "Footprint" "Button_Switch_SMD:SW_SPDT_PCM12"
-			(at 137.16 125.73 0)
+			(at 137.16 130.81 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3605,7 +3595,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 137.16 133.35 0)
+			(at 137.16 138.43 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3614,7 +3604,7 @@
 			)
 		)
 		(property "Description" "Switch, single pole double throw"
-			(at 137.16 125.73 0)
+			(at 137.16 130.81 0)
 			(effects
 				(font
 					(size 1.27 1.27)

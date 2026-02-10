@@ -4676,7 +4676,7 @@
 			)
 		)
 	)
-	(global_label "DM"
+	(global_label "DN"
 		(shape input)
 		(at 124.46 119.38 180)
 		(fields_autoplaced yes)
@@ -4688,7 +4688,7 @@
 		)
 		(uuid "4ee34550-99e1-45d3-8657-9b2b5d22eea7")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 118.7534 119.38 0)
+			(at 118.8743 119.38 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4874,7 +4874,7 @@
 			)
 		)
 	)
-	(global_label "DM"
+	(global_label "DN"
 		(shape input)
 		(at 241.3 43.18 180)
 		(fields_autoplaced yes)
@@ -4886,7 +4886,7 @@
 		)
 		(uuid "891aa8da-ffae-47ae-b5da-a4a4f4040be0")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 235.5934 43.18 0)
+			(at 235.7143 43.18 0)
 			(effects
 				(font
 					(size 1.27 1.27)
