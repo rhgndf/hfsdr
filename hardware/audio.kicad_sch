@@ -5,6 +5,240 @@
 	(uuid "5d3363da-0829-41a6-8956-b4e04c05ca27")
 	(paper "A4")
 	(lib_symbols
+		(symbol "Connector_Audio:AudioPlug4"
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(property "Reference" "J"
+				(at 10.16 5.08 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" "AudioPlug4"
+				(at 11.43 -7.62 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" ""
+				(at 8.89 -2.54 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" "~"
+				(at 8.89 -2.54 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "Audio Jack, 4 Poles (Stereo / TRRS)"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_keywords" "audio jack plug stereo headphones TRRS connector 2.5mm 3.5mm"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_fp_filters" "Plug*"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "AudioPlug4_0_0"
+				(text "T"
+					(at -8.89 -1.27 0)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(text "R1"
+					(at -2.54 -1.27 900)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(text "R2"
+					(at 0 -1.27 900)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+				(text "S"
+					(at 5.08 -1.27 0)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+			)
+			(symbol "AudioPlug4_0_1"
+				(polyline
+					(pts
+						(xy -3.81 2.54) (xy -5.08 2.54) (xy -6.35 1.27) (xy -10.16 2.54) (xy -12.7 0) (xy -12.7 -2.54)
+						(xy -10.16 -5.08) (xy -6.35 -3.81) (xy -5.08 -5.08) (xy -3.81 -5.08) (xy -3.81 2.54)
+					)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type background)
+					)
+				)
+				(rectangle
+					(start -1.27 2.54)
+					(end -3.81 -5.08)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type background)
+					)
+				)
+				(rectangle
+					(start 1.27 2.54)
+					(end -1.27 -5.08)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type background)
+					)
+				)
+				(rectangle
+					(start 1.27 2.54)
+					(end 8.89 -5.08)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type background)
+					)
+				)
+				(rectangle
+					(start 12.7 3.81)
+					(end 8.89 -6.35)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type background)
+					)
+				)
+			)
+			(symbol "AudioPlug4_1_1"
+				(pin passive line
+					(at 15.24 2.54 180)
+					(length 2.54)
+					(name "~"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "S"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 15.24 0 180)
+					(length 2.54)
+					(name "~"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "R2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 15.24 -2.54 180)
+					(length 2.54)
+					(name "~"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "R1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 15.24 -5.08 180)
+					(length 2.54)
+					(name "~"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "T"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 		(symbol "Device:C"
 			(pin_numbers
 				(hide yes)
@@ -954,7 +1188,7 @@
 	)
 	(wire
 		(pts
-			(xy 158.75 116.84) (xy 158.75 99.06)
+			(xy 158.75 116.84) (xy 158.75 93.98)
 		)
 		(stroke
 			(width 0)
@@ -1054,6 +1288,16 @@
 	)
 	(wire
 		(pts
+			(xy 168.91 96.52) (xy 176.53 96.52)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "80cbe300-7820-4098-9c68-2505c7015afd")
+	)
+	(wire
+		(pts
 			(xy 110.49 102.87) (xy 110.49 116.84)
 		)
 		(stroke
@@ -1114,7 +1358,7 @@
 	)
 	(wire
 		(pts
-			(xy 158.75 91.44) (xy 170.18 91.44)
+			(xy 158.75 91.44) (xy 176.53 91.44)
 		)
 		(stroke
 			(width 0)
@@ -1154,7 +1398,7 @@
 	)
 	(wire
 		(pts
-			(xy 158.75 99.06) (xy 170.18 99.06)
+			(xy 158.75 93.98) (xy 176.53 93.98)
 		)
 		(stroke
 			(width 0)
@@ -1395,7 +1639,8 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 170.18 88.9 270)
+		(at 168.91 96.52 0)
+		(mirror y)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -1403,7 +1648,7 @@
 		(dnp no)
 		(uuid "39f126a2-b346-4155-bef0-6ab7341788d6")
 		(property "Reference" "#PWR037"
-			(at 163.83 88.9 0)
+			(at 168.91 102.87 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1412,7 +1657,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 166.37 88.8999 90)
+			(at 168.9101 100.33 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1421,7 +1666,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 170.18 88.9 0)
+			(at 168.91 96.52 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1430,7 +1675,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 170.18 88.9 0)
+			(at 168.91 96.52 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1439,7 +1684,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 170.18 88.9 0)
+			(at 168.91 96.52 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1608,6 +1853,79 @@
 			(project "hfsdr"
 				(path "/a11445ed-c3bd-4d1c-a039-1c09b0dceab8/f5294b00-7550-4c54-b9c8-01c9e56568b3"
 					(reference "R10")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Connector_Audio:AudioPlug4")
+		(at 191.77 96.52 180)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "55708178-9aa3-4d2c-917d-a2a852d9b2e6")
+		(property "Reference" "J2"
+			(at 191.77 105.41 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "AudioPlug4"
+			(at 191.77 102.87 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Connector_Audio:Jack_3.5mm_KoreanHropartsElec_PJ-320D-4A_Horizontal"
+			(at 182.88 93.98 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 182.88 93.98 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Audio Jack, 4 Poles (Stereo / TRRS)"
+			(at 191.77 96.52 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "T"
+			(uuid "7850f5ec-7cfc-42ec-8667-3392358c2063")
+		)
+		(pin "R1"
+			(uuid "bcb970d5-6503-4f56-bfd2-73df1b3059cd")
+		)
+		(pin "S"
+			(uuid "555a6c14-2217-4b25-99d3-d297d3f7a609")
+		)
+		(pin "R2"
+			(uuid "27ae5c2f-5ce9-40ca-8d78-d162dd093165")
+		)
+		(instances
+			(project "hfsdr"
+				(path "/a11445ed-c3bd-4d1c-a039-1c09b0dceab8/f5294b00-7550-4c54-b9c8-01c9e56568b3"
+					(reference "J2")
 					(unit 1)
 				)
 			)
