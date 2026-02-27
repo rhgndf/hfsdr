@@ -12840,6 +12840,28 @@
 			)
 		)
 	)
+	(global_label "BATT_ADC"
+		(shape input)
+		(at 168.91 77.47 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "2f4797c4-178b-4f0b-9e46-5a5c2c6fa39d")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 180.7852 77.47 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "SWCLK"
 		(shape input)
 		(at 284.48 109.22 0)
@@ -13544,6 +13566,28 @@
 			)
 		)
 	)
+	(global_label "BATT_ADC"
+		(shape input)
+		(at 187.96 143.51 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "87834dbf-6b20-4a6b-bcec-b1a145f18933")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 199.8352 143.51 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "LED1"
 		(shape input)
 		(at 223.52 111.76 180)
@@ -13628,6 +13672,28 @@
 					(size 1.27 1.27)
 				)
 				(justify right)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "VBUS_ADC"
+		(shape input)
+		(at 168.91 80.01 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "96780cc2-9584-4a40-94c6-0c7958dc8163")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 181.39 80.01 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
 				(hide yes)
 			)
 		)
