@@ -21,8 +21,25 @@
 #include "tusb.h"
 
 /* Global define */
+#define LED_GPIO_PORT      GPIOA
+#define LED_GPIO_PIN       GPIO_Pin_3
+
+/* Change these if your BOOT button is on another GPIO */
+#define BOOT_GPIO_PORT     GPIOA
+#define BOOT_GPIO_PIN      GPIO_Pin_14
 
 /* Global Variable */
+static uint8_t cdc_buf[512];
+static uint32_t stream_counter = 0;
+
+static void fill_stream_buffer(uint8_t* buf, uint32_t len, uint32_t seed)
+{
+    uint32_t i;
+    for(i = 0; i < len; i++)
+    {
+        buf[i] = (uint8_t)(seed + i);
+    }
+}
 
 /*********************************************************************
  * @fn      GPIO_Toggle_INIT
@@ -36,10 +53,14 @@ void GPIO_Toggle_INIT(void)
     GPIO_InitTypeDef GPIO_InitStructure = {0};
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_3;
+    GPIO_InitStructure.GPIO_Pin = LED_GPIO_PIN;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_Init(GPIOA, &GPIO_InitStructure);
+    GPIO_Init(LED_GPIO_PORT, &GPIO_InitStructure);
+
+    GPIO_InitStructure.GPIO_Pin = BOOT_GPIO_PIN;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPD;
+    GPIO_Init(BOOT_GPIO_PORT, &GPIO_InitStructure);
 }
 
 
@@ -50,11 +71,8 @@ void GPIO_Toggle_INIT(void)
  *
  * @return  none
  */
-static uint8_t cdc_buf[512];
 int main(void)
 {
-    u8 i = 0;
-
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
     SystemCoreClockUpdate();
     Delay_Init();
@@ -82,13 +100,14 @@ int main(void)
 
     while(1)
     {
-        //Delay_Ms(1);
-        //GPIO_WriteBit(GPIOA, GPIO_Pin_3, (i == 0) ? (i = Bit_SET) : (i = Bit_RESET));
         tud_task(); // device task
-        //uint32_t remaining = tud_vendor_n_write_available(0);
-        //if (remaining) {
-        //  tud_vendor_write_flush();
-        //}
+
+        if(tud_vendor_write_available() >= sizeof(cdc_buf))
+        {
+            fill_stream_buffer(cdc_buf, sizeof(cdc_buf), stream_counter++);
+            tud_vendor_write(cdc_buf, sizeof(cdc_buf));
+            tud_vendor_write_flush();
+        }
     }
 }
 
@@ -182,5 +201,6 @@ void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint32_t bufsize) {
 }
 
 void tud_vendor_tx_cb(uint8_t itf, uint32_t sent_bytes) {
-  tud_vendor_write(cdc_buf, 512);
+  (void) itf;
+  (void) sent_bytes;
 }
