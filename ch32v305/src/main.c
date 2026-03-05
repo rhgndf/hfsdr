@@ -95,7 +95,7 @@ static void SysTick_Report_USB_EverySecond(void)
     static uint64_t last_report_tick = 0;
     static uint8_t initialized = 0;
     uint64_t now_tick = SysTick->CNT;
-    uint64_t report_period_ticks = (uint64_t)SystemCoreClock;
+    uint64_t report_period_ticks = (uint64_t)SystemCoreClock / 2;
 
     if(report_period_ticks == 0U)
     {
@@ -114,14 +114,23 @@ static void SysTick_Report_USB_EverySecond(void)
         return;
     }
 
-    last_report_tick = now_tick;
+
 
     char msg[64];
-    int len = snprintf(msg, sizeof(msg), "systick=%llu\r\n", (unsigned long long)now_tick);
+    int len = snprintf(msg, sizeof(msg),
+                       "%d systick_now=0x%x last=0x%x %d\r\n",
+                       25, 
+                       (uint32_t)now_tick,
+                       (uint32_t)last_report_tick,
+                       25);
+
+                       
     if(len > 0)
     {
         (void)usb_send_data((uint8_t const *)msg, (uint32_t)len);
     }
+
+    last_report_tick = now_tick;
 }
 
 
