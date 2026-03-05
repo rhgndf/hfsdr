@@ -18,15 +18,11 @@
 */
 
 #include "debug.h"
+#include "hw/pinout.h"
+#include "hw/spi_hw.h"
+#include "hw/i2c_hw.h"
+#include "hw/i2s_hw.h"
 #include "hw/usb_hw.h"
-
-/* Global define */
-#define LED_GPIO_PORT      GPIOA
-#define LED_GPIO_PIN       GPIO_Pin_3
-
-/* Change these if your BOOT button is on another GPIO */
-#define BOOT_GPIO_PORT     GPIOA
-#define BOOT_GPIO_PIN      GPIO_Pin_14
 
 /*********************************************************************
  * @fn      GPIO_Toggle_INIT
@@ -60,6 +56,8 @@ void GPIO_Toggle_INIT(void)
  */
 int main(void)
 {
+    uint16_t i2s_sample = 0;
+
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
     SystemCoreClockUpdate();
     Delay_Init();
@@ -72,10 +70,16 @@ int main(void)
     printf("GPIO Toggle TEST\r\n");
     GPIO_Toggle_INIT();
 
+    spi_hw_init();
+    i2c_hw_init();
+    i2s_hw_init();
+    i2s_hw_enable(ENABLE);
+
     usb_hw_init();
 
     while(1)
     {
+        (void)i2s_hw_try_receive_u16(&i2s_sample);
         usb_hw_task();
     }
 }
