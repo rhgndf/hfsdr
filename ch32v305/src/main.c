@@ -28,18 +28,10 @@
 #define BOOT_GPIO_PORT     GPIOA
 #define BOOT_GPIO_PIN      GPIO_Pin_14
 
-/* Global Variable */
-static uint8_t cdc_buf[512];
-static uint32_t stream_counter = 0;
+#define USB_ECHO_BUF_SIZE  512
 
-static void fill_stream_buffer(uint8_t* buf, uint32_t len, uint32_t seed)
-{
-    uint32_t i;
-    for(i = 0; i < len; i++)
-    {
-        buf[i] = (uint8_t)(seed + i);
-    }
-}
+/* Global Variable */
+static uint8_t cdc_buf[USB_ECHO_BUF_SIZE];
 
 /*********************************************************************
  * @fn      GPIO_Toggle_INIT
@@ -101,13 +93,6 @@ int main(void)
     while(1)
     {
         tud_task(); // device task
-
-        if(tud_vendor_write_available() >= sizeof(cdc_buf))
-        {
-            fill_stream_buffer(cdc_buf, sizeof(cdc_buf), stream_counter++);
-            tud_vendor_write(cdc_buf, sizeof(cdc_buf));
-            tud_vendor_write_flush();
-        }
     }
 }
 
@@ -195,9 +180,40 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
 
 void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint32_t bufsize) {
   (void) itf;
+  (void) buffer;
+  (void) bufsize;
 
-  // if using RX buffered is enabled, we need to flush the buffer to make room for new data
-  //tud_vendor_read_flush();
+  while (1)
+  {
+    uint32_t rx_avail = tud_vendor_available();
+    uint32_t tx_avail = tud_vendor_write_available();
+    uint32_t chunk = rx_avail;
+
+    if (chunk > tx_avail)
+    {
+      chunk = tx_avail;
+    }
+
+    if (chunk > sizeof(cdc_buf))
+    {
+      chunk = sizeof(cdc_buf);
+    }
+
+    if (chunk == 0)
+    {
+      break;
+    }
+
+    chunk = tud_vendor_read(cdc_buf, chunk);
+    if (chunk == 0)
+    {
+      break;
+    }
+
+    tud_vendor_write(cdc_buf, chunk);
+    tud_vendor_write_flush();
+  }
+
 }
 
 void tud_vendor_tx_cb(uint8_t itf, uint32_t sent_bytes) {
