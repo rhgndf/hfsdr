@@ -108,7 +108,7 @@ target_link_options(${EXECUTABLE} PRIVATE
   -flto
   -Wl,-Map=${PROJECT_NAME}.map,--cref
   -Wl,--gc-sections
-  #-Xlinker -print-memory-usage -Xlinker
+  -Wl,--print-memory-usage
 )
 
 add_custom_command(TARGET ${EXECUTABLE} 
