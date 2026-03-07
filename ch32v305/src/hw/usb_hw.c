@@ -48,10 +48,10 @@ void usb_hw_task(void)
 
 uint32_t usb_send_data(uint8_t const *buffer, uint32_t len)
 {
-    uint32_t written = tud_vendor_write(buffer, len);
+    uint32_t written = tud_cdc_write(buffer, len);
     if(written > 0)
     {
-        tud_vendor_write_flush();
+        tud_cdc_write_flush();
     }
 
     return written;
@@ -59,7 +59,7 @@ uint32_t usb_send_data(uint8_t const *buffer, uint32_t len)
 
 uint32_t usb_receive_data(uint8_t *buffer, uint32_t len)
 {
-    return tud_vendor_read(buffer, len);
+    return tud_cdc_read(buffer, len);
 }
 
 // Invoked when a control transfer occurred on an interface of this class.
@@ -112,16 +112,14 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
     return false;
 }
 
-void tud_vendor_rx_cb(uint8_t itf, uint8_t const* buffer, uint32_t bufsize)
+void tud_cdc_rx_cb(uint8_t itf)
 {
     (void) itf;
-    (void) buffer;
-    (void) bufsize;
 
     while(1)
     {
-        uint32_t rx_avail = tud_vendor_available();
-        uint32_t tx_avail = tud_vendor_write_available();
+        uint32_t rx_avail = tud_cdc_available();
+        uint32_t tx_avail = tud_cdc_write_available();
         uint32_t chunk = rx_avail;
 
         if(chunk > tx_avail)
