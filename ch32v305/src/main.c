@@ -118,7 +118,7 @@ static void SysTick_Report_USB_EverySecond(void)
 
     char msg[64];
     int len = snprintf(msg, sizeof(msg),
-                       "%d systick_now=0x%x last=0x%x %d\r\n",
+                       "%d systick_now=0x%lx last=0x%lx %d\r\n",
                        25, 
                        (uint32_t)now_tick,
                        (uint32_t)last_report_tick,
@@ -151,8 +151,8 @@ int main(void)
 
     //SysTick_Config(SystemCoreClock / 1000);
     USART_Printf_Init(115200);	
-    printf("SystemClk:%d\r\n", SystemCoreClock);
-    printf( "ChipID:%08x\r\n", DBGMCU_GetCHIPID() );
+    printf("SystemClk:%ld\r\n", SystemCoreClock);
+    printf( "ChipID:%08lx\r\n", DBGMCU_GetCHIPID() );
 
     printf("GPIO Toggle TEST\r\n");
     GPIO_Toggle_INIT();
