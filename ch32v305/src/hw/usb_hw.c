@@ -41,8 +41,33 @@ void usb_hw_init(void)
     tusb_init(USB_ROOT_HUB_PORT, &dev_init);
 }
 
+uint8_t buf[512];
+/*
+ * Set TX and RX BUFSIZE to 0 to access unbuffered
+ * Buffered:
+ *   host->device: 5MB/s
+ *   device->host: 7MB/s
+ * Unbuffered:
+ *   host->device: 17MB/s
+ *   device->host: 21MB/s
+ */
+void vendor_streamer() {
+    if (tud_vendor_n_write_available(0)) {
+        tud_vendor_write(buf, sizeof(buf));
+#if CFG_TUD_VENDOR_TXRX_BUFFERED
+        tud_vendor_write_flush();
+#endif
+    }
+}
+void tud_vendor_rx_cb(uint8_t idx, const uint8_t *buffer, uint32_t bufsize){
+#if CFG_TUD_VENDOR_TXRX_BUFFERED
+    tud_vendor_read(buf, sizeof(buf));
+#endif
+}
+
 void usb_hw_task(void)
 {
+    vendor_streamer();
     tud_task();
 }
 

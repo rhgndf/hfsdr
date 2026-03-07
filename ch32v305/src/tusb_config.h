@@ -167,8 +167,8 @@ extern "C" {
 // Vendor class endpoint and FIFO sizes must be >= endpoint packet size.
 // With HS descriptors using 512-byte bulk endpoints, keep these at 512 for HS.
 #define CFG_TUD_VENDOR_EPSIZE     (TUD_OPT_HIGH_SPEED ? 512 : 64)
-#define CFG_TUD_VENDOR_RX_BUFSIZE (TUD_OPT_HIGH_SPEED ? 512 : 64)
-#define CFG_TUD_VENDOR_TX_BUFSIZE (TUD_OPT_HIGH_SPEED ? 512 : 64)
+#define CFG_TUD_VENDOR_RX_BUFSIZE 0 //(TUD_OPT_HIGH_SPEED ? 512 : 64)
+#define CFG_TUD_VENDOR_TX_BUFSIZE 0 //(TUD_OPT_HIGH_SPEED ? 512 : 64)
 
 #ifdef __cplusplus
 }
