@@ -4,6 +4,14 @@ project(ch32v305_sdr
   LANGUAGES ASM C CXX
 )
 
+set(CMAKE_C_STANDARD 23)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS ON)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 set(CROSS_COMPILE riscv-none-elf-)
 
 set(CMAKE_AR ${CROSS_COMPILE}ar)
@@ -19,6 +27,7 @@ file(GLOB SRC_FILES CONFIGURE_DEPENDS
 
 file(GLOB_RECURSE SRC_FILES_RECURSE CONFIGURE_DEPENDS
   src/*.c
+  src/*.cpp
   lib/tinyusb/src/*.c
 )
 
@@ -61,7 +70,7 @@ target_compile_options(${EXECUTABLE} PRIVATE
 
   -Wunused -Wuninitialized
 
-  -std=gnu23 -MMD -MP
+  -MMD -MP
   -flto
   -Wall
   -g3
