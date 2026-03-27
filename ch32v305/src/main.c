@@ -157,20 +157,20 @@ int main(void)
     printf("GPIO Toggle TEST\r\n");
     GPIO_Toggle_INIT();
 
-    /*spi_hw_init();
+    spi_hw_init();
     i2c_hw_init();
     i2s_hw_init();
-    i2s_hw_enable(ENABLE);*/
+    i2s_hw_enable(ENABLE);
 
     SysTick_FreeRun_Init();
     usb_hw_init();
-    //LED_Blink_Init(1000U);
+    LED_Blink_Init(1000U);
 
     while(1)
     {
-        //(void)i2s_hw_try_receive_u16(&i2s_sample);
+        (void)i2s_hw_try_receive_u16(&i2s_sample);
         usb_hw_task();
-        //SysTick_Report_USB_EverySecond();
-        //LED_Blink_Task();
+        SysTick_Report_USB_EverySecond();
+        LED_Blink_Task();
     }
 }
