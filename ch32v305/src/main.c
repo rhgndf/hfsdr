@@ -188,8 +188,7 @@ int main(void)
     SystemCoreClockUpdate();
     Delay_Init();
 
-    //SysTick_Config(SystemCoreClock / 1000);
-    USART_Printf_Init(115200);	
+    //SysTick_Config(SystemCoreClock / 1000);	
     printf("SystemClk:%ld\r\n", SystemCoreClock);
     printf( "ChipID:%08lx\r\n", DBGMCU_GetCHIPID() );
 

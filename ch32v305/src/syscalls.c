@@ -80,31 +80,6 @@ void Delay_Ms(uint32_t n)
 }
 
 /*********************************************************************
- * @fn      USART_Printf_Init
- *
- * @brief   Retained as a no-op to satisfy existing call sites.
- *
- * @param   baudrate - Unused.
- *
- * @return  None
- */
-void USART_Printf_Init(uint32_t baudrate)
-{
-    (void)baudrate;
-}
-
-/*********************************************************************
- * @fn      SDI_Printf_Enable
- *
- * @brief   Retained as a no-op to satisfy existing call sites.
- *
- * @return  None
- */
-void SDI_Printf_Enable(void)
-{
-}
-
-/*********************************************************************
  * @fn      _write
  *
  * @brief   Support Printf Function over USB CDC.
