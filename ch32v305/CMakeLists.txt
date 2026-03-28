@@ -34,7 +34,6 @@ file(GLOB_RECURSE SRC_FILES_RECURSE CONFIGURE_DEPENDS
 add_executable(${EXECUTABLE} 
   lib/Startup/startup_ch32v30x_D8C.S
   lib/Core/core_riscv.c
-  lib/Debug/debug.c
   
   ${SRC_FILES}
   ${SRC_FILES_RECURSE}
