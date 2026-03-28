@@ -52,6 +52,7 @@ target_include_directories(${EXECUTABLE} PRIVATE
 
 target_compile_definitions(${EXECUTABLE} PRIVATE
   -DCH32V30x_D8C
+  -DHSE_VALUE=24000000
   -DCFG_TUD_WCH_USBIP_USBHS=1
   -DCFG_TUSB_MCU=OPT_MCU_CH32V307
 )
