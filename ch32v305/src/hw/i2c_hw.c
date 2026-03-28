@@ -5,6 +5,16 @@
 
 #define I2C_HW_TIMEOUT  100000U
 
+static void i2c_hw_recover_bus(void)
+{
+    I2C_GenerateSTOP(I2C2, ENABLE);
+    I2C_ClearFlag(I2C2, I2C_FLAG_AF | I2C_FLAG_ARLO | I2C_FLAG_BERR);
+    I2C_SoftwareResetCmd(I2C2, ENABLE);
+    I2C_SoftwareResetCmd(I2C2, DISABLE);
+    I2C_Cmd(I2C2, ENABLE);
+    I2C_AcknowledgeConfig(I2C2, ENABLE);
+}
+
 static ErrorStatus i2c_hw_wait_event(uint32_t event)
 {
     uint32_t timeout = I2C_HW_TIMEOUT;
@@ -17,6 +27,45 @@ static ErrorStatus i2c_hw_wait_event(uint32_t event)
     }
 
     return READY;
+}
+
+ErrorStatus i2c_hw_scan_bus_at(uint8_t addr_7bit)
+{
+    uint32_t timeout = I2C_HW_TIMEOUT;
+
+    if(addr_7bit > 0x7FU)
+    {
+        return NoREADY;
+    }
+
+    I2C_ClearFlag(I2C2, I2C_FLAG_AF | I2C_FLAG_ARLO | I2C_FLAG_BERR);
+
+    I2C_GenerateSTART(I2C2, ENABLE);
+    if(i2c_hw_wait_event(I2C_EVENT_MASTER_MODE_SELECT) != READY)
+    {
+        i2c_hw_recover_bus();
+        return NoREADY;
+    }
+
+    I2C_Send7bitAddress(I2C2, (uint8_t)(addr_7bit << 1), I2C_Direction_Transmitter);
+
+    while(timeout-- > 0U)
+    {
+        if(I2C_CheckEvent(I2C2, I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED) == READY)
+        {
+            I2C_GenerateSTOP(I2C2, ENABLE);
+            return READY;
+        }
+
+        if(I2C_GetFlagStatus(I2C2, I2C_FLAG_AF) == SET)
+        {
+            i2c_hw_recover_bus();
+            return NoREADY;
+        }
+    }
+
+    i2c_hw_recover_bus();
+    return NoREADY;
 }
 
 void i2c_hw_init(void)

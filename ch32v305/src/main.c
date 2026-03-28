@@ -114,23 +114,62 @@ static void SysTick_Report_USB_EverySecond(void)
         return;
     }
 
-
-
-    char msg[64];
-    int len = snprintf(msg, sizeof(msg),
-                       "%d systick_now=0x%lx last=0x%lx %d\r\n",
-                       25, 
-                       (uint32_t)now_tick,
-                       (uint32_t)last_report_tick,
-                       25);
-
-                       
-    if(len > 0)
-    {
-        (void)usb_send_data((uint8_t const *)msg, (uint32_t)len);
-    }
+    printf("%d systick_now=0x%lx last=0x%lx %d\r\n",
+           25,
+           (uint32_t)now_tick,
+           (uint32_t)last_report_tick,
+           25);
 
     last_report_tick = now_tick;
+}
+
+static void Scan_I2CBus_EverySecond(void)
+{
+    static uint64_t last_scan_tick = 0;
+    static uint8_t initialized = 0;
+    uint64_t now_tick = SysTick->CNT;
+    uint64_t scan_period_ticks = (uint64_t)SystemCoreClock;
+    uint8_t addr = 0;
+    uint8_t device_count = 0;
+
+    if(scan_period_ticks == 0U)
+    {
+        scan_period_ticks = 1U;
+    }
+
+    if(initialized == 0U)
+    {
+        last_scan_tick = now_tick;
+        initialized = 1U;
+        return;
+    }
+
+    if((now_tick - last_scan_tick) < scan_period_ticks)
+    {
+        return;
+    }
+
+    printf("I2C scan:");
+
+    for(addr = 0x08U; addr <= 0x77U; ++addr)
+    {
+        if(i2c_hw_scan_bus_at(addr) == READY)
+        {
+            ++device_count;
+            printf(" 0x%02X", addr);
+        }
+    }
+
+    if(device_count == 0U)
+    {
+        printf(" no devices\r\n");
+    }
+    else
+    {
+        printf(" (%u)\r\n", device_count);
+    }
+
+    last_scan_tick = now_tick;
 }
 
 
@@ -170,6 +209,7 @@ int main(void)
     {
         (void)i2s_hw_try_receive_u16(&i2s_sample);
         usb_hw_task();
+        Scan_I2CBus_EverySecond();
         SysTick_Report_USB_EverySecond();
         LED_Blink_Task();
     }
