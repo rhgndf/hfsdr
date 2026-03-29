@@ -55,12 +55,18 @@
 #define SPI1_SDA_MOSI_GPIO_PORT GPIOB
 #define SPI1_SDA_MOSI_GPIO_PIN  GPIO_Pin_5
 
-/* I2C - Touchscreen, ADC */
+/* ST7789 + touch: command vs SPI data is RS (register select), same net as I2C_RS — not a separate DC pin. */
+#define ST7789_RST_GPIO_PORT  GPIOC
+#define ST7789_RST_GPIO_PIN   GPIO_Pin_11
+#define ST7789_CS_GPIO_PORT   GPIOD
+#define ST7789_CS_GPIO_PIN    GPIO_Pin_2
+#define I2C_RS_GPIO_PORT      GPIOC
+#define I2C_RS_GPIO_PIN       GPIO_Pin_12
+
+/* I2C - Touchscreen, ADC (RS also drives LCD register select on the shared flex / routing) */
 #define I2C_SCL_GPIO_PORT   GPIOB
 #define I2C_SCL_GPIO_PIN    GPIO_Pin_10
 #define I2C_SDA_GPIO_PORT   GPIOB
 #define I2C_SDA_GPIO_PIN    GPIO_Pin_11
-#define I2C_RS_GPIO_PORT    GPIOC
-#define I2C_RS_GPIO_PIN     GPIO_Pin_12
 
 #endif
