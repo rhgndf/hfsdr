@@ -205,7 +205,7 @@ int main(void)
     i2s_hw_enable(ENABLE);
 
     dac_hw_init();
-    printf("DAC1 square wave 440 Hz on PA4 (TIM6 period calibrated to scope)\r\n");
+    printf("DAC1/DAC2 square wave 440 Hz on PA4 & PA5 (same 12-bit codes)\r\n");
     dac_hw_square_wave_start(440U, 512U, 3584U);
 
     SysTick_FreeRun_Init();

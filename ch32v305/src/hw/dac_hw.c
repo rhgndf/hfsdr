@@ -22,26 +22,11 @@ static uint32_t tim6_counter_clock_hz(void)
      */
     uint32_t pclk1 = clk.PCLK1_Frequency;
     uint32_t ppre1 = (RCC->CFGR0 & RCC_PPRE1) >> 8;
-    uint32_t hz;
     if(ppre1 != 0U)
     {
-        hz = pclk1 * 2U;
+        return pclk1 * 2U;
     }
-    else
-    {
-        hz = pclk1;
-    }
-    /*
-     * Scope check: ~100 Hz at the DAC when 440 Hz was requested → effective TIM6
-     * clock used here was ~4.4× too high. Scale so nominal freq matches hardware.
-     * Re-measure after clock-tree changes; set both to 1 for no correction.
-     */
-    enum
-    {
-        DAC_SQ_MEASURED_HZ = 100U,
-        DAC_SQ_REQUESTED_HZ = 440U
-    };
-    return (uint32_t)(((uint64_t)hz * (uint64_t)DAC_SQ_MEASURED_HZ) / (uint64_t)DAC_SQ_REQUESTED_HZ);
+    return pclk1;
 }
 
 void dac_hw_init(void)
@@ -93,7 +78,7 @@ void dac_hw_square_wave_stop(void)
     TIM_Cmd(TIM6, DISABLE);
     TIM_ITConfig(TIM6, TIM_IT_Update, DISABLE);
     NVIC_DisableIRQ(TIM6_IRQn);
-    dac_hw_set_channel1_12(sq_low);
+    DAC_SetDualChannelData(DAC_Align_12b_R, sq_low, sq_low);
     sq_phase = 0;
 }
 
@@ -119,7 +104,7 @@ void dac_hw_square_wave_start(uint32_t freq_hz, uint16_t low_12, uint16_t high_1
     sq_low = low_12;
     sq_high = high_12;
     sq_phase = 0;
-    dac_hw_set_channel1_12(sq_low);
+    DAC_SetDualChannelData(DAC_Align_12b_R, sq_low, sq_low);
 
     if(freq_hz == 0U)
     {
@@ -173,11 +158,11 @@ __attribute__((interrupt)) void TIM6_IRQHandler(void)
         sq_phase ^= 1U;
         if(sq_phase != 0U)
         {
-            DAC_SetChannel1Data(DAC_Align_12b_R, sq_high);
+            DAC_SetDualChannelData(DAC_Align_12b_R, sq_high, sq_high);
         }
         else
         {
-            DAC_SetChannel1Data(DAC_Align_12b_R, sq_low);
+            DAC_SetDualChannelData(DAC_Align_12b_R, sq_low, sq_low);
         }
     }
 }
