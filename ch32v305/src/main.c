@@ -20,6 +20,7 @@
 #include "debug.h"
 #include "hw/pinout.h"
 #include "hw/dac_hw.h"
+#include "hw/dac_hw_sine_test.h"
 #include "hw/i2c_hw.h"
 #include "hw/i2s_hw.h"
 #include "hw/usb_hw.h"
@@ -205,8 +206,8 @@ int main(void)
     i2s_hw_enable(ENABLE);
 
     dac_hw_init();
-    printf("DAC1/DAC2 square wave 440 Hz on PA4 & PA5 (same 12-bit codes)\r\n");
-    dac_hw_square_wave_start(440U, 512U, 3584U);
+    printf("DAC1/DAC2 sine 440 Hz @ 16 kHz sample on PA4 & PA5\r\n");
+    dac_hw_sine_test_start(440U, 16000U);
 
     SysTick_FreeRun_Init();
     usb_hw_init();
