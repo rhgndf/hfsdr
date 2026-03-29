@@ -19,10 +19,10 @@
 
 #include "debug.h"
 #include "hw/pinout.h"
-#include "hw/spi_hw.h"
 #include "hw/i2c_hw.h"
 #include "hw/i2s_hw.h"
 #include "hw/usb_hw.h"
+#include "hw/st7789/st7789.h"
 
 /*********************************************************************
  * @fn      GPIO_Toggle_INIT
@@ -195,7 +195,10 @@ int main(void)
     printf("GPIO Toggle TEST\r\n");
     GPIO_Toggle_INIT();
 
-    spi_hw_init();
+    printf("ST7789 library test\r\n");
+    ST7789_Init();
+    ST7789_Test();
+
     i2c_hw_init();
     i2s_hw_init();
     i2s_hw_enable(ENABLE);

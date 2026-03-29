@@ -56,6 +56,7 @@
 #define SPI1_SDA_MOSI_GPIO_PIN  GPIO_Pin_5
 
 /* ST7789 + touch: command vs SPI data is RS (register select), same net as I2C_RS — not a separate DC pin. */
+/* ST7789 reset: active-high (drive high to reset, low to run). */
 #define ST7789_RST_GPIO_PORT  GPIOC
 #define ST7789_RST_GPIO_PIN   GPIO_Pin_11
 #define ST7789_CS_GPIO_PORT   GPIOD

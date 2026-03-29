@@ -20,12 +20,13 @@ void spi_hw_init(void)
     SPI_StructInit(&spi_init);
     spi_init.SPI_Direction = SPI_Direction_2Lines_FullDuplex;
     spi_init.SPI_Mode = SPI_Mode_Master;
+    /* Panel (ST7789): one byte per SPI transfer, high bit of each byte first. */
     spi_init.SPI_DataSize = SPI_DataSize_8b;
+    spi_init.SPI_FirstBit = SPI_FirstBit_MSB;
     spi_init.SPI_CPOL = SPI_CPOL_Low;
     spi_init.SPI_CPHA = SPI_CPHA_1Edge;
     spi_init.SPI_NSS = SPI_NSS_Soft;
     spi_init.SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_8;
-    spi_init.SPI_FirstBit = SPI_FirstBit_MSB;
     spi_init.SPI_CRCPolynomial = 7;
 
     SPI_Init(SPI1, &spi_init);

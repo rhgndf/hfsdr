@@ -2,27 +2,22 @@
 #define __ST7789_H
 
 #include "fonts.h"
-#include "main.h"
+#include "hw/pinout.h"
 
-/* choose a Hardware SPI port to use. */
-#define ST7789_SPI_PORT hspi1
-extern SPI_HandleTypeDef ST7789_SPI_PORT;
-
-/* choose whether use DMA or not */
-#define USE_DMA
+/* SPI: use spi_hw (SPI1). Init from ST7789_Init() via spi_hw_init(). */
 
 /* If u need CS control, comment below*/
 //#define CFG_NO_CS
 
-/* Pin connection*/
-#define ST7789_RST_PORT ST7789_RST_GPIO_Port
-#define ST7789_RST_PIN  ST7789_RST_Pin
-#define ST7789_DC_PORT  ST7789_DC_GPIO_Port
-#define ST7789_DC_PIN   ST7789_DC_Pin
+/* Pin connection (hfsdr badge: RS = register select, same as DC) */
+#define ST7789_RST_PORT ST7789_RST_GPIO_PORT
+#define ST7789_RST_PIN  ST7789_RST_GPIO_PIN
+#define ST7789_DC_PORT  I2C_RS_GPIO_PORT
+#define ST7789_DC_PIN   I2C_RS_GPIO_PIN
 
 #ifndef CFG_NO_CS
-#define ST7789_CS_PORT  ST7789_CS_GPIO_Port
-#define ST7789_CS_PIN   ST7789_CS_Pin
+#define ST7789_CS_PORT  ST7789_CS_GPIO_PORT
+#define ST7789_CS_PIN   ST7789_CS_GPIO_PIN
 #endif
 
 /* If u need Backlight control, uncomment below */
@@ -212,15 +207,15 @@ extern SPI_HandleTypeDef ST7789_SPI_PORT;
 #define ST7789_COLOR_MODE_16bit 0x55    //  RGB565 (16bit)
 #define ST7789_COLOR_MODE_18bit 0x66    //  RGB666 (18bit)
 
-/* Basic operations */
-#define ST7789_RST_Clr() HAL_GPIO_WritePin(ST7789_RST_PORT, ST7789_RST_PIN, GPIO_PIN_RESET)
-#define ST7789_RST_Set() HAL_GPIO_WritePin(ST7789_RST_PORT, ST7789_RST_PIN, GPIO_PIN_SET)
+/* Basic operations — RST is active-high on this board (HIGH = in reset, LOW = run). */
+#define ST7789_RST_Assert()  GPIO_WriteBit(ST7789_RST_PORT, ST7789_RST_PIN, Bit_SET)
+#define ST7789_RST_Release() GPIO_WriteBit(ST7789_RST_PORT, ST7789_RST_PIN, Bit_RESET)
 
-#define ST7789_DC_Clr() HAL_GPIO_WritePin(ST7789_DC_PORT, ST7789_DC_PIN, GPIO_PIN_RESET)
-#define ST7789_DC_Set() HAL_GPIO_WritePin(ST7789_DC_PORT, ST7789_DC_PIN, GPIO_PIN_SET)
+#define ST7789_DC_Clr() GPIO_WriteBit(ST7789_DC_PORT, ST7789_DC_PIN, Bit_RESET)
+#define ST7789_DC_Set() GPIO_WriteBit(ST7789_DC_PORT, ST7789_DC_PIN, Bit_SET)
 #ifndef CFG_NO_CS
-#define ST7789_Select() HAL_GPIO_WritePin(ST7789_CS_PORT, ST7789_CS_PIN, GPIO_PIN_RESET)
-#define ST7789_UnSelect() HAL_GPIO_WritePin(ST7789_CS_PORT, ST7789_CS_PIN, GPIO_PIN_SET)
+#define ST7789_Select() GPIO_WriteBit(ST7789_CS_PORT, ST7789_CS_PIN, Bit_RESET)
+#define ST7789_UnSelect() GPIO_WriteBit(ST7789_CS_PORT, ST7789_CS_PIN, Bit_SET)
 #else
 #define ST7789_Select() asm("nop")
 #define ST7789_UnSelect() asm("nop")
