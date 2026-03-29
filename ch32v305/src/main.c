@@ -19,6 +19,7 @@
 
 #include "debug.h"
 #include "hw/pinout.h"
+#include "hw/dac_hw.h"
 #include "hw/i2c_hw.h"
 #include "hw/i2s_hw.h"
 #include "hw/usb_hw.h"
@@ -202,6 +203,10 @@ int main(void)
     i2c_hw_init();
     i2s_hw_init();
     i2s_hw_enable(ENABLE);
+
+    dac_hw_init();
+    printf("DAC1 square wave 440 Hz on PA4 (TIM6 period calibrated to scope)\r\n");
+    dac_hw_square_wave_start(440U, 512U, 3584U);
 
     SysTick_FreeRun_Init();
     usb_hw_init();
