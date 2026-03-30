@@ -27,6 +27,7 @@
 /* #include "test/display_spi_test.h" */
 #include "test/dac_hw_sine_test.h"
 #include "hw/i2c_hw.h"
+#include "hw/tlv320adc6120_hw.h"
 #include "hw/si5351_hw.h"
 #include "hw/i2s_hw.h"
 #include "hw/usb_hw.h"
@@ -284,26 +285,32 @@ int main(void)
     //ST7789_Test();
 
     i2c_hw_init();
-    
-    if(si5351_hw_clk0_set_freq_hz(94000ULL) == READY)
+
+    if(tlv320adc6120_hw_init() == READY)
     {
-        printf("Si5351: CLK0 = 94 MHz (VCO 846 MHz, 24 MHz XO)\r\n");
+        printf("TLV320ADC6120: I2C 0x4E, I2S slave 16-bit CH1+CH2\r\n");
         GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, Bit_SET);
     }
     else
     {
+        printf("TLV320ADC6120: I2C init failed (check wiring / AVDD AREG define)\r\n");
+    }
+
+    if(si5351_hw_clk0_set_freq_hz(94000ULL) == READY)
+    {
+        printf("Si5351: CLK0 = 94 MHz (VCO 846 MHz, 24 MHz XO)\r\n");
+    }
+    else
+    {
         printf("Si5351: program failed (I2C addr 0x60, 24 MHz crystal)\r\n");
-        GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, Bit_RESET);
     }
     if(si5351_hw_clk1_set_freq_hz(94000ULL) == READY)
     {
         printf("Si5351: CLK0 = 94 MHz (VCO 846 MHz, 24 MHz XO)\r\n");
-        GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, Bit_SET);
     }
     else
     {
         printf("Si5351: program failed (I2C addr 0x60, 24 MHz crystal)\r\n");
-        GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, Bit_RESET);
     }
 
     i2s_hw_init();
