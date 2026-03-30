@@ -9,8 +9,8 @@ void spi_gpio_pins_enable(void)
 {
     GPIO_InitTypeDef g = {0};
 
-    SPI_Cmd(SPI1, DISABLE);
-    SPI_I2S_DeInit(SPI1);
+    SPI_Cmd(SPI3, DISABLE);
+    SPI_I2S_DeInit(SPI3);
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC | RCC_APB2Periph_GPIOD | RCC_APB2Periph_AFIO,
                            ENABLE);
@@ -18,8 +18,8 @@ void spi_gpio_pins_enable(void)
     g.GPIO_Mode = GPIO_Mode_Out_PP;
     g.GPIO_Speed = GPIO_Speed_50MHz;
 
-    g.GPIO_Pin = SPI1_SCL_SCK_GPIO_PIN | SPI1_SDA_MOSI_GPIO_PIN;
-    GPIO_Init(SPI1_SCL_SCK_GPIO_PORT, &g);
+    g.GPIO_Pin = SPI3_SCL_SCK_GPIO_PIN | SPI3_SDA_MOSI_GPIO_PIN;
+    GPIO_Init(SPI3_SCL_SCK_GPIO_PORT, &g);
 
     g.GPIO_Pin = ST7789_CS_GPIO_PIN;
     GPIO_Init(ST7789_CS_GPIO_PORT, &g);
@@ -31,8 +31,8 @@ void spi_gpio_pins_enable(void)
     GPIO_Init(ST7789_RST_GPIO_PORT, &g);
 
     /* Idle-ish defaults: SCK/MOSI low, CS high (inactive), RS high, RST low (panel run — active-high reset). */
-    GPIO_WriteBit(SPI1_SCL_SCK_GPIO_PORT, SPI1_SCL_SCK_GPIO_PIN, Bit_RESET);
-    GPIO_WriteBit(SPI1_SDA_MOSI_GPIO_PORT, SPI1_SDA_MOSI_GPIO_PIN, Bit_RESET);
+    GPIO_WriteBit(SPI3_SCL_SCK_GPIO_PORT, SPI3_SCL_SCK_GPIO_PIN, Bit_RESET);
+    GPIO_WriteBit(SPI3_SDA_MOSI_GPIO_PORT, SPI3_SDA_MOSI_GPIO_PIN, Bit_RESET);
     GPIO_WriteBit(ST7789_CS_GPIO_PORT, ST7789_CS_GPIO_PIN, Bit_SET);
     GPIO_WriteBit(I2C_RS_GPIO_PORT, I2C_RS_GPIO_PIN, Bit_SET);
     GPIO_WriteBit(ST7789_RST_GPIO_PORT, ST7789_RST_GPIO_PIN, Bit_RESET);
@@ -46,12 +46,12 @@ void spi_gpio_pins_restore_hw_spi(void)
 
 void spi_gpio_sck_write(BitAction level)
 {
-    GPIO_WriteBit(SPI1_SCL_SCK_GPIO_PORT, SPI1_SCL_SCK_GPIO_PIN, level);
+    GPIO_WriteBit(SPI3_SCL_SCK_GPIO_PORT, SPI3_SCL_SCK_GPIO_PIN, level);
 }
 
 void spi_gpio_mosi_write(BitAction level)
 {
-    GPIO_WriteBit(SPI1_SDA_MOSI_GPIO_PORT, SPI1_SDA_MOSI_GPIO_PIN, level);
+    GPIO_WriteBit(SPI3_SDA_MOSI_GPIO_PORT, SPI3_SDA_MOSI_GPIO_PIN, level);
 }
 
 void spi_gpio_cs_write(BitAction level)
@@ -80,14 +80,14 @@ void spi_gpio_pins_all_on(void)
 
 void spi_gpio_sck_toggle(void)
 {
-    GPIO_WriteBit(SPI1_SCL_SCK_GPIO_PORT, SPI1_SCL_SCK_GPIO_PIN,
-                  GPIO_ReadOutputDataBit(SPI1_SCL_SCK_GPIO_PORT, SPI1_SCL_SCK_GPIO_PIN) == Bit_RESET ? Bit_SET : Bit_RESET);
+    GPIO_WriteBit(SPI3_SCL_SCK_GPIO_PORT, SPI3_SCL_SCK_GPIO_PIN,
+                  GPIO_ReadOutputDataBit(SPI3_SCL_SCK_GPIO_PORT, SPI3_SCL_SCK_GPIO_PIN) == Bit_RESET ? Bit_SET : Bit_RESET);
 }
 
 void spi_gpio_mosi_toggle(void)
 {
-    GPIO_WriteBit(SPI1_SDA_MOSI_GPIO_PORT, SPI1_SDA_MOSI_GPIO_PIN,
-                  GPIO_ReadOutputDataBit(SPI1_SDA_MOSI_GPIO_PORT, SPI1_SDA_MOSI_GPIO_PIN) == Bit_RESET ? Bit_SET
+    GPIO_WriteBit(SPI3_SDA_MOSI_GPIO_PORT, SPI3_SDA_MOSI_GPIO_PIN,
+                  GPIO_ReadOutputDataBit(SPI3_SDA_MOSI_GPIO_PORT, SPI3_SDA_MOSI_GPIO_PIN) == Bit_RESET ? Bit_SET
                                                                                                        : Bit_RESET);
 }
 

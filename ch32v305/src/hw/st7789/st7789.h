@@ -4,7 +4,7 @@
 #include "fonts.h"
 #include "hw/pinout.h"
 
-/* SPI: use spi_hw (SPI1). Init from ST7789_Init() via spi_hw_init(). */
+/* SPI: use spi_hw (SPI3). Init from ST7789_Init() via spi_hw_init(). */
 
 /* If u need CS control, comment below*/
 //#define CFG_NO_CS

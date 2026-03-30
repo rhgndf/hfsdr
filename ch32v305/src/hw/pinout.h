@@ -49,11 +49,11 @@
 #define I2S_MCK_GPIO_PORT  GPIOC
 #define I2S_MCK_GPIO_PIN   GPIO_Pin_6
 
-/* SPI1 - Screen */
-#define SPI1_SCL_SCK_GPIO_PORT  GPIOB
-#define SPI1_SCL_SCK_GPIO_PIN   GPIO_Pin_3
-#define SPI1_SDA_MOSI_GPIO_PORT GPIOB
-#define SPI1_SDA_MOSI_GPIO_PIN  GPIO_Pin_5
+/* SPI3 - Screen (remapped: SCK/MOSI on PB3/PB5; default SPI3 pins are PC10/PC11/PC12) */
+#define SPI3_SCL_SCK_GPIO_PORT  GPIOB
+#define SPI3_SCL_SCK_GPIO_PIN   GPIO_Pin_3
+#define SPI3_SDA_MOSI_GPIO_PORT GPIOB
+#define SPI3_SDA_MOSI_GPIO_PIN  GPIO_Pin_5
 
 /* ST7789 + touch: command vs SPI data is RS (register select), same net as I2C_RS — not a separate DC pin. */
 /* ST7789 reset: active-high (drive high to reset, low to run). */

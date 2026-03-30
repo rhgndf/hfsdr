@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 /*
- * Low-level SPI1 to the ST7789 bus: CS (PD2) + RS/DC (PC12) + MOSI/SCK.
+ * Low-level SPI3 to the ST7789 bus: CS (PD2) + RS/DC (PC12) + MOSI/SCK.
  * Call spi_manual_init() once (safe after reset). Compose transactions yourself:
  *
  *   spi_manual_cs_begin();

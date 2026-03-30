@@ -5,7 +5,7 @@
 
 /*
  * Manual GPIO control of SPI-related lines (PB3 SCK, PB5 MOSI, PD2 CS, PC12 RS, PC11 RST).
- * spi_gpio_pins_enable() turns SPI1 off and configures pins as push-pull outputs (MISO optional input).
+ * spi_gpio_pins_enable() turns SPI3 off and configures pins as push-pull outputs (MISO optional input).
  * spi_gpio_pins_restore_hw_spi() runs spi_hw_init() again for peripheral SPI.
  */
 
