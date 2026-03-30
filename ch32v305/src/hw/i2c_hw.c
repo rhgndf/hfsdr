@@ -1,5 +1,7 @@
 #include "i2c_hw.h"
 
+#include <stddef.h>
+
 #include "debug.h"
 #include "pinout.h"
 
@@ -124,6 +126,46 @@ ErrorStatus i2c_hw_write_register(uint8_t addr_7bit, uint8_t reg, uint8_t value)
     if(i2c_hw_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED) != READY)
     {
         return NoREADY;
+    }
+
+    I2C_GenerateSTOP(I2C2, ENABLE);
+    return READY;
+}
+
+ErrorStatus i2c_hw_write_register_burst(uint8_t addr_7bit, uint8_t reg, const uint8_t *data, size_t len)
+{
+    size_t i;
+
+    if(data == NULL)
+    {
+        return NoREADY;
+    }
+
+    I2C_GenerateSTART(I2C2, ENABLE);
+    if(i2c_hw_wait_event(I2C_EVENT_MASTER_MODE_SELECT) != READY)
+    {
+        return NoREADY;
+    }
+
+    I2C_Send7bitAddress(I2C2, (uint8_t)(addr_7bit << 1), I2C_Direction_Transmitter);
+    if(i2c_hw_wait_event(I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED) != READY)
+    {
+        return NoREADY;
+    }
+
+    I2C_SendData(I2C2, reg);
+    if(i2c_hw_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED) != READY)
+    {
+        return NoREADY;
+    }
+
+    for(i = 0U; i < len; ++i)
+    {
+        I2C_SendData(I2C2, data[i]);
+        if(i2c_hw_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED) != READY)
+        {
+            return NoREADY;
+        }
     }
 
     I2C_GenerateSTOP(I2C2, ENABLE);

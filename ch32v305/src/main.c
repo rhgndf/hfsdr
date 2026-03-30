@@ -18,6 +18,7 @@
 */
 
 #include "debug.h"
+#include <stddef.h>
 #include "hw/pinout.h"
 #include "hw/dac_hw.h"
 #include "hw/spi_manual.h"
@@ -26,6 +27,7 @@
 /* #include "test/display_spi_test.h" */
 #include "test/dac_hw_sine_test.h"
 #include "hw/i2c_hw.h"
+#include "hw/si5351_hw.h"
 #include "hw/i2s_hw.h"
 #include "hw/usb_hw.h"
 
@@ -101,7 +103,7 @@ static void LED_Blink_Init(uint32_t period_ms)
     led12_last_toggle_tick = SysTick->CNT;
     led12_state = Bit_RESET;
     GPIO_WriteBit(LED1_GPIO_PORT, LED1_GPIO_PIN, led12_state);
-    GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, led12_state);
+    //GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, led12_state);
 }
 
 static void LED_Blink_Task(void)
@@ -120,7 +122,7 @@ static void LED_Blink_Task(void)
         led12_last_toggle_tick = now_tick;
         led12_state = (led12_state == Bit_RESET) ? Bit_SET : Bit_RESET;
         GPIO_WriteBit(LED1_GPIO_PORT, LED1_GPIO_PIN, led12_state);
-        GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, led12_state);
+        //GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, led12_state);
     }
 }
 
@@ -206,6 +208,45 @@ static void Scan_I2CBus_EverySecond(void)
     last_scan_tick = now_tick;
 }
 
+/* SPI2 I2S master RX: drain incoming ADC samples; keep last 16-bit word for debug print. */
+#define I2S_ADC_DRAIN_MAX 64U
+
+static uint16_t i2s_adc_last_sample = 0U;
+
+static void I2S_ADC_Poll(void)
+{
+    uint16_t buf[I2S_ADC_DRAIN_MAX];
+    size_t n;
+
+    n = i2s_hw_receive_drain_try(buf, I2S_ADC_DRAIN_MAX);
+    if(n > 0U)
+    {
+        i2s_adc_last_sample = buf[n - 1U];
+    }
+}
+
+static void I2S_ADC_Report_EverySecond(void)
+{
+    static uint64_t last_tick = 0;
+    static uint8_t initialized = 0;
+    uint64_t now_tick = SysTick->CNT;
+
+    if(initialized == 0U)
+    {
+        last_tick = now_tick;
+        initialized = 1U;
+        return;
+    }
+
+    if((now_tick - last_tick) < (uint64_t)SystemCoreClock)
+    {
+        return;
+    }
+
+    printf("I2S ADC last=0x%04X (16-bit RX, see i2s_hw_init)\r\n", (unsigned int)i2s_adc_last_sample);
+    last_tick = now_tick;
+}
+
 
 /*********************************************************************
  * @fn      main
@@ -216,8 +257,6 @@ static void Scan_I2CBus_EverySecond(void)
  */
 int main(void)
 {
-    uint16_t i2s_sample = 0;
-
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
     SystemCoreClockUpdate();
     Delay_Init();
@@ -245,6 +284,17 @@ int main(void)
     //ST7789_Test();
 
     i2c_hw_init();
+    if(si5351_hw_clk0_set_94mhz() == READY)
+    {
+        printf("Si5351: CLK0 = 94 MHz (VCO 846 MHz, 24 MHz XO)\r\n");
+        GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, Bit_SET); //led12_state);
+    }
+    else
+    {
+        printf("Si5351: program failed (I2C addr 0x60, 24 MHz crystal)\r\n");
+        GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, Bit_RESET);
+    }
+
     i2s_hw_init();
     i2s_hw_enable(ENABLE);
 
@@ -260,11 +310,11 @@ int main(void)
 
     while(1)
     {
-        
-        (void)i2s_hw_try_receive_u16(&i2s_sample);
+        I2S_ADC_Poll();
         usb_hw_task();
         Scan_I2CBus_EverySecond();
         SysTick_Report_USB_EverySecond();
+        I2S_ADC_Report_EverySecond();
         LED_Blink_Task();
     }
 }

@@ -73,3 +73,33 @@ ErrorStatus i2s_hw_try_receive_u16(uint16_t *sample)
     *sample = SPI_I2S_ReceiveData(SPI2);
     return READY;
 }
+
+void i2s_hw_receive_burst_blocking(uint16_t *buf, size_t n)
+{
+    size_t i;
+
+    for(i = 0U; i < n; ++i)
+    {
+        buf[i] = i2s_hw_receive_u16();
+    }
+}
+
+size_t i2s_hw_receive_drain_try(uint16_t *buf, size_t max_n)
+{
+    size_t i;
+
+    if(buf == NULL || max_n == 0U)
+    {
+        return 0U;
+    }
+
+    for(i = 0U; i < max_n; ++i)
+    {
+        if(i2s_hw_try_receive_u16(&buf[i]) != READY)
+        {
+            break;
+        }
+    }
+
+    return i;
+}
