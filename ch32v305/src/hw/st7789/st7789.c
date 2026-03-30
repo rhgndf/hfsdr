@@ -24,6 +24,7 @@ static void ST7789_HW_Init(void)
 
 	g.GPIO_Pin = ST7789_RST_PIN;
 	GPIO_Init(ST7789_RST_PORT, &g);
+	ST7789_RST_Release();
 
 #ifndef CFG_NO_CS
 	g.GPIO_Pin = ST7789_CS_PIN;
@@ -194,9 +195,10 @@ void ST7789_Init(void)
 	ST7789_WriteCommand (ST7789_SLPOUT);	//	Out of sleep mode
   	ST7789_WriteCommand (ST7789_NORON);		//	Normal Display on
   	ST7789_WriteCommand (ST7789_DISPON);	//	Main screen turned on	
+	ST7789_UnSelect();
 
 	Delay_Ms(50);
-	ST7789_Fill_Color(BLACK);				//	Fill with Black.
+	ST7789_Fill_Color(WHITE);				//	Fill with Black.
 }
 
 /**

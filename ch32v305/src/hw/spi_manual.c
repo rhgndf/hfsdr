@@ -25,8 +25,8 @@ void spi_manual_init(void)
 
     GPIO_WriteBit(ST7789_CS_GPIO_PORT, ST7789_CS_GPIO_PIN, Bit_SET);
     GPIO_WriteBit(I2C_RS_GPIO_PORT, I2C_RS_GPIO_PIN, Bit_SET);
-    /* Active-high RST: low = panel running */
-    GPIO_WriteBit(ST7789_RST_GPIO_PORT, ST7789_RST_GPIO_PIN, Bit_RESET);
+    /* Active-low RST: high = panel running (released) */
+    GPIO_WriteBit(ST7789_RST_GPIO_PORT, ST7789_RST_GPIO_PIN, Bit_SET);
 
     spi_hw_init();
 }

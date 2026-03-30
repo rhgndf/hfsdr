@@ -207,9 +207,9 @@
 #define ST7789_COLOR_MODE_16bit 0x55    //  RGB565 (16bit)
 #define ST7789_COLOR_MODE_18bit 0x66    //  RGB666 (18bit)
 
-/* Basic operations — RST is active-high on this board (HIGH = in reset, LOW = run). */
-#define ST7789_RST_Assert()  GPIO_WriteBit(ST7789_RST_PORT, ST7789_RST_PIN, Bit_SET)
-#define ST7789_RST_Release() GPIO_WriteBit(ST7789_RST_PORT, ST7789_RST_PIN, Bit_RESET)
+/* Basic operations — RST active-low (LOW = in reset, HIGH = run / released). */
+#define ST7789_RST_Assert()  GPIO_WriteBit(ST7789_RST_PORT, ST7789_RST_PIN, Bit_RESET)
+#define ST7789_RST_Release() GPIO_WriteBit(ST7789_RST_PORT, ST7789_RST_PIN, Bit_SET)
 
 #define ST7789_DC_Clr() GPIO_WriteBit(ST7789_DC_PORT, ST7789_DC_PIN, Bit_RESET)
 #define ST7789_DC_Set() GPIO_WriteBit(ST7789_DC_PORT, ST7789_DC_PIN, Bit_SET)

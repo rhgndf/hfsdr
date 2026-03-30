@@ -30,12 +30,12 @@ void spi_gpio_pins_enable(void)
     g.GPIO_Pin = ST7789_RST_GPIO_PIN;
     GPIO_Init(ST7789_RST_GPIO_PORT, &g);
 
-    /* Idle-ish defaults: SCK/MOSI low, CS high (inactive), RS high, RST low (panel run — active-high reset). */
+    /* Idle-ish defaults: SCK/MOSI low, CS high (inactive), RS high, RST high (released — active-low reset). */
     GPIO_WriteBit(SPI3_SCL_SCK_GPIO_PORT, SPI3_SCL_SCK_GPIO_PIN, Bit_RESET);
     GPIO_WriteBit(SPI3_SDA_MOSI_GPIO_PORT, SPI3_SDA_MOSI_GPIO_PIN, Bit_RESET);
     GPIO_WriteBit(ST7789_CS_GPIO_PORT, ST7789_CS_GPIO_PIN, Bit_SET);
     GPIO_WriteBit(I2C_RS_GPIO_PORT, I2C_RS_GPIO_PIN, Bit_SET);
-    GPIO_WriteBit(ST7789_RST_GPIO_PORT, ST7789_RST_GPIO_PIN, Bit_RESET);
+    GPIO_WriteBit(ST7789_RST_GPIO_PORT, ST7789_RST_GPIO_PIN, Bit_SET);
 }
 
 void spi_gpio_pins_restore_hw_spi(void)

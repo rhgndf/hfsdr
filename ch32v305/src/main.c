@@ -21,8 +21,10 @@
 #include "hw/pinout.h"
 #include "hw/dac_hw.h"
 #include "hw/spi_manual.h"
-#include "test/dac_hw_sine_test.h"
+#include "hw/st7789/st7789.h"
+/* #include "test/spi_gpio_pins.h" */
 /* #include "test/display_spi_test.h" */
+#include "test/dac_hw_sine_test.h"
 #include "hw/i2c_hw.h"
 #include "hw/i2s_hw.h"
 #include "hw/usb_hw.h"
@@ -198,17 +200,20 @@ int main(void)
     printf("GPIO Toggle TEST\r\n");
     GPIO_Toggle_INIT();
 
-    
+
     /*printf("SPI lines: GPIO mode, all outputs high (SCK MOSI CS RS RST)\r\n");
     spi_gpio_pins_enable();
     spi_gpio_pins_all_on();*/
     
-    printf("SPI: sample 0xFF (one CS-framed byte, command/RS low)\r\n");
-    spi_manual_init();
-    spi_manual_cs_begin();
-    spi_manual_rs_cmd();
-    (void)spi_manual_transfer_u8(0xFFU);
-    spi_manual_cs_end();
+    // printf("SPI: sample 0xFF (one CS-framed byte, command/RS low)\r\n");
+    // spi_manual_init();
+    // spi_manual_cs_begin();
+    // spi_manual_rs_cmd();
+    // (void)spi_manual_transfer_u8(0xFFU);
+    // spi_manual_cs_end();
+    printf("ST7789 init + built-in screen test\r\n");
+    ST7789_Init();
+    //ST7789_Test();
 
     i2c_hw_init();
     i2s_hw_init();
