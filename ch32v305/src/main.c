@@ -49,11 +49,22 @@ void GPIO_Toggle_INIT(void)
     GPIO_InitStructure.GPIO_Pin = BOOT_GPIO_PIN;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPD;
     GPIO_Init(BOOT_GPIO_PORT, &GPIO_InitStructure);
+
+    GPIO_InitStructure.GPIO_Pin = LED1_GPIO_PIN | LED2_GPIO_PIN;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(LED1_GPIO_PORT, &GPIO_InitStructure);
+    GPIO_WriteBit(LED1_GPIO_PORT, LED1_GPIO_PIN, Bit_RESET);
+    GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, Bit_RESET);
 }
 
 static uint64_t led_blink_period_ticks = 0;
 static uint64_t led_last_toggle_tick = 0;
 static BitAction led_state = Bit_RESET;
+
+static uint64_t led12_blink_period_ticks = 0;
+static uint64_t led12_last_toggle_tick = 0;
+static BitAction led12_state = Bit_RESET;
 
 static void SysTick_FreeRun_Init(void)
 {
@@ -81,6 +92,16 @@ static void LED_Blink_Init(uint32_t period_ms)
     led_last_toggle_tick = SysTick->CNT;
     led_state = Bit_RESET;
     GPIO_WriteBit(LED_GPIO_PORT, LED_GPIO_PIN, led_state);
+
+    led12_blink_period_ticks = ((uint64_t)SystemCoreClock * (uint64_t)period_ms) / 1000ULL;
+    if(led12_blink_period_ticks == 0U)
+    {
+        led12_blink_period_ticks = 1U;
+    }
+    led12_last_toggle_tick = SysTick->CNT;
+    led12_state = Bit_RESET;
+    GPIO_WriteBit(LED1_GPIO_PORT, LED1_GPIO_PIN, led12_state);
+    GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, led12_state);
 }
 
 static void LED_Blink_Task(void)
@@ -92,6 +113,14 @@ static void LED_Blink_Task(void)
         led_last_toggle_tick = now_tick;
         led_state = (led_state == Bit_RESET) ? Bit_SET : Bit_RESET;
         GPIO_WriteBit(LED_GPIO_PORT, LED_GPIO_PIN, led_state);
+    }
+
+    if((now_tick - led12_last_toggle_tick) >= led12_blink_period_ticks)
+    {
+        led12_last_toggle_tick = now_tick;
+        led12_state = (led12_state == Bit_RESET) ? Bit_SET : Bit_RESET;
+        GPIO_WriteBit(LED1_GPIO_PORT, LED1_GPIO_PIN, led12_state);
+        GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, led12_state);
     }
 }
 
