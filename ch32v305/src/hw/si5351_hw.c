@@ -472,6 +472,19 @@ ErrorStatus si5351_hw_clk1_set_freq_hz(uint64_t hz)
     return READY;
 }
 
+ErrorStatus si5351_hw_fm_lo_both_hz(uint64_t hz_hz)
+{
+    if(si5351_hw_clk0_set_freq_hz(hz_hz) != READY)
+    {
+        return NoREADY;
+    }
+    if(si5351_hw_clk1_set_freq_hz(hz_hz) != READY)
+    {
+        return NoREADY;
+    }
+    return READY;
+}
+
 ErrorStatus si5351_hw_clk0_set_94mhz(void)
 {
     return si5351_hw_clk0_set_freq_hz(94000000ULL);

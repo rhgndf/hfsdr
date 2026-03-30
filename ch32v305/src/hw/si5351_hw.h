@@ -26,6 +26,8 @@
 
 ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz_hz);
 ErrorStatus si5351_hw_clk1_set_freq_hz(uint64_t hz_hz);
+/* Program CLK0 and CLK1 to the same LO (e.g. Taylor detector / demux S0 & S1). */
+ErrorStatus si5351_hw_fm_lo_both_hz(uint64_t hz_hz);
 ErrorStatus si5351_hw_clk0_set_94mhz(void);
 
 #endif

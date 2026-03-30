@@ -209,46 +209,6 @@ static void Scan_I2CBus_EverySecond(void)
     last_scan_tick = now_tick;
 }
 
-/* SPI2 I2S master RX: drain incoming ADC samples; keep last 16-bit word for debug print. */
-#define I2S_ADC_DRAIN_MAX 64U
-
-static uint16_t i2s_adc_last_sample = 0U;
-
-static void I2S_ADC_Poll(void)
-{
-    uint16_t buf[I2S_ADC_DRAIN_MAX];
-    size_t n;
-
-    n = i2s_hw_receive_drain_try(buf, I2S_ADC_DRAIN_MAX);
-    if(n > 0U)
-    {
-        i2s_adc_last_sample = buf[n - 1U];
-    }
-}
-
-static void I2S_ADC_Report_EverySecond(void)
-{
-    static uint64_t last_tick = 0;
-    static uint8_t initialized = 0;
-    uint64_t now_tick = SysTick->CNT;
-
-    if(initialized == 0U)
-    {
-        last_tick = now_tick;
-        initialized = 1U;
-        return;
-    }
-
-    if((now_tick - last_tick) < (uint64_t)SystemCoreClock)
-    {
-        return;
-    }
-
-    printf("I2S ADC last=0x%04X (16-bit RX, see i2s_hw_init)\r\n", (unsigned int)i2s_adc_last_sample);
-    last_tick = now_tick;
-}
-
-
 /*********************************************************************
  * @fn      main
  *
@@ -296,29 +256,21 @@ int main(void)
         printf("TLV320ADC6120: I2C init failed (check wiring / AVDD AREG define)\r\n");
     }
 
-    if(si5351_hw_clk0_set_freq_hz(94000ULL) == READY)
+    if(si5351_hw_fm_lo_both_hz(94000ULL) == READY)
     {
-        printf("Si5351: CLK0 = 94 MHz (VCO 846 MHz, 24 MHz XO)\r\n");
+        printf("Si5351: FM LO CLK0+CLK1 = 94000 Hz (Taylor / demux)\r\n");
     }
     else
     {
-        printf("Si5351: program failed (I2C addr 0x60, 24 MHz crystal)\r\n");
-    }
-    if(si5351_hw_clk1_set_freq_hz(94000ULL) == READY)
-    {
-        printf("Si5351: CLK0 = 94 MHz (VCO 846 MHz, 24 MHz XO)\r\n");
-    }
-    else
-    {
-        printf("Si5351: program failed (I2C addr 0x60, 24 MHz crystal)\r\n");
+        printf("Si5351: LO program failed (I2C 0x60)\r\n");
     }
 
     i2s_hw_init();
     i2s_hw_enable(ENABLE);
 
     dac_hw_init();
-    printf("DAC1/DAC2 sine 440 Hz @ 16 kHz sample on PA4 & PA5\r\n");
-    dac_hw_sine_test_start(440U, 16000U);
+    dac_hw_static_noise_start(48000U);
+    printf("DAC: static noise PA4+PA5 @ 48 ksps (TIM7 xorshift)\r\n");
 
     SysTick_FreeRun_Init();
     usb_hw_init();
@@ -328,11 +280,9 @@ int main(void)
 
     while(1)
     {
-        I2S_ADC_Poll();
         usb_hw_task();
-        Scan_I2CBus_EverySecond();
-        SysTick_Report_USB_EverySecond();
-        I2S_ADC_Report_EverySecond();
+        //Scan_I2CBus_EverySecond();
+        //SysTick_Report_USB_EverySecond();
         LED_Blink_Task();
     }
 }

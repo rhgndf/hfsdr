@@ -73,6 +73,15 @@ void dac_hw_set_channel2_12(uint16_t value)
     DAC_SetChannel2Data(DAC_Align_12b_R, value);
 }
 
+void dac_hw_set_both_12(uint16_t value)
+{
+    if(value > 4095U)
+    {
+        value = 4095U;
+    }
+    DAC_SetDualChannelData(DAC_Align_12b_R, value, value);
+}
+
 void dac_hw_square_wave_stop(void)
 {
     TIM_Cmd(TIM6, DISABLE);

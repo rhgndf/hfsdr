@@ -27,8 +27,16 @@ static const uint16_t sine_lut[256] = {
     1321, 1364, 1408, 1452, 1496, 1541, 1586, 1632, 1677, 1723, 1769, 1815, 1862, 1908, 1955, 2001,
 };
 
+#define TIM7_MODE_IDLE  0U
+#define TIM7_MODE_SINE  1U
+#define TIM7_MODE_NOISE 2U
+
+static uint8_t tim7_mode = TIM7_MODE_IDLE;
+
 static uint32_t phase_acc;
 static uint32_t phase_inc;
+
+static uint32_t rng32;
 
 static uint32_t tim7_counter_clock_hz(void)
 {
@@ -45,13 +53,19 @@ static uint32_t tim7_counter_clock_hz(void)
 
 void dac_hw_sine_test_stop(void)
 {
+    tim7_mode = TIM7_MODE_IDLE;
     TIM_Cmd(TIM7, DISABLE);
     TIM_ITConfig(TIM7, TIM_IT_Update, DISABLE);
     NVIC_DisableIRQ(TIM7_IRQn);
     DAC_SetDualChannelData(DAC_Align_12b_R, 2048U, 2048U);
 }
 
-void dac_hw_sine_test_start(uint32_t sine_freq_hz, uint32_t sample_rate_hz)
+void dac_hw_static_noise_stop(void)
+{
+    dac_hw_sine_test_stop();
+}
+
+static void tim7_configure_sample_rate(uint32_t sample_rate_hz)
 {
     TIM_TimeBaseInitTypeDef t = {0};
     NVIC_InitTypeDef nvic = {0};
@@ -59,18 +73,6 @@ void dac_hw_sine_test_start(uint32_t sine_freq_hz, uint32_t sample_rate_hz)
     uint32_t ticks;
     uint32_t psc;
     uint32_t arr;
-
-    if(sample_rate_hz == 0U || sine_freq_hz == 0U)
-    {
-        dac_hw_sine_test_stop();
-        return;
-    }
-
-    dac_hw_square_wave_stop();
-    dac_hw_sine_test_stop();
-
-    phase_acc = 0U;
-    phase_inc = (uint32_t)(((uint64_t)sine_freq_hz << 32) / (uint64_t)sample_rate_hz);
 
     timclk = tim7_counter_clock_hz();
     ticks = timclk / sample_rate_hz;
@@ -111,17 +113,74 @@ void dac_hw_sine_test_start(uint32_t sine_freq_hz, uint32_t sample_rate_hz)
     TIM_Cmd(TIM7, ENABLE);
 }
 
+void dac_hw_static_noise_start(uint32_t sample_rate_hz)
+{
+    uint32_t x;
+
+    if(sample_rate_hz == 0U)
+    {
+        dac_hw_static_noise_stop();
+        return;
+    }
+
+    dac_hw_square_wave_stop();
+    dac_hw_sine_test_stop();
+
+    rng32 = 0xA341316CU;
+    tim7_mode = TIM7_MODE_NOISE;
+    tim7_configure_sample_rate(sample_rate_hz);
+
+    /* Prime RNG so first ISR is not trivial. */
+    x = rng32;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    rng32 = x;
+}
+
+void dac_hw_sine_test_start(uint32_t sine_freq_hz, uint32_t sample_rate_hz)
+{
+    if(sample_rate_hz == 0U || sine_freq_hz == 0U)
+    {
+        dac_hw_sine_test_stop();
+        return;
+    }
+
+    dac_hw_square_wave_stop();
+    dac_hw_sine_test_stop();
+
+    phase_acc = 0U;
+    phase_inc = (uint32_t)(((uint64_t)sine_freq_hz << 32) / (uint64_t)sample_rate_hz);
+
+    tim7_mode = TIM7_MODE_SINE;
+    tim7_configure_sample_rate(sample_rate_hz);
+}
+
 __attribute__((interrupt)) void TIM7_IRQHandler(void)
 {
     uint32_t idx;
     uint16_t s;
+    uint32_t x;
 
     if(TIM_GetITStatus(TIM7, TIM_IT_Update) != RESET)
     {
         TIM_ClearITPendingBit(TIM7, TIM_IT_Update);
-        phase_acc += phase_inc;
-        idx = phase_acc >> 24;
-        s = sine_lut[idx];
-        DAC_SetDualChannelData(DAC_Align_12b_R, s, s);
+        if(tim7_mode == TIM7_MODE_NOISE)
+        {
+            x = rng32;
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            rng32 = x;
+            s = (uint16_t)((x >> 20) & 0x0FFFU);
+            DAC_SetDualChannelData(DAC_Align_12b_R, s, s);
+        }
+        else if(tim7_mode == TIM7_MODE_SINE)
+        {
+            phase_acc += phase_inc;
+            idx = phase_acc >> 24;
+            s = sine_lut[idx];
+            DAC_SetDualChannelData(DAC_Align_12b_R, s, s);
+        }
     }
 }

@@ -10,6 +10,8 @@ void dac_hw_init(void);
 /* 12-bit codes (0..4095) written to DAC DHR; Vout ≈ Vref * code / 4096 */
 void dac_hw_set_channel1_12(uint16_t value);
 void dac_hw_set_channel2_12(uint16_t value);
+/* Same code on DAC1 (PA4) and DAC2 (PA5). */
+void dac_hw_set_both_12(uint16_t value);
 
 /*
  * Square wave on DAC1 (PA4) and DAC2 (PA5), same waveform: TIM6 toggles both between
