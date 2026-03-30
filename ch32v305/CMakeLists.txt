@@ -27,6 +27,7 @@ file(GLOB SRC_FILES CONFIGURE_DEPENDS
 
 file(GLOB_RECURSE SRC_FILES_RECURSE CONFIGURE_DEPENDS
   src/*.c
+  src/test/*.c
   src/*.cpp
   lib/tinyusb/src/*.c
 )

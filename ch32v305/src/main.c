@@ -20,11 +20,13 @@
 #include "debug.h"
 #include "hw/pinout.h"
 #include "hw/dac_hw.h"
-#include "hw/dac_hw_sine_test.h"
+/* #include "hw/spi_manual.h" */
+#include "test/dac_hw_sine_test.h"
+/* #include "test/display_spi_test.h" */
+#include "test/spi_gpio_pins.h"
 #include "hw/i2c_hw.h"
 #include "hw/i2s_hw.h"
 #include "hw/usb_hw.h"
-#include "hw/st7789/st7789.h"
 
 /*********************************************************************
  * @fn      GPIO_Toggle_INIT
@@ -197,9 +199,12 @@ int main(void)
     printf("GPIO Toggle TEST\r\n");
     GPIO_Toggle_INIT();
 
-    printf("ST7789 library test\r\n");
-    ST7789_Init();
-    ST7789_Test();
+    /* printf("SPI manual (CS/RS + SPI1); compose cmd/data in code\r\n"); */
+    /* spi_manual_init(); */
+
+    printf("SPI lines: GPIO mode, all outputs high (SCK MOSI CS RS RST)\r\n");
+    spi_gpio_pins_enable();
+    spi_gpio_pins_all_on();
 
     i2c_hw_init();
     i2s_hw_init();
@@ -213,8 +218,11 @@ int main(void)
     usb_hw_init();
     LED_Blink_Init(1000U);
 
+    /* display_spi_test_run(); */
+
     while(1)
     {
+        
         (void)i2s_hw_try_receive_u16(&i2s_sample);
         usb_hw_task();
         Scan_I2CBus_EverySecond();

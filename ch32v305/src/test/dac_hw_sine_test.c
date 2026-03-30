@@ -1,4 +1,4 @@
-#include "dac_hw_sine_test.h"
+#include "test/dac_hw_sine_test.h"
 
 #include "hw/dac_hw.h"
 
