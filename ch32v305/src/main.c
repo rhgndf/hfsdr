@@ -295,7 +295,7 @@ static ErrorStatus PC7_PWM_4p05MHz_Init(void)
  * TLV320ADC6120 I2S capture (CH1/CH2)
  *
  * In I2S stereo mode, words arrive as L then R per frame.
- * We treat L=CH1 and R=CH2 and keep the most recent pair.
+ * We treat L=CH1 and R=CH2. Every drained stereo pair is printed.
  *********************************************************************/
 #define I2S_STEREO_DRAIN_MAX 256U
 
@@ -311,10 +311,7 @@ static void TLV320_I2S_Poll(void)
         int16_t ch1 = (int16_t)buf[i];
         int16_t ch2 = (int16_t)buf[i + 1U];
 
-        if((ch1 != 0) || (ch2 != 0))
-        {
-            printf("ADC I2S CH1=%d CH2=%d\r\n", (int)ch1, (int)ch2);
-        }
+        printf("ADC I2S CH1=%d CH2=%d\r\n", (int)ch1, (int)ch2);
     }
 }
 
