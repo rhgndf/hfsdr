@@ -3,6 +3,66 @@
 #include "debug.h"
 #include "pinout.h"
 
+#include "ch32v30x_dma.h"
+#include "ch32v30x_rcc.h"
+#include "ch32v30x_spi.h"
+
+/*
+ * SPI2 I2S master RX: DMA1 channel 4, peripheral -> memory, circular.
+ * (WCH EVT: SPI1 RX=Ch2 / TX=Ch3; I2S example SPI2 TX=DMA1 Ch5 — SPI2 RX is Ch4.)
+ */
+#define I2S_DMA_BUF_LEN 512U
+
+static uint16_t s_dma_buf[I2S_DMA_BUF_LEN];
+static volatile uint32_t s_rx_rd = 0U;
+
+#define I2S_RX_DMA_CH DMA1_Channel4
+
+static uint32_t i2s_dma_rx_write_idx(void)
+{
+    uint16_t left = DMA_GetCurrDataCounter(I2S_RX_DMA_CH);
+
+    return (uint32_t)((I2S_DMA_BUF_LEN - (uint32_t)left) % I2S_DMA_BUF_LEN);
+}
+
+static void i2s_dma_rx_start(void)
+{
+    DMA_InitTypeDef dma = {0};
+
+    RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE);
+
+    DMA_DeInit(I2S_RX_DMA_CH);
+
+    s_rx_rd = 0U;
+
+    dma.DMA_PeripheralBaseAddr = (uint32_t)&SPI2->DATAR;
+    dma.DMA_MemoryBaseAddr = (uint32_t)s_dma_buf;
+    dma.DMA_DIR = DMA_DIR_PeripheralSRC;
+    dma.DMA_BufferSize = (uint32_t)I2S_DMA_BUF_LEN;
+    dma.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
+    dma.DMA_MemoryInc = DMA_MemoryInc_Enable;
+    dma.DMA_PeripheralDataSize = DMA_PeripheralDataSize_HalfWord;
+    dma.DMA_MemoryDataSize = DMA_MemoryDataSize_HalfWord;
+    dma.DMA_Mode = DMA_Mode_Circular;
+    dma.DMA_Priority = DMA_Priority_High;
+    dma.DMA_M2M = DMA_M2M_Disable;
+
+    DMA_Init(I2S_RX_DMA_CH, &dma);
+
+    SPI_I2S_DMACmd(SPI2, SPI_I2S_DMAReq_Rx, ENABLE);
+
+    I2S_Cmd(SPI2, ENABLE);
+
+    DMA_Cmd(I2S_RX_DMA_CH, ENABLE);
+}
+
+static void i2s_dma_rx_stop(void)
+{
+    DMA_Cmd(I2S_RX_DMA_CH, DISABLE);
+    SPI_I2S_DMACmd(SPI2, SPI_I2S_DMAReq_Rx, DISABLE);
+    DMA_DeInit(I2S_RX_DMA_CH);
+}
+
 void i2s_hw_init(void)
 {
     GPIO_InitTypeDef gpio_init = {0};
@@ -39,7 +99,14 @@ void i2s_hw_init(void)
 
 void i2s_hw_enable(FunctionalState state)
 {
-    I2S_Cmd(SPI2, state);
+    if(state == DISABLE)
+    {
+        i2s_dma_rx_stop();
+        I2S_Cmd(SPI2, DISABLE);
+        return;
+    }
+
+    i2s_dma_rx_start();
 }
 
 void i2s_hw_send_u16(uint16_t sample)
@@ -52,25 +119,36 @@ void i2s_hw_send_u16(uint16_t sample)
 
 uint16_t i2s_hw_receive_u16(void)
 {
-    while(SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_RXNE) == RESET)
+    uint16_t w;
+
+    while(i2s_hw_try_receive_u16(&w) != READY)
     {
     }
-    return SPI_I2S_ReceiveData(SPI2);
+
+    return w;
 }
 
 ErrorStatus i2s_hw_try_receive_u16(uint16_t *sample)
 {
+    uint32_t wr;
+    uint32_t rd;
+
     if(sample == 0)
     {
         return NoREADY;
     }
 
-    if(SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_RXNE) == RESET)
+    wr = i2s_dma_rx_write_idx();
+    rd = s_rx_rd;
+
+    if(wr == rd)
     {
         return NoREADY;
     }
 
-    *sample = SPI_I2S_ReceiveData(SPI2);
+    *sample = s_dma_buf[rd];
+    s_rx_rd = (rd + 1U) % I2S_DMA_BUF_LEN;
+
     return READY;
 }
 

@@ -5,7 +5,7 @@
  * Texas Instruments TLV320ADC6120 — I2C audio ADC (see SBASA92A).
  * - Fixed 7-bit I2C address 0b1001110 (0x4E).
  * - tlv320adc6120_hw_init() targets ASI slave + I2S + 16-bit to match CH32 SPI2 I2S
- *   master (Philips, 48 kHz) in i2s_hw.c.
+ *   master (Philips, 48 kHz) in i2s_hw.c; PWR_CFG enables MICBIAS for electret mics.
  *
  * AVDD / AREG: set TLV320ADC6120_USE_INTERNAL_AREG before including this header
  * (or in the build) if you use 3.3 V AVDD with the on-chip 1.8 V AREG regulator.

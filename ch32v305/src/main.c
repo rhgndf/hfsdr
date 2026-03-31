@@ -313,7 +313,7 @@ static void TLV320_I2S_Poll(void)
 
         if((ch1 != 0) || (ch2 != 0))
         {
-            printf("ADC CH1=%d CH2=%d\r\n", (int)ch1, (int)ch2);
+            printf("ADC I2S CH1=%d CH2=%d\r\n", (int)ch1, (int)ch2);
         }
     }
 }
