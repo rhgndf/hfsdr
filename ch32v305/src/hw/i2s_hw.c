@@ -91,7 +91,7 @@ void i2s_hw_init(void)
     i2s_init.I2S_Standard = I2S_Standard_Phillips;
     i2s_init.I2S_DataFormat = I2S_DataFormat_16b;
     i2s_init.I2S_MCLKOutput = I2S_MCLKOutput_Enable;
-    i2s_init.I2S_AudioFreq = I2S_AudioFreq_48k;
+    i2s_init.I2S_AudioFreq = I2S_AudioFreq_96k;
     i2s_init.I2S_CPOL = I2S_CPOL_Low;
 
     I2S_Init(SPI2, &i2s_init);

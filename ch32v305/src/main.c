@@ -236,7 +236,7 @@ static void Scan_I2CBus_EverySecond(void)
     last_scan_tick = now_tick;
 }
 
-static ErrorStatus PC7_PWM_4p05MHz_Init(void)
+static ErrorStatus PC7_PWM_4p01MHz_Init(void)
 {
     GPIO_InitTypeDef gpio = {0};
     TIM_TimeBaseInitTypeDef tim = {0};
@@ -256,7 +256,7 @@ static ErrorStatus PC7_PWM_4p05MHz_Init(void)
         tim_clk_hz = clocks.PCLK2_Frequency * 2U;
     }
 
-    period_ticks = tim_clk_hz / 4050000U;
+    period_ticks = tim_clk_hz / 4010000U;
     if(period_ticks < 2U)
     {
         return NoREADY;
@@ -334,9 +334,9 @@ int main(void)
 
     printf("GPIO Toggle TEST\r\n");
     GPIO_Toggle_INIT();
-    if(PC7_PWM_4p05MHz_Init() == READY)
+    if(PC7_PWM_4p01MHz_Init() == READY)
     {
-        printf("PC7: TIM8_CH2 PWM = 4.05 MHz (50%%)\r\n");
+        printf("PC7: TIM8_CH2 PWM = 4.01 MHz (50%%)\r\n");
     }
     else
     {
@@ -371,14 +371,14 @@ int main(void)
         printf("TLV320ADC6120: I2C init failed (check wiring / AVDD AREG define)\r\n");
     }
 
-    // if(si5351_hw_clk0_set_freq_hz(4000000ULL) == READY)
-    // {
-    //     printf("Si5351: LO CLK0/CLK1 = 12000000 Hz, CLK1 = +90 deg\r\n");
-    // }
-    // else
-    // {
-    //     printf("Si5351: LO program failed (I2C 0x60)\r\n");
-    // }
+    if(si5351_hw_clk0_set_freq_hz(4000000ULL) == READY)
+    {
+        printf("Si5351: LO CLK0/CLK1 = 12000000 Hz, CLK1 = +90 deg\r\n");
+    }
+    else
+    {
+        printf("Si5351: LO program failed (I2C 0x60)\r\n");
+    }
 
     i2s_hw_init();
     i2s_hw_enable(ENABLE);
@@ -397,7 +397,7 @@ int main(void)
     {
         TLV320_I2S_Poll();
         usb_hw_task();
-        Scan_I2CBus_EverySecond();
+        //Scan_I2CBus_EverySecond();
         //SysTick_Report_USB_EverySecond();
         LED_Blink_Task();
     }

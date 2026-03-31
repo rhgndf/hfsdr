@@ -6,7 +6,7 @@
 #include "debug.h"
 
 /*
- * SPI2 in I2S master RX: 16-bit Philips, 48 kHz (see i2s_hw_init).
+ * SPI2 in I2S master RX: 16-bit Philips, 96 kHz (see i2s_hw_init).
  * SD (PB15) receives serial data from an external I2S ADC / codec.
  * RX uses DMA1 channel 4 circular buffer; i2s_hw_try_receive_* reads from that buffer.
  */
