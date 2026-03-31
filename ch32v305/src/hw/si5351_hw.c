@@ -11,8 +11,8 @@
 
 /* Si5351 / Etherkit limits (Hz at output, before R-div scaling in algorithm). */
 #define SI5351_CLKOUT_MAX_HZ   225000000ULL
-#define SI5351_PLL_VCO_MIN_HZ  600000000ULL
-#define SI5351_PLL_TARGET_HZ   750000000ULL
+#define SI5351_PLL_VCO_MIN_HZ  400000000ULL
+#define SI5351_PLL_TARGET_HZ   400000000ULL
 #define SI5351_PLL_VCO_MAX_HZ  900000000ULL
 #define SI5351_PLL_DENOM_MAX   1048575U
 #define SI5351_MULTISYNTH_A_MIN 6U
@@ -24,8 +24,12 @@
 #define SI5351_REG_DEVICE_STATUS   0U
 #define SI5351_REG_OUTPUT_ENABLE   3U
 #define SI5351_REG_CLK0_CTRL       16U
+#define SI5351_REG_CLK1_CTRL       17U
 #define SI5351_REG_PLL_A_PARAMS    26U
 #define SI5351_REG_MS0_PARAMS      42U
+#define SI5351_REG_MS1_PARAMS      50U
+#define SI5351_REG_CLK0_PHASE      165U
+#define SI5351_REG_CLK1_PHASE      166U
 #define SI5351_REG_PLL_RESET       177U
 #define SI5351_REG_CRYSTAL_LOAD    183U
 
@@ -63,8 +67,10 @@ struct si5351_output_config
 {
     uint32_t div;
     uint8_t r_div;
+    uint8_t r_div_factor;
     uint8_t div_by_4;
     uint8_t allow_integer_mode;
+    uint8_t phase_offset;
     struct si5351_ms ms;
 };
 
@@ -89,6 +95,16 @@ static void si5351_pack_output_ms(const struct si5351_output_config *out_conf, u
     {
         buf[2] |= (uint8_t)SI5351_MS_DIVBY4_MASK;
     }
+}
+
+static ErrorStatus si5351_validate_phase_offset(uint32_t phase_offset)
+{
+    if(phase_offset > 127U)
+    {
+        return NoREADY;
+    }
+
+    return READY;
 }
 
 static struct si5351_ms si5351_calc_pll_ms(const struct si5351_pll_config *pll_conf)
@@ -251,13 +267,31 @@ static ErrorStatus si5351_pick_output_divider(uint64_t output_clock_scaled, uint
 
 static uint8_t si5351_select_r_div(uint64_t *freq_scaled)
 {
-    if(*freq_scaled < (1000000ULL * SI5351_FREQ_MULT))
-    {
-        *freq_scaled *= 64ULL;
-        return SI5351_R_DIV_64;
-    }
-
+    (void)freq_scaled;
     return SI5351_R_DIV_1;
+}
+
+static uint8_t si5351_r_div_factor(uint8_t r_div)
+{
+    switch(r_div)
+    {
+    case SI5351_R_DIV_2:
+        return 2U;
+    case SI5351_R_DIV_4:
+        return 4U;
+    case SI5351_R_DIV_8:
+        return 8U;
+    case SI5351_R_DIV_16:
+        return 16U;
+    case SI5351_R_DIV_32:
+        return 32U;
+    case SI5351_R_DIV_64:
+        return 64U;
+    case SI5351_R_DIV_128:
+        return 128U;
+    default:
+        return 1U;
+    }
 }
 
 static ErrorStatus si5351_calculate_clk0_config(uint64_t freq_scaled, struct si5351_pll_config *pll_conf,
@@ -271,7 +305,9 @@ static ErrorStatus si5351_calculate_clk0_config(uint64_t freq_scaled, struct si5
     uint32_t base_den;
 
     out_conf->r_div = si5351_select_r_div(&output_clock_scaled);
+    out_conf->r_div_factor = si5351_r_div_factor(out_conf->r_div);
     out_conf->allow_integer_mode = 1U;
+    out_conf->phase_offset = 0U;
 
     si5351_approximate_fraction(output_clock_scaled, xtal_scaled, SI5351_PLL_DENOM_MAX, &base_num, &base_den);
     if(base_den == 0U)
@@ -333,11 +369,11 @@ static ErrorStatus si5351_wait_sys_init(void)
     } while(1);
 }
 
-static ErrorStatus si5351_hw_apply_clk0(const struct si5351_output_config *out_conf)
+static ErrorStatus si5351_hw_apply_clk(uint8_t ctrl_reg, const struct si5351_output_config *out_conf)
 {
     uint8_t reg;
 
-    if(i2c_hw_read_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_CLK0_CTRL, &reg) != READY)
+    if(i2c_hw_read_register(SI5351_I2C_ADDR_7BIT, ctrl_reg, &reg) != READY)
     {
         return NoREADY;
     }
@@ -354,7 +390,7 @@ static ErrorStatus si5351_hw_apply_clk0(const struct si5351_output_config *out_c
         reg |= (uint8_t)SI5351_CLK_INTEGER_MODE;
     }
 
-    if(i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_CLK0_CTRL, reg) != READY)
+    if(i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, ctrl_reg, reg) != READY)
     {
         return NoREADY;
     }
@@ -362,7 +398,7 @@ static ErrorStatus si5351_hw_apply_clk0(const struct si5351_output_config *out_c
     return READY;
 }
 
-static ErrorStatus si5351_enable_clk0_output(void)
+static ErrorStatus si5351_enable_clk_output(uint8_t clk_index)
 {
     uint8_t oe;
 
@@ -370,17 +406,20 @@ static ErrorStatus si5351_enable_clk0_output(void)
     {
         return NoREADY;
     }
-    oe &= (uint8_t) ~(1U << 0);
+    oe &= (uint8_t) ~(1U << clk_index);
     return i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_OUTPUT_ENABLE, oe);
 }
 
-ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz)
+static ErrorStatus si5351_hw_clk0_quadrature_set_freq_hz(uint64_t hz)
 {
     uint8_t pll_buf[8];
     uint8_t ms0_buf[8];
+    uint8_t ms1_buf[8];
     uint64_t freq_scaled;
     struct si5351_pll_config pll_conf;
-    struct si5351_output_config out_conf;
+    struct si5351_output_config clk0_conf;
+    struct si5351_output_config clk1_conf;
+    uint32_t phase_offset;
 
     if(hz == 0ULL)
     {
@@ -392,7 +431,6 @@ ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz)
         return NoREADY;
     }
 
-    /* Practical minimum for CLK0 output path (Etherkit / datasheet regime). */
     if(hz < SI5351_MIN_OUTPUT_HZ)
     {
         return NoREADY;
@@ -417,12 +455,27 @@ ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz)
     {
         return NoREADY;
     }
-
-    freq_scaled = hz * SI5351_FREQ_MULT;
-    if(si5351_calculate_clk0_config(freq_scaled, &pll_conf, &out_conf) != READY)
+    if(i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_CLK1_CTRL, 0x80U) != READY)
     {
         return NoREADY;
     }
+
+    freq_scaled = hz * SI5351_FREQ_MULT;
+    if(si5351_calculate_clk0_config(freq_scaled, &pll_conf, &clk0_conf) != READY)
+    {
+        return NoREADY;
+    }
+
+    phase_offset = (uint32_t)clk0_conf.div * (uint32_t)clk0_conf.r_div_factor;
+    if((clk0_conf.div <= 8U) || (si5351_validate_phase_offset(phase_offset) != READY))
+    {
+        return NoREADY;
+    }
+
+    clk1_conf = clk0_conf;
+    clk0_conf.allow_integer_mode = 0U;
+    clk1_conf.allow_integer_mode = 0U;
+    clk1_conf.phase_offset = (uint8_t)phase_offset;
 
     si5351_pack_ms(pll_conf.ms, pll_buf);
     if(i2c_hw_write_register_burst(SI5351_I2C_ADDR_7BIT, SI5351_REG_PLL_A_PARAMS, pll_buf, sizeof(pll_buf)) != READY)
@@ -430,13 +483,32 @@ ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz)
         return NoREADY;
     }
 
-    si5351_pack_output_ms(&out_conf, ms0_buf);
+    si5351_pack_output_ms(&clk0_conf, ms0_buf);
     if(i2c_hw_write_register_burst(SI5351_I2C_ADDR_7BIT, SI5351_REG_MS0_PARAMS, ms0_buf, sizeof(ms0_buf)) != READY)
     {
         return NoREADY;
     }
 
-    if(si5351_hw_apply_clk0(&out_conf) != READY)
+    si5351_pack_output_ms(&clk1_conf, ms1_buf);
+    if(i2c_hw_write_register_burst(SI5351_I2C_ADDR_7BIT, SI5351_REG_MS1_PARAMS, ms1_buf, sizeof(ms1_buf)) != READY)
+    {
+        return NoREADY;
+    }
+
+    if(i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_CLK0_PHASE, clk0_conf.phase_offset) != READY)
+    {
+        return NoREADY;
+    }
+    if(i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_CLK1_PHASE, clk1_conf.phase_offset) != READY)
+    {
+        return NoREADY;
+    }
+
+    if(si5351_hw_apply_clk(SI5351_REG_CLK0_CTRL, &clk0_conf) != READY)
+    {
+        return NoREADY;
+    }
+    if(si5351_hw_apply_clk(SI5351_REG_CLK1_CTRL, &clk1_conf) != READY)
     {
         return NoREADY;
     }
@@ -447,12 +519,21 @@ ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz)
     }
     Delay_Ms(2U);
 
-    if(si5351_enable_clk0_output() != READY)
+    if(si5351_enable_clk_output(0U) != READY)
+    {
+        return NoREADY;
+    }
+    if(si5351_enable_clk_output(1U) != READY)
     {
         return NoREADY;
     }
 
     return READY;
+}
+
+ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz)
+{
+    return si5351_hw_clk0_quadrature_set_freq_hz(hz);
 }
 
 ErrorStatus si5351_hw_clk0_set_94mhz(void)

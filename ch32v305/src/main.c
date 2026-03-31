@@ -341,7 +341,7 @@ int main(void)
 
     if(si5351_hw_clk0_set_freq_hz(12000000ULL) == READY)
     {
-        printf("Si5351: LO CLK0 = 12000000 Hz\r\n");
+        printf("Si5351: LO CLK0/CLK1 = 12000000 Hz, CLK1 = +90 deg\r\n");
     }
     else
     {
