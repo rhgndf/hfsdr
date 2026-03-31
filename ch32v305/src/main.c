@@ -236,6 +236,61 @@ static void Scan_I2CBus_EverySecond(void)
     last_scan_tick = now_tick;
 }
 
+static ErrorStatus PC7_PWM_4p05MHz_Init(void)
+{
+    GPIO_InitTypeDef gpio = {0};
+    TIM_TimeBaseInitTypeDef tim = {0};
+    TIM_OCInitTypeDef oc = {0};
+    RCC_ClocksTypeDef clocks = {0};
+    uint32_t tim_clk_hz;
+    uint32_t period_ticks;
+
+    RCC_GetClocksFreq(&clocks);
+    /* TIM8 is on APB2; timer clock doubles when APB2 prescaler != 1. */
+    if((RCC->CFGR0 & RCC_PPRE2) == RCC_PPRE2_DIV1)
+    {
+        tim_clk_hz = clocks.PCLK2_Frequency;
+    }
+    else
+    {
+        tim_clk_hz = clocks.PCLK2_Frequency * 2U;
+    }
+
+    period_ticks = tim_clk_hz / 4050000U;
+    if(period_ticks < 2U)
+    {
+        return NoREADY;
+    }
+
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC | RCC_APB2Periph_AFIO | RCC_APB2Periph_TIM8, ENABLE);
+
+    /* PC7 = TIM8_CH2 (default pinout; avoids TIM3 full remap on PC6 vs I2S MCK). */
+    gpio.GPIO_Pin = GPIO_Pin_7;
+    gpio.GPIO_Mode = GPIO_Mode_AF_PP;
+    gpio.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(GPIOC, &gpio);
+
+    TIM_DeInit(TIM8);
+    tim.TIM_Prescaler = 0U;
+    tim.TIM_CounterMode = TIM_CounterMode_Up;
+    tim.TIM_Period = period_ticks - 1U;
+    tim.TIM_ClockDivision = TIM_CKD_DIV1;
+    tim.TIM_RepetitionCounter = 0U;
+    TIM_TimeBaseInit(TIM8, &tim);
+
+    oc.TIM_OCMode = TIM_OCMode_PWM1;
+    oc.TIM_OutputState = TIM_OutputState_Enable;
+    oc.TIM_Pulse = period_ticks / 2U;
+    oc.TIM_OCPolarity = TIM_OCPolarity_High;
+    TIM_OC2Init(TIM8, &oc);
+    TIM_OC2PreloadConfig(TIM8, TIM_OCPreload_Enable);
+    TIM_ARRPreloadConfig(TIM8, ENABLE);
+    TIM_CtrlPWMOutputs(TIM8, ENABLE);
+    TIM_Cmd(TIM8, ENABLE);
+
+    return READY;
+}
+
 /*********************************************************************
  * TLV320ADC6120 I2S capture (CH1/CH2)
  *
@@ -243,10 +298,6 @@ static void Scan_I2CBus_EverySecond(void)
  * We treat L=CH1 and R=CH2 and keep the most recent pair.
  *********************************************************************/
 #define I2S_STEREO_DRAIN_MAX 256U
-
-static int16_t g_adc_ch1_last = 0;
-static int16_t g_adc_ch2_last = 0;
-static uint32_t g_adc_pairs_seen = 0;
 
 static void TLV320_I2S_Poll(void)
 {
@@ -257,38 +308,14 @@ static void TLV320_I2S_Poll(void)
     n = i2s_hw_receive_drain_try(buf, I2S_STEREO_DRAIN_MAX);
     for(i = 0U; i + 1U < n; i += 2U)
     {
-        g_adc_ch1_last = (int16_t)buf[i];
-        g_adc_ch2_last = (int16_t)buf[i + 1U];
-        ++g_adc_pairs_seen;
+        int16_t ch1 = (int16_t)buf[i];
+        int16_t ch2 = (int16_t)buf[i + 1U];
+
+        if((ch1 != 0) || (ch2 != 0))
+        {
+            printf("ADC CH1=%d CH2=%d\r\n", (int)ch1, (int)ch2);
+        }
     }
-}
-
-static void TLV320_I2S_Report_USB_EverySecond(void)
-{
-    static uint64_t last_tick = 0;
-    static uint8_t initialized = 0;
-    uint64_t now_tick = SysTick->CNT;
-
-    if(initialized == 0U)
-    {
-        last_tick = now_tick;
-        initialized = 1U;
-        return;
-    }
-
-    if((now_tick - last_tick) < (uint64_t)SystemCoreClock)
-    {
-        return;
-    }
-
-    printf("I2S TLV320 CH1=%d (0x%04X) CH2=%d (0x%04X) pairs=%lu\r\n",
-           (int)g_adc_ch1_last,
-           (unsigned int)(uint16_t)g_adc_ch1_last,
-           (int)g_adc_ch2_last,
-           (unsigned int)(uint16_t)g_adc_ch2_last,
-           (unsigned long)g_adc_pairs_seen);
-
-    last_tick = now_tick;
 }
 
 /*********************************************************************
@@ -310,6 +337,14 @@ int main(void)
 
     printf("GPIO Toggle TEST\r\n");
     GPIO_Toggle_INIT();
+    if(PC7_PWM_4p05MHz_Init() == READY)
+    {
+        printf("PC7: TIM8_CH2 PWM = 4.05 MHz (50%%)\r\n");
+    }
+    else
+    {
+        printf("PC7: TIM8_CH2 PWM init failed\r\n");
+    }
     // TP_Reset_Pin_Off();
 
 
@@ -339,14 +374,14 @@ int main(void)
         printf("TLV320ADC6120: I2C init failed (check wiring / AVDD AREG define)\r\n");
     }
 
-    if(si5351_hw_clk0_set_freq_hz(4000000ULL) == READY)
-    {
-        printf("Si5351: LO CLK0/CLK1 = 12000000 Hz, CLK1 = +90 deg\r\n");
-    }
-    else
-    {
-        printf("Si5351: LO program failed (I2C 0x60)\r\n");
-    }
+    // if(si5351_hw_clk0_set_freq_hz(4000000ULL) == READY)
+    // {
+    //     printf("Si5351: LO CLK0/CLK1 = 12000000 Hz, CLK1 = +90 deg\r\n");
+    // }
+    // else
+    // {
+    //     printf("Si5351: LO program failed (I2C 0x60)\r\n");
+    // }
 
     i2s_hw_init();
     i2s_hw_enable(ENABLE);
@@ -363,11 +398,10 @@ int main(void)
 
     while(1)
     {
-        // TLV320_I2S_Poll();
+        TLV320_I2S_Poll();
         usb_hw_task();
         Scan_I2CBus_EverySecond();
         //SysTick_Report_USB_EverySecond();
-        // TLV320_I2S_Report_USB_EverySecond();
         LED_Blink_Task();
     }
 }
