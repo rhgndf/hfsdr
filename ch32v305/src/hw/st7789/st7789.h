@@ -12,8 +12,8 @@
 /* Pin connection (hfsdr badge: RS = register select, same as DC) */
 #define ST7789_RST_PORT ST7789_RST_GPIO_PORT
 #define ST7789_RST_PIN  ST7789_RST_GPIO_PIN
-#define ST7789_DC_PORT  I2C_RS_GPIO_PORT
-#define ST7789_DC_PIN   I2C_RS_GPIO_PIN
+#define ST7789_DC_PORT  ST7789_RS_GPIO_PORT
+#define ST7789_DC_PIN   ST7789_RS_GPIO_PIN
 
 #ifndef CFG_NO_CS
 #define ST7789_CS_PORT  ST7789_CS_GPIO_PORT

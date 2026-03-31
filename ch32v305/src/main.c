@@ -61,6 +61,33 @@ void GPIO_Toggle_INIT(void)
     GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, Bit_RESET);
 }
 
+static void TP_Reset_Pin_On(void)
+{
+    GPIO_InitTypeDef gpio_init = {0};
+
+    /* TP/LCD reset net is active-low: drive high to release ("on"). */
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
+    gpio_init.GPIO_Pin = TP_RST_GPIO_PIN;
+    gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
+    gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(TP_RST_GPIO_PORT, &gpio_init);
+    GPIO_WriteBit(TP_RST_GPIO_PORT, TP_RST_GPIO_PIN, Bit_SET);
+}
+
+static void TP_Reset_Pin_Off(void)
+{
+    GPIO_InitTypeDef gpio_init = {0};
+
+    /* TP/LCD reset net is active-low: drive high to release ("on"). */
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
+    gpio_init.GPIO_Pin = TP_RST_GPIO_PIN;
+    gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
+    gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(TP_RST_GPIO_PORT, &gpio_init);
+    GPIO_WriteBit(TP_RST_GPIO_PORT, TP_RST_GPIO_PIN, Bit_RESET);
+}
+
+
 static uint64_t led_blink_period_ticks = 0;
 static uint64_t led_last_toggle_tick = 0;
 static BitAction led_state = Bit_RESET;
@@ -283,6 +310,7 @@ int main(void)
 
     printf("GPIO Toggle TEST\r\n");
     GPIO_Toggle_INIT();
+    // TP_Reset_Pin_Off();
 
 
     /*printf("SPI lines: GPIO mode, all outputs high (SCK MOSI CS RS RST)\r\n");
@@ -311,7 +339,7 @@ int main(void)
         printf("TLV320ADC6120: I2C init failed (check wiring / AVDD AREG define)\r\n");
     }
 
-    if(si5351_hw_fm_lo_both_hz(94000000ULL) == READY)
+    if(si5351_hw_fm_lo_both_hz(12000000ULL) == READY)
     {
         printf("Si5351: FM LO CLK0+CLK1 = 94000 Hz (Taylor / demux)\r\n");
     }
@@ -335,11 +363,11 @@ int main(void)
 
     while(1)
     {
-        TLV320_I2S_Poll();
+        // TLV320_I2S_Poll();
         usb_hw_task();
-        //Scan_I2CBus_EverySecond();
+        Scan_I2CBus_EverySecond();
         //SysTick_Report_USB_EverySecond();
-        TLV320_I2S_Report_USB_EverySecond();
+        // TLV320_I2S_Report_USB_EverySecond();
         LED_Blink_Task();
     }
 }

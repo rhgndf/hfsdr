@@ -83,11 +83,11 @@ void i2c_hw_init(void)
     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(GPIOB, &gpio_init);
 
-    gpio_init.GPIO_Pin = I2C_RS_GPIO_PIN;
+    gpio_init.GPIO_Pin = ST7789_RS_GPIO_PIN;
     gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_Init(I2C_RS_GPIO_PORT, &gpio_init);
-    GPIO_SetBits(I2C_RS_GPIO_PORT, I2C_RS_GPIO_PIN);
+    GPIO_Init(ST7789_RS_GPIO_PORT, &gpio_init);
+    GPIO_SetBits(ST7789_RS_GPIO_PORT, ST7789_RS_GPIO_PIN);
 
     I2C_StructInit(&i2c_init);
     i2c_init.I2C_ClockSpeed = 400000;

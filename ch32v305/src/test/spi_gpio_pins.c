@@ -24,8 +24,8 @@ void spi_gpio_pins_enable(void)
     g.GPIO_Pin = ST7789_CS_GPIO_PIN;
     GPIO_Init(ST7789_CS_GPIO_PORT, &g);
 
-    g.GPIO_Pin = I2C_RS_GPIO_PIN;
-    GPIO_Init(I2C_RS_GPIO_PORT, &g);
+    g.GPIO_Pin = ST7789_RS_GPIO_PIN;
+    GPIO_Init(ST7789_RS_GPIO_PORT, &g);
 
     g.GPIO_Pin = ST7789_RST_GPIO_PIN;
     GPIO_Init(ST7789_RST_GPIO_PORT, &g);
@@ -34,7 +34,7 @@ void spi_gpio_pins_enable(void)
     GPIO_WriteBit(SPI3_SCL_SCK_GPIO_PORT, SPI3_SCL_SCK_GPIO_PIN, Bit_RESET);
     GPIO_WriteBit(SPI3_SDA_MOSI_GPIO_PORT, SPI3_SDA_MOSI_GPIO_PIN, Bit_RESET);
     GPIO_WriteBit(ST7789_CS_GPIO_PORT, ST7789_CS_GPIO_PIN, Bit_SET);
-    GPIO_WriteBit(I2C_RS_GPIO_PORT, I2C_RS_GPIO_PIN, Bit_SET);
+    GPIO_WriteBit(ST7789_RS_GPIO_PORT, ST7789_RS_GPIO_PIN, Bit_SET);
     GPIO_WriteBit(ST7789_RST_GPIO_PORT, ST7789_RST_GPIO_PIN, Bit_SET);
 }
 
@@ -61,7 +61,7 @@ void spi_gpio_cs_write(BitAction level)
 
 void spi_gpio_rs_write(BitAction level)
 {
-    GPIO_WriteBit(I2C_RS_GPIO_PORT, I2C_RS_GPIO_PIN, level);
+    GPIO_WriteBit(ST7789_RS_GPIO_PORT, ST7789_RS_GPIO_PIN, level);
 }
 
 void spi_gpio_rst_write(BitAction level)
@@ -99,6 +99,6 @@ void spi_gpio_cs_toggle(void)
 
 void spi_gpio_rs_toggle(void)
 {
-    GPIO_WriteBit(I2C_RS_GPIO_PORT, I2C_RS_GPIO_PIN,
-                  GPIO_ReadOutputDataBit(I2C_RS_GPIO_PORT, I2C_RS_GPIO_PIN) == Bit_RESET ? Bit_SET : Bit_RESET);
+    GPIO_WriteBit(ST7789_RS_GPIO_PORT, ST7789_RS_GPIO_PIN,
+                  GPIO_ReadOutputDataBit(ST7789_RS_GPIO_PORT, ST7789_RS_GPIO_PIN) == Bit_RESET ? Bit_SET : Bit_RESET);
 }
