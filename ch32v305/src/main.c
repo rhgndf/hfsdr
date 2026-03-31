@@ -210,6 +210,61 @@ static void Scan_I2CBus_EverySecond(void)
 }
 
 /*********************************************************************
+ * TLV320ADC6120 I2S capture (CH1/CH2)
+ *
+ * In I2S stereo mode, words arrive as L then R per frame.
+ * We treat L=CH1 and R=CH2 and keep the most recent pair.
+ *********************************************************************/
+#define I2S_STEREO_DRAIN_MAX 256U
+
+static int16_t g_adc_ch1_last = 0;
+static int16_t g_adc_ch2_last = 0;
+static uint32_t g_adc_pairs_seen = 0;
+
+static void TLV320_I2S_Poll(void)
+{
+    uint16_t buf[I2S_STEREO_DRAIN_MAX];
+    size_t n;
+    size_t i;
+
+    n = i2s_hw_receive_drain_try(buf, I2S_STEREO_DRAIN_MAX);
+    for(i = 0U; i + 1U < n; i += 2U)
+    {
+        g_adc_ch1_last = (int16_t)buf[i];
+        g_adc_ch2_last = (int16_t)buf[i + 1U];
+        ++g_adc_pairs_seen;
+    }
+}
+
+static void TLV320_I2S_Report_USB_EverySecond(void)
+{
+    static uint64_t last_tick = 0;
+    static uint8_t initialized = 0;
+    uint64_t now_tick = SysTick->CNT;
+
+    if(initialized == 0U)
+    {
+        last_tick = now_tick;
+        initialized = 1U;
+        return;
+    }
+
+    if((now_tick - last_tick) < (uint64_t)SystemCoreClock)
+    {
+        return;
+    }
+
+    printf("I2S TLV320 CH1=%d (0x%04X) CH2=%d (0x%04X) pairs=%lu\r\n",
+           (int)g_adc_ch1_last,
+           (unsigned int)(uint16_t)g_adc_ch1_last,
+           (int)g_adc_ch2_last,
+           (unsigned int)(uint16_t)g_adc_ch2_last,
+           (unsigned long)g_adc_pairs_seen);
+
+    last_tick = now_tick;
+}
+
+/*********************************************************************
  * @fn      main
  *
  * @brief   Main program.
@@ -256,7 +311,7 @@ int main(void)
         printf("TLV320ADC6120: I2C init failed (check wiring / AVDD AREG define)\r\n");
     }
 
-    if(si5351_hw_fm_lo_both_hz(94000ULL) == READY)
+    if(si5351_hw_fm_lo_both_hz(94000000ULL) == READY)
     {
         printf("Si5351: FM LO CLK0+CLK1 = 94000 Hz (Taylor / demux)\r\n");
     }
@@ -280,9 +335,11 @@ int main(void)
 
     while(1)
     {
+        TLV320_I2S_Poll();
         usb_hw_task();
         //Scan_I2CBus_EverySecond();
         //SysTick_Report_USB_EverySecond();
+        TLV320_I2S_Report_USB_EverySecond();
         LED_Blink_Task();
     }
 }
