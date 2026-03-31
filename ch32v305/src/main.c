@@ -339,9 +339,9 @@ int main(void)
         printf("TLV320ADC6120: I2C init failed (check wiring / AVDD AREG define)\r\n");
     }
 
-    if(si5351_hw_fm_lo_both_hz(12000000ULL) == READY)
+    if(si5351_hw_clk0_set_freq_hz(12000000ULL) == READY)
     {
-        printf("Si5351: FM LO CLK0+CLK1 = 94000 Hz (Taylor / demux)\r\n");
+        printf("Si5351: LO CLK0 = 12000000 Hz\r\n");
     }
     else
     {
