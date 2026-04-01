@@ -286,6 +286,48 @@ static void TLV320_I2S_Poll(void)
     last_report_tick = now_tick;
 }
 
+static void DAC_Poll(void)
+{
+    static uint64_t last_report_tick = 0U;
+    static uint32_t last_frame_count = 0U;
+    static uint8_t initialized = 0U;
+    uint64_t now_tick;
+    uint64_t elapsed_ticks;
+    uint32_t frames_now;
+    uint32_t frames_per_sec;
+    uint32_t words_per_sec;
+    uint32_t bytes_per_sec;
+
+    now_tick = SysTick->CNT;
+    frames_now = dac_hw_tx_frame_count();
+
+    if(initialized == 0U)
+    {
+        last_report_tick = now_tick;
+        last_frame_count = frames_now;
+        initialized = 1U;
+        return;
+    }
+
+    elapsed_ticks = now_tick - last_report_tick;
+    if(elapsed_ticks < (uint64_t)SystemCoreClock)
+    {
+        return;
+    }
+
+    frames_per_sec = (uint32_t)((((uint64_t)(frames_now - last_frame_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
+    words_per_sec = frames_per_sec * 2U;
+    bytes_per_sec = frames_per_sec * (uint32_t)sizeof(uint32_t);
+
+    printf("DAC rate: %lu words/s, %lu frames/s, %lu B/s\r\n",
+           (unsigned long)words_per_sec,
+           (unsigned long)frames_per_sec,
+           (unsigned long)bytes_per_sec);
+
+    last_frame_count = frames_now;
+    last_report_tick = now_tick;
+}
+
 /*********************************************************************
  * @fn      main
  *
@@ -347,8 +389,8 @@ int main(void)
     i2s_hw_enable(ENABLE);
 
     dac_hw_init();
-    dac_hw_static_noise_start(48000U);
-    printf("DAC: static noise PA4+PA5 @ 48 ksps (TIM7 xorshift)\r\n");
+    dac_hw_static_noise_start(192000U);
+    printf("DAC: static noise PA4+PA5 @ 48 ksps (TIM7 TRGO + DMA2 Ch3 refill IRQ)\r\n");
 
     SysTick_FreeRun_Init();
     usb_hw_init();
@@ -359,6 +401,7 @@ int main(void)
     while(1)
     {
         TLV320_I2S_Poll();
+        DAC_Poll();
         usb_hw_task();
         //Scan_I2CBus_EverySecond();
         //SysTick_Report_USB_EverySecond();

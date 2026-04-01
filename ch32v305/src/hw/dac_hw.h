@@ -13,6 +13,12 @@ void dac_hw_set_channel2_12(uint16_t value);
 /* Same code on DAC1 (PA4) and DAC2 (PA5). */
 void dac_hw_set_both_12(uint16_t value);
 
+/* TIM7-triggered dual-DAC stream via DMA2 Channel3, same sample on both channels. */
+void dac_hw_stream_noise_start(uint32_t sample_rate_hz);
+void dac_hw_stream_sine_start(uint32_t sine_freq_hz, uint32_t sample_rate_hz);
+void dac_hw_stream_stop(void);
+[[nodiscard]] uint32_t dac_hw_tx_frame_count(void);
+
 /*
  * Square wave on DAC1 (PA4) and DAC2 (PA5), same waveform: TIM6 toggles both between
  * low_12 and high_12.
