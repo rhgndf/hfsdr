@@ -4,7 +4,7 @@
 * Version            : V1.0.0
 * Date               : 2024/03/05
 * Description        : CH32V30x Device Peripheral Access Layer System Source File.
-*                      HSE crystal frequency is set via HSE_VALUE (e.g. 8 MHz or 24 MHz).
+*                      HSE crystal frequency is set via HSE_VALUE at 24 MHz.
 *                      SYSCLK 144 MHz from HSE: PLL multiplier must match HSE (8M*18 or 24M*6).
 *********************************************************************************
 * Copyright (c) 2021 Nanjing Qinheng Microelectronics Co., Ltd.
@@ -734,24 +734,14 @@ static void SetSysClockTo144_HSE(void)
     /* PCLK1 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
 
-    /*  PLL configuration: PLLCLK = HSE * N = 144 MHz (N=18 @ 8 MHz HSE, N=6 @ 24 MHz HSE) */
+    /* PLL configuration: PLLCLK = 24 MHz HSE * 6 = 144 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE |
                                         RCC_PLLMULL));
 
-#if HSE_VALUE == 24000000
 #ifdef CH32V30x_D8
         RCC->CFGR0 |= (uint32_t)(RCC_PLLSRC_HSE | RCC_PLLXTPRE_HSE | RCC_PLLMULL6);
 #else
         RCC->CFGR0 |= (uint32_t)(RCC_PLLSRC_HSE | RCC_PLLXTPRE_HSE | RCC_PLLMULL6_EXTEN);
-#endif
-#elif HSE_VALUE == 8000000
-#ifdef CH32V30x_D8
-        RCC->CFGR0 |= (uint32_t)(RCC_PLLSRC_HSE | RCC_PLLXTPRE_HSE | RCC_PLLMULL18);
-#else
-        RCC->CFGR0 |= (uint32_t)(RCC_PLLSRC_HSE | RCC_PLLXTPRE_HSE | RCC_PLLMULL18_EXTEN);
-#endif
-#else
-#error "SetSysClockTo144_HSE: add PLL multiplier for this HSE_VALUE (target 144 MHz SYSCLK)"
 #endif
 
     /* Enable PLL */

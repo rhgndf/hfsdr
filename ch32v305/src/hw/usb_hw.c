@@ -30,14 +30,8 @@ void usb_hw_init(void)
     RCC_USBCLK48MConfig(RCC_USBCLK48MCLKSource_USBPHY);
     RCC_USBHSPLLCLKConfig(RCC_HSBHSPLLCLKSource_HSE);
     //RCC_USBHSPLLCLKConfig(RCC_HSBHSPLLCLKSource_HSI);
-    /* USBHS PHY ref must match HSE after RCC_USBHSConfig divider: 8M/1, 24M/3 -> 8 MHz ref */
-#if HSE_VALUE == 24000000
+    /* Board is fixed at 24 MHz HSE, so keep the USBHS PHY divider aligned to an 8 MHz ref. */
     RCC_USBHSConfig(RCC_USBPLL_Div3);
-#elif HSE_VALUE == 8000000
-    RCC_USBHSConfig(RCC_USBPLL_Div1);
-#else
-#error "usb_hw_init: set RCC_USBHSConfig divider for your HSE_VALUE and matching RCC_USBHSPLLCKREFCLK"
-#endif
     RCC_USBHSPLLCKREFCLKConfig(RCC_USBHSPLLCKREFCLK_8M);
     RCC_USBHSPHYPLLALIVEcmd(ENABLE);
     RCC_AHBPeriphClockCmd(RCC_AHBPeriph_USBHS, ENABLE);
