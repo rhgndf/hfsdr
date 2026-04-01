@@ -16,7 +16,6 @@
 
 void i2s_hw_init(void);
 void i2s_hw_enable(FunctionalState state);
-uint32_t i2s_hw_configured_mclk_hz(void);
-uint32_t i2s_hw_rx_word_count(void);
+[[nodiscard]] uint32_t i2s_hw_rx_word_count(void);
 
 #endif

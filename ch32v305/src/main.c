@@ -61,7 +61,7 @@ void GPIO_Toggle_INIT(void)
     GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, Bit_RESET);
 }
 
-static void TP_Reset_Pin_On(void)
+[[maybe_unused]] static void TP_Reset_Pin_On(void)
 {
     GPIO_InitTypeDef gpio_init = {0};
 
@@ -74,7 +74,7 @@ static void TP_Reset_Pin_On(void)
     GPIO_WriteBit(TP_RST_GPIO_PORT, TP_RST_GPIO_PIN, Bit_SET);
 }
 
-static void TP_Reset_Pin_Off(void)
+[[maybe_unused]] static void TP_Reset_Pin_Off(void)
 {
     GPIO_InitTypeDef gpio_init = {0};
 
@@ -154,7 +154,7 @@ static void LED_Blink_Task(void)
     }
 }
 
-static void SysTick_Report_USB_EverySecond(void)
+[[maybe_unused]] static void SysTick_Report_USB_EverySecond(void)
 {
     static uint64_t last_report_tick = 0;
     static uint8_t initialized = 0;
@@ -187,7 +187,7 @@ static void SysTick_Report_USB_EverySecond(void)
     last_report_tick = now_tick;
 }
 
-static void Scan_I2CBus_EverySecond(void)
+[[maybe_unused]] static void Scan_I2CBus_EverySecond(void)
 {
     static uint64_t last_scan_tick = 0;
     static uint8_t initialized = 0;

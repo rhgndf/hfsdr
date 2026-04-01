@@ -1,5 +1,7 @@
 #include "i2s_hw.h"
 
+#include <assert.h>
+
 #include "debug.h"
 #include "pinout.h"
 
@@ -24,7 +26,9 @@
 #define I2S_RX_DMA_BUFFER_WORDS      512U
 #define I2S_RX_DMA_CHUNK_WORDS       (I2S_RX_DMA_BUFFER_WORDS / 2U)
 
-static uint32_t s_clock_out_hz = 0U;
+static_assert((I2S_RX_DMA_BUFFER_WORDS % 4U) == 0U,
+              "24-bit I2S DMA buffer must align to full stereo frames");
+
 static volatile uint32_t s_rx_word_count = 0U;
 static uint16_t s_rx_dma_buf[I2S_RX_DMA_BUFFER_WORDS];
 
@@ -133,8 +137,6 @@ static ErrorStatus i2s_hw_alt_clock_init_24mhz(void)
     TIM_CtrlPWMOutputs(TIM8, ENABLE);
     TIM_Cmd(TIM8, ENABLE);
 
-    s_clock_out_hz = 24000000U;
-
     return READY;
 }
 
@@ -142,8 +144,7 @@ void i2s_hw_init(void)
 {
     GPIO_InitTypeDef gpio_init = {0};
     I2S_InitTypeDef i2s_init = {0};
-
-    s_clock_out_hz = 0U;
+    
     s_rx_word_count = 0U;
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC, ENABLE);
@@ -172,11 +173,6 @@ void i2s_hw_init(void)
     i2s_hw_dma_irq_init();
 
     (void)i2s_hw_alt_clock_init_24mhz();
-}
-
-uint32_t i2s_hw_configured_mclk_hz(void)
-{
-    return s_clock_out_hz;
 }
 
 uint32_t i2s_hw_rx_word_count(void)

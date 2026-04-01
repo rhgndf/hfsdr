@@ -21,6 +21,6 @@
 
 #define TLV320ADC6120_I2C_ADDR_7BIT 0x4EU
 
-ErrorStatus tlv320adc6120_hw_init(void);
+[[nodiscard]] ErrorStatus tlv320adc6120_hw_init(void);
 
 #endif
