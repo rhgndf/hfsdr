@@ -76,15 +76,12 @@ uint8_t const * tud_descriptor_device_cb(void)
 //--------------------------------------------------------------------+
 // Configuration Descriptor
 //--------------------------------------------------------------------+
-#define CONFIG_TOTAL_LEN    	(TUD_CONFIG_DESC_LEN + CFG_TUD_AUDIO * TUD_AUDIO_HEADSET_STEREO_DESC_LEN + CFG_TUD_CDC * TUD_CDC_DESC_LEN + TUD_VENDOR_DESC_LEN)
+#define CONFIG_TOTAL_LEN    	(TUD_CONFIG_DESC_LEN + CFG_TUD_AUDIO * TUD_AUDIO_MIC_STEREO_DESC_LEN + CFG_TUD_CDC * TUD_CDC_DESC_LEN + CFG_TUD_VENDOR * TUD_VENDOR_DESC_LEN)
 
 #define EPNUM_AUDIO_IN    0x01
-#define EPNUM_AUDIO_OUT   0x01
-
 #define EPNUM_CDC_NOTIF   0x83
 #define EPNUM_CDC_OUT     0x04
 #define EPNUM_CDC_IN      0x84
-
 #define EPNUM_VENDOR_OUT  0x05
 #define EPNUM_VENDOR_IN   0x85
 
@@ -93,13 +90,8 @@ uint8_t const desc_fs_configuration[] =
     // Config number, interface count, string index, total length, attribute, power in mA
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0x00, 100),
 
-    // Interface number, string index, EP Out & EP In address, EP size
-    TUD_AUDIO_HEADSET_STEREO_DESCRIPTOR(2, EPNUM_AUDIO_OUT, EPNUM_AUDIO_IN | 0x80),
-
-    // CDC: Interface number, string index, EP notification address and size, EP data address (out, in) and size.
+    TUD_AUDIO_MIC_STEREO_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, 4, EPNUM_AUDIO_IN | 0x80, CFG_TUD_AUDIO_FUNC_1_FORMAT_1_EP_SZ_IN),
     TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, 6, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
-
-    // Interface number, string index, EP Out & IN address, EP size
     TUD_VENDOR_DESCRIPTOR(ITF_NUM_VENDOR, 5, EPNUM_VENDOR_OUT, 0x80 | EPNUM_VENDOR_IN, 64)
 };
 
@@ -111,13 +103,8 @@ uint8_t const desc_hs_configuration[] = {
     // Config number, interface count, string index, total length, attribute, power in mA
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0x00, 100),
 
-    // Interface number, string index, EP Out & EP In address, EP size
-    TUD_AUDIO_HEADSET_STEREO_DESCRIPTOR(2, EPNUM_AUDIO_OUT, EPNUM_AUDIO_IN | 0x80),
-
-    // CDC: Interface number, string index, EP notification address and size, EP data address (out, in) and size.
+    TUD_AUDIO_MIC_STEREO_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, 4, EPNUM_AUDIO_IN | 0x80, CFG_TUD_AUDIO_FUNC_1_FORMAT_1_EP_SZ_IN),
     TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, 6, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 512),
-
-    // Interface number, string index, EP Out & IN address, EP size
     TUD_VENDOR_DESCRIPTOR(ITF_NUM_VENDOR, 5, EPNUM_VENDOR_OUT, 0x80 | EPNUM_VENDOR_IN, 512)
 };
 
@@ -185,34 +172,13 @@ uint8_t const * tud_descriptor_configuration_cb(uint8_t index)
 // BOS Descriptor
 //--------------------------------------------------------------------+
 
-/* Microsoft OS 2.0 registry property descriptor
-Per MS requirements https://msdn.microsoft.com/en-us/library/windows/hardware/hh450799(v=vs.85).aspx
-device should create DeviceInterfaceGUIDs. It can be done by driver and
-in case of real PnP solution device should expose MS "Microsoft OS 2.0
-registry property descriptor". Such descriptor can insert any record
-into Windows registry per device/configuration/interface. In our case it
-will insert "DeviceInterfaceGUIDs" multistring property.
-
-GUID is freshly generated and should be OK to use.
-
-https://developers.google.com/web/fundamentals/native-hardware/build-for-webusb/
-(Section Microsoft OS compatibility descriptors)
-*/
-
 #define BOS_TOTAL_LEN      (TUD_BOS_DESC_LEN + TUD_BOS_WEBUSB_DESC_LEN + TUD_BOS_MICROSOFT_OS_DESC_LEN)
-
 #define MS_OS_20_DESC_LEN  0xB2
 
-// BOS Descriptor is required for webUSB
 uint8_t const desc_bos[] =
 {
-  // total length, number of device caps
   TUD_BOS_DESCRIPTOR(BOS_TOTAL_LEN, 2),
-
-  // Vendor Code, iLandingPage
   TUD_BOS_WEBUSB_DESCRIPTOR(VENDOR_REQUEST_WEBUSB, 1),
-
-  // Microsoft OS 2.0 descriptor
   TUD_BOS_MS_OS_20_DESCRIPTOR(MS_OS_20_DESC_LEN, VENDOR_REQUEST_MICROSOFT)
 };
 
@@ -221,29 +187,18 @@ uint8_t const * tud_descriptor_bos_cb(void)
   return desc_bos;
 }
 
-
 uint8_t const desc_ms_os_20[] =
 {
-  // Set header: length, type, windows version, total length
   U16_TO_U8S_LE(0x000A), U16_TO_U8S_LE(MS_OS_20_SET_HEADER_DESCRIPTOR), U32_TO_U8S_LE(0x06030000), U16_TO_U8S_LE(MS_OS_20_DESC_LEN),
-
-  // Configuration subset header: length, type, configuration index, reserved, configuration total length
   U16_TO_U8S_LE(0x0008), U16_TO_U8S_LE(MS_OS_20_SUBSET_HEADER_CONFIGURATION), 0, 0, U16_TO_U8S_LE(MS_OS_20_DESC_LEN-0x0A),
-
-  // Function Subset header: length, type, first interface, reserved, subset length
   U16_TO_U8S_LE(0x0008), U16_TO_U8S_LE(MS_OS_20_SUBSET_HEADER_FUNCTION), ITF_NUM_VENDOR, 0, U16_TO_U8S_LE(MS_OS_20_DESC_LEN-0x0A-0x08),
-
-  // MS OS 2.0 Compatible ID descriptor: length, type, compatible ID, sub compatible ID
   U16_TO_U8S_LE(0x0014), U16_TO_U8S_LE(MS_OS_20_FEATURE_COMPATBLE_ID), 'W', 'I', 'N', 'U', 'S', 'B', 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sub-compatible
-
-  // MS OS 2.0 Registry property descriptor: length, type
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   U16_TO_U8S_LE(MS_OS_20_DESC_LEN-0x0A-0x08-0x08-0x14), U16_TO_U8S_LE(MS_OS_20_FEATURE_REG_PROPERTY),
-  U16_TO_U8S_LE(0x0007), U16_TO_U8S_LE(0x002A), // wPropertyDataType, wPropertyNameLength and PropertyName "DeviceInterfaceGUIDs\0" in UTF-16
+  U16_TO_U8S_LE(0x0007), U16_TO_U8S_LE(0x002A),
   'D', 0x00, 'e', 0x00, 'v', 0x00, 'i', 0x00, 'c', 0x00, 'e', 0x00, 'I', 0x00, 'n', 0x00, 't', 0x00, 'e', 0x00,
   'r', 0x00, 'f', 0x00, 'a', 0x00, 'c', 0x00, 'e', 0x00, 'G', 0x00, 'U', 0x00, 'I', 0x00, 'D', 0x00, 's', 0x00, 0x00, 0x00,
-  U16_TO_U8S_LE(0x0050), // wPropertyDataLength
-	//bPropertyData: “{975F44D9-0D08-43FD-8B3E-127CA8AFFF9D}”.
+  U16_TO_U8S_LE(0x0050),
   '{', 0x00, '9', 0x00, '7', 0x00, '5', 0x00, 'F', 0x00, '4', 0x00, '4', 0x00, 'D', 0x00, '9', 0x00, '-', 0x00,
   '0', 0x00, 'D', 0x00, '0', 0x00, '8', 0x00, '-', 0x00, '4', 0x00, '3', 0x00, 'F', 0x00, 'D', 0x00, '-', 0x00,
   '8', 0x00, 'B', 0x00, '3', 0x00, 'E', 0x00, '-', 0x00, '1', 0x00, '2', 0x00, '7', 0x00, 'C', 0x00, 'A', 0x00,
@@ -268,12 +223,12 @@ enum {
 char const *string_desc_arr[] =
 {
   (const char[]) { 0x09, 0x04 },  // 0: is supported language is English (0x0409)
-  "TinyUSB",                      // 1: Manufacturer
-  "TinyUSB headset",              // 2: Product
+  "HFSDR",                        // 1: Manufacturer
+  "HFSDR USB Microphone",         // 2: Product
   NULL,                           // 3: Serials will use unique ID if possible
-  "TinyUSB Speakers",             // 4: Audio Interface
-  "TinyUSB Microphone",           // 5: Audio Interface
-  "TinyUSB CDC",                  // 6: Audio Interface
+  "I2S Stereo Microphone",        // 4: Audio Interface
+  "WebUSB Vendor",                // 5: Vendor Interface
+  "USB CDC",                      // 6: CDC Interface
 };
 
 static uint16_t _desc_str[32 + 1];

@@ -1,19 +1,65 @@
+#include <stddef.h>
 #include <stdint.h>
 
 #include "tusb.h"
 #include "usb_descriptors.h"
 
-// Descriptor advertises master + 2 speaker channels in the feature unit.
-#define AUDIO_SPK_CTRL_CHANNELS 2
+#define AUDIO_MIC_CTRL_CHANNELS      2U
+#define AUDIO_USB_CHANNELS           2U
+#define AUDIO_USB_BYTES_PER_SAMPLE   4U
+#define AUDIO_USB_FRAME_BYTES        (AUDIO_USB_CHANNELS * AUDIO_USB_BYTES_PER_SAMPLE)
+#define AUDIO_USB_DMA_CHUNK_FRAMES   64U
 
 #define VOLUME_CTRL_0_DB   0
 #define VOLUME_CTRL_50_DB  12800 // 50 dB in 1/256 dB units
 
-static const uint32_t sample_rates[] = {44100, 48000, 96000};
-static uint32_t current_sample_rate = 48000;
+static const uint32_t sample_rates[] = {192000U};
+static uint32_t current_sample_rate = 192000U;
 
-static int8_t mute[AUDIO_SPK_CTRL_CHANNELS + 1];
-static int16_t volume[AUDIO_SPK_CTRL_CHANNELS + 1];
+static int8_t mute[AUDIO_MIC_CTRL_CHANNELS + 1U];
+static int16_t volume[AUDIO_MIC_CTRL_CHANNELS + 1U];
+static uint8_t s_streaming_alt = 0U;
+static volatile uint32_t s_usb_drop_frame_count = 0U;
+static uint32_t s_usb_stream_buf[AUDIO_USB_DMA_CHUNK_FRAMES * AUDIO_USB_CHANNELS];
+
+[[nodiscard]] bool audio_usb_tx_ready(void)
+{
+  return s_streaming_alt != 0U;
+}
+
+void audio_usb_mic_write_isr(volatile uint16_t const* src_words, size_t word_count)
+{
+  size_t const frame_count = word_count / 4U;
+  size_t frame_idx;
+  tu_fifo_t* fifo;
+
+  if ((!audio_usb_tx_ready()) || (src_words == 0) || (frame_count == 0U)) {
+    return;
+  }
+
+  if (frame_count > AUDIO_USB_DMA_CHUNK_FRAMES) {
+    s_usb_drop_frame_count += (uint32_t)frame_count;
+    return;
+  }
+
+  fifo = tud_audio_get_ep_in_ff();
+  if (tu_fifo_remaining(fifo) < (frame_count * AUDIO_USB_FRAME_BYTES)) {
+    s_usb_drop_frame_count += (uint32_t)frame_count;
+    return;
+  }
+
+  for (frame_idx = 0U; frame_idx < frame_count; ++frame_idx) {
+    uint16_t const left_hi = src_words[frame_idx * 4U];
+    uint16_t const left_lo = src_words[frame_idx * 4U + 1U];
+    uint16_t const right_hi = src_words[frame_idx * 4U + 2U];
+    uint16_t const right_lo = src_words[frame_idx * 4U + 3U];
+
+    s_usb_stream_buf[frame_idx * 2U] = ((uint32_t)left_hi << 16) | (uint32_t)left_lo;
+    s_usb_stream_buf[frame_idx * 2U + 1U] = ((uint32_t)right_hi << 16) | (uint32_t)right_lo;
+  }
+
+  (void)tud_audio_write(s_usb_stream_buf, (uint16_t)(frame_count * AUDIO_USB_FRAME_BYTES));
+}
 
 static bool audio_clock_get_request(uint8_t rhport, audio20_control_request_t const* request) {
   TU_ASSERT(request->bEntityID == UAC2_ENTITY_CLOCK);
@@ -64,8 +110,8 @@ static bool audio_clock_set_request(uint8_t rhport, audio20_control_request_t co
 }
 
 static bool audio_feature_unit_get_request(uint8_t rhport, audio20_control_request_t const* request) {
-  TU_ASSERT(request->bEntityID == UAC2_ENTITY_SPK_FEATURE_UNIT);
-  TU_VERIFY(request->bChannelNumber <= AUDIO_SPK_CTRL_CHANNELS);
+  TU_ASSERT(request->bEntityID == UAC2_ENTITY_MIC_FEATURE_UNIT);
+  TU_VERIFY(request->bChannelNumber <= AUDIO_MIC_CTRL_CHANNELS);
 
   if (request->bControlSelector == AUDIO20_FU_CTRL_MUTE &&
       request->bRequest == AUDIO20_CS_REQ_CUR) {
@@ -103,9 +149,9 @@ static bool audio_feature_unit_get_request(uint8_t rhport, audio20_control_reque
 static bool audio_feature_unit_set_request(uint8_t rhport, audio20_control_request_t const* request, uint8_t const* buf) {
   (void) rhport;
 
-  TU_ASSERT(request->bEntityID == UAC2_ENTITY_SPK_FEATURE_UNIT);
+  TU_ASSERT(request->bEntityID == UAC2_ENTITY_MIC_FEATURE_UNIT);
   TU_VERIFY(request->bRequest == AUDIO20_CS_REQ_CUR);
-  TU_VERIFY(request->bChannelNumber <= AUDIO_SPK_CTRL_CHANNELS);
+  TU_VERIFY(request->bChannelNumber <= AUDIO_MIC_CTRL_CHANNELS);
 
   if (request->bControlSelector == AUDIO20_FU_CTRL_MUTE) {
     TU_VERIFY(request->wLength == sizeof(audio20_control_cur_1_t));
@@ -130,7 +176,7 @@ bool tud_audio_get_req_entity_cb(uint8_t rhport, tusb_control_request_t const* p
     return audio_clock_get_request(rhport, request);
   }
 
-  if (request->bEntityID == UAC2_ENTITY_SPK_FEATURE_UNIT) {
+  if (request->bEntityID == UAC2_ENTITY_MIC_FEATURE_UNIT) {
     return audio_feature_unit_get_request(rhport, request);
   }
 
@@ -144,9 +190,56 @@ bool tud_audio_set_req_entity_cb(uint8_t rhport, tusb_control_request_t const* p
     return audio_clock_set_request(rhport, request, buf);
   }
 
-  if (request->bEntityID == UAC2_ENTITY_SPK_FEATURE_UNIT) {
+  if (request->bEntityID == UAC2_ENTITY_MIC_FEATURE_UNIT) {
     return audio_feature_unit_set_request(rhport, request, buf);
   }
 
   return false;
+}
+
+bool tud_audio_set_req_ep_cb(uint8_t rhport, tusb_control_request_t const* p_request, uint8_t* buf) {
+  (void)rhport;
+  (void)p_request;
+  (void)buf;
+  return false;
+}
+
+bool tud_audio_get_req_ep_cb(uint8_t rhport, tusb_control_request_t const* p_request) {
+  (void)rhport;
+  (void)p_request;
+  return false;
+}
+
+bool tud_audio_set_req_itf_cb(uint8_t rhport, tusb_control_request_t const* p_request, uint8_t* buf) {
+  (void)rhport;
+  (void)p_request;
+  (void)buf;
+  return false;
+}
+
+bool tud_audio_get_req_itf_cb(uint8_t rhport, tusb_control_request_t const* p_request) {
+  (void)rhport;
+  (void)p_request;
+  return false;
+}
+
+bool tud_audio_set_itf_close_ep_cb(uint8_t rhport, tusb_control_request_t const* p_request) {
+  (void)rhport;
+
+  if (tu_u16_low(tu_le16toh(p_request->wIndex)) == ITF_NUM_AUDIO_STREAMING_MIC) {
+    s_streaming_alt = 0U;
+  }
+
+  return true;
+}
+
+bool tud_audio_set_itf_cb(uint8_t rhport, tusb_control_request_t const* p_request) {
+  (void)rhport;
+
+  if (tu_u16_low(tu_le16toh(p_request->wIndex)) == ITF_NUM_AUDIO_STREAMING_MIC) {
+    s_streaming_alt = tu_u16_low(tu_le16toh(p_request->wValue));
+    tud_audio_clear_ep_in_ff();
+  }
+
+  return true;
 }

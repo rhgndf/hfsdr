@@ -11,6 +11,7 @@
 #define USB_WEB_URL        "example.tinyusb.org/webusb-serial/index.html"
 
 static uint8_t usb_echo_buf[USB_ECHO_BUF_SIZE];
+static uint8_t vendor_buf[512];
 static tusb_desc_webusb_url_t const desc_url = {
     .bLength = 3 + sizeof(USB_WEB_URL) - 1,
     .bDescriptorType = 3,
@@ -49,40 +50,23 @@ void usb_hw_init(void)
     tusb_init(USB_ROOT_HUB_PORT, &dev_init);
 }
 
-uint8_t buf[512];
-/*
- * Set TX and RX BUFSIZE to 0 to access unbuffered
- * Buffered:
- *   host->device: 5MB/s
- *   device->host: 7MB/s
- * Unbuffered:
- *   host->device: 17MB/s
- *   device->host: 21MB/s
- */
-void vendor_streamer() {
-    if (tud_vendor_n_write_available(0)) {
-        tud_vendor_write(buf, sizeof(buf));
+void usb_hw_task(void)
+{
+    if(tud_vendor_n_write_available(0) != 0U)
+    {
+        tud_vendor_write(vendor_buf, sizeof(vendor_buf));
 #if CFG_TUD_VENDOR_TXRX_BUFFERED
         tud_vendor_write_flush();
 #endif
     }
-}
-void tud_vendor_rx_cb(uint8_t idx, const uint8_t *buffer, uint32_t bufsize){
-#if CFG_TUD_VENDOR_TXRX_BUFFERED
-    tud_vendor_read(buf, sizeof(buf));
-#endif
-}
 
-void usb_hw_task(void)
-{
-    vendor_streamer();
     tud_task();
 }
 
 uint32_t usb_send_data(uint8_t const *buffer, uint32_t len)
 {
     uint32_t written = tud_cdc_write(buffer, len);
-    if(written > 0)
+    if(written > 0U)
     {
         tud_cdc_write_flush();
     }
@@ -95,7 +79,16 @@ uint32_t usb_receive_data(uint8_t *buffer, uint32_t len)
     return tud_cdc_read(buffer, len);
 }
 
-// Invoked when a control transfer occurred on an interface of this class.
+void tud_vendor_rx_cb(uint8_t idx, const uint8_t *buffer, uint32_t bufsize)
+{
+    (void) idx;
+    (void) buffer;
+    (void) bufsize;
+#if CFG_TUD_VENDOR_TXRX_BUFFERED
+    tud_vendor_read(vendor_buf, sizeof(vendor_buf));
+#endif
+}
+
 bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const* request)
 {
     if(stage != CONTROL_STAGE_SETUP)
@@ -112,7 +105,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
                     return tud_control_xfer(rhport, request, (void*)(uintptr_t)&desc_url, desc_url.bLength);
 
                 case VENDOR_REQUEST_MICROSOFT:
-                    if(request->wIndex == 7)
+                    if(request->wIndex == 7U)
                     {
                         uint16_t total_len;
                         memcpy(&total_len, desc_ms_os_20 + 8, 2);
@@ -126,10 +119,9 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
             break;
 
         case TUSB_REQ_TYPE_CLASS:
-            if(request->bRequest == 0x22)
+            if(request->bRequest == 0x22U)
             {
-                bool web_serial_connected = (request->wValue != 0);
-                if(web_serial_connected)
+                if(request->wValue != 0U)
                 {
                     usb_send_connected_banner();
                 }
@@ -165,13 +157,13 @@ void tud_cdc_rx_cb(uint8_t itf)
             chunk = sizeof(usb_echo_buf);
         }
 
-        if(chunk == 0)
+        if(chunk == 0U)
         {
             break;
         }
 
         chunk = usb_receive_data(usb_echo_buf, chunk);
-        if(chunk == 0)
+        if(chunk == 0U)
         {
             break;
         }
