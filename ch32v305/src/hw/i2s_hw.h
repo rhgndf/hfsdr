@@ -1,26 +1,22 @@
 #ifndef I2S_HW_H
 #define I2S_HW_H
 
-#include <stddef.h>
 #include <stdint.h>
 #include "debug.h"
 
 /*
- * SPI2 in I2S master RX: 16-bit Philips, 96 kHz (see i2s_hw_init).
+ * SPI2 in I2S slave RX: 16-bit Philips (see i2s_hw_init).
+ * WS (PB12) and CK (PB13) are supplied by an external I2S controller.
  * SD (PB15) receives serial data from an external I2S ADC / codec.
- * RX uses DMA1 channel 4 circular buffer; i2s_hw_try_receive_* reads from that buffer.
+ * PC6 is reserved for an alternate 24 MHz clock output from TIM8_CH1, so the
+ * SPI2 MCK pin is intentionally left unused here.
+ * RX uses DMA1 Channel4 in circular mode. DMA half/full-transfer interrupts
+ * increment a cumulative word counter that can be queried from the main loop.
  */
 
 void i2s_hw_init(void);
 void i2s_hw_enable(FunctionalState state);
-void i2s_hw_send_u16(uint16_t sample);
-uint16_t i2s_hw_receive_u16(void);
-ErrorStatus i2s_hw_try_receive_u16(uint16_t *sample);
-
-/* Blocking: read exactly n contiguous samples (waits for RXNE each time). */
-void i2s_hw_receive_burst_blocking(uint16_t *buf, size_t n);
-
-/* Non-blocking: drain RX FIFO into buf; returns number of samples stored. */
-size_t i2s_hw_receive_drain_try(uint16_t *buf, size_t max_n);
+uint32_t i2s_hw_configured_mclk_hz(void);
+uint32_t i2s_hw_rx_word_count(void);
 
 #endif

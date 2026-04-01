@@ -90,7 +90,7 @@ void i2c_hw_init(void)
     GPIO_SetBits(ST7789_RS_GPIO_PORT, ST7789_RS_GPIO_PIN);
 
     I2C_StructInit(&i2c_init);
-    i2c_init.I2C_ClockSpeed = 400000;
+    i2c_init.I2C_ClockSpeed = 1000000;
     i2c_init.I2C_Mode = I2C_Mode_I2C;
     i2c_init.I2C_DutyCycle = I2C_DutyCycle_2;
     i2c_init.I2C_OwnAddress1 = 0x32;

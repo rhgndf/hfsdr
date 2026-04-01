@@ -10,6 +10,8 @@
 #define TLV320_REG_SLEEP_CFG       0x02U
 #define TLV320_REG_ASI_CFG0        0x07U
 #define TLV320_REG_MST_CFG0        0x13U
+#define TLV320_REG_MST_CFG1        0x14U
+#define TLV320_REG_GPIO_CFG0       0x21U
 #define TLV320_REG_IN_CH_EN        0x73U
 #define TLV320_REG_ASI_OUT_CH_EN   0x74U
 #define TLV320_REG_PWR_CFG         0x75U
@@ -26,7 +28,29 @@
  */
 #define TLV320_ASI_CFG0_I2S_16BIT   0x40U
 
-/* MST_CFG0 reset 0x02: slave, auto clock, PLL enabled in auto — OK for I2S slave. */
+/*
+ * GPIO_CFG0 (0x21): GPIO1 as MCLK input.
+ * The drive mode bits are left at TI's documented 0b010 setting.
+ */
+#define TLV320_GPIO_CFG0_MCLK_INPUT 0xA2U
+
+/*
+ * MST_CFG0 (0x13):
+ * - bit7 = 1: controller mode (codec drives BCLK/FSYNC)
+ * - bit6 = 0: auto clock enabled
+ * - bit5 = 0: PLL enabled in auto mode
+ * - bit4 = 0: do not gate BCLK/FSYNC
+ * - bit3 = 0: 48-kHz family
+ * - bits2:0 = 110: 24.000 MHz MCLK input selection
+ */
+#define TLV320_MST_CFG0_CTLR_24MHZ  0x86U
+
+/*
+ * MST_CFG1 (0x14):
+ * - bits7:4 = 0110: FS_RATE = 192 kHz in the 48-kHz family
+ * - bits3:0 = 0010: BCLK/FSYNC ratio = 32 (16-bit stereo I2S)
+ */
+#define TLV320_MST_CFG1_192K_BCLK32 0x62U
 
 /* IN_CH_EN reset 0xC0: analog CH1+CH2 on; no change required. */
 
@@ -79,8 +103,18 @@ ErrorStatus tlv320adc6120_hw_init(void)
         return NoREADY;
     }
 
-    /* Confirm slave + auto clock (POR 0x02). */
-    if(tlv320adc6120_hw_write_reg(TLV320_REG_MST_CFG0, 0x02U) != READY)
+    /* External 24 MHz MCLK arrives on GPIO1. */
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_GPIO_CFG0, TLV320_GPIO_CFG0_MCLK_INPUT) != READY)
+    {
+        return NoREADY;
+    }
+
+    /* Codec drives BCLK/FSYNC at 192 kHz stereo from the external 24 MHz MCLK. */
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_MST_CFG0, TLV320_MST_CFG0_CTLR_24MHZ) != READY)
+    {
+        return NoREADY;
+    }
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_MST_CFG1, TLV320_MST_CFG1_192K_BCLK32) != READY)
     {
         return NoREADY;
     }
@@ -97,7 +131,7 @@ ErrorStatus tlv320adc6120_hw_init(void)
         return NoREADY;
     }
 
-    /* Power ADC + PLL; FSYNC/BCLK from MCU lock the internal PLL in auto mode. */
+    /* Power ADC + PLL; controller-mode clocks are derived from the external 24 MHz MCLK. */
     if(tlv320adc6120_hw_write_reg(TLV320_REG_PWR_CFG, TLV320_PWR_ADC_PLL_ON) != READY)
     {
         return NoREADY;

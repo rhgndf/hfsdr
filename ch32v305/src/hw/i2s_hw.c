@@ -4,63 +4,138 @@
 #include "pinout.h"
 
 #include "ch32v30x_dma.h"
+#include "ch32v30x_misc.h"
 #include "ch32v30x_rcc.h"
 #include "ch32v30x_spi.h"
+#include "ch32v30x_tim.h"
 
 /*
- * SPI2 I2S master RX: DMA1 channel 4, peripheral -> memory, circular.
- * (WCH EVT: SPI1 RX=Ch2 / TX=Ch3; I2S example SPI2 TX=DMA1 Ch5 — SPI2 RX is Ch4.)
+ * SPI2 I2S slave RX with DMA1 Channel4 circular RX.
+ * DMA HT/TC interrupts count incoming words.
+ * PC6 is used by TIM8_CH1 as an alternate 24 MHz clock output, so SPI2 MCK
+ * is intentionally left unused.
  */
-#define I2S_DMA_BUF_LEN 512U
+#define I2S_RX_DMA_CHANNEL           DMA1_Channel4
+#define I2S_RX_DMA_IRQn              DMA1_Channel4_IRQn
+#define I2S_RX_DMA_HT_IT             DMA1_IT_HT4
+#define I2S_RX_DMA_TC_IT             DMA1_IT_TC4
+#define I2S_RX_DMA_TE_IT             DMA1_IT_TE4
+#define I2S_RX_DMA_GL_IT             DMA1_IT_GL4
+#define I2S_RX_DMA_BUFFER_WORDS      512U
+#define I2S_RX_DMA_CHUNK_WORDS       (I2S_RX_DMA_BUFFER_WORDS / 2U)
 
-static uint16_t s_dma_buf[I2S_DMA_BUF_LEN];
-static volatile uint32_t s_rx_rd = 0U;
+static uint32_t s_clock_out_hz = 0U;
+static volatile uint32_t s_rx_word_count = 0U;
+static uint16_t s_rx_dma_buf[I2S_RX_DMA_BUFFER_WORDS];
 
-#define I2S_RX_DMA_CH DMA1_Channel4
+void DMA1_Channel4_IRQHandler(void) __attribute__((interrupt));
 
-static uint32_t i2s_dma_rx_write_idx(void)
+static void i2s_hw_dma_irq_init(void)
 {
-    uint16_t left = DMA_GetCurrDataCounter(I2S_RX_DMA_CH);
+    NVIC_InitTypeDef nvic = {0};
 
-    return (uint32_t)((I2S_DMA_BUF_LEN - (uint32_t)left) % I2S_DMA_BUF_LEN);
+    nvic.NVIC_IRQChannel = I2S_RX_DMA_IRQn;
+    nvic.NVIC_IRQChannelPreemptionPriority = 1;
+    nvic.NVIC_IRQChannelSubPriority = 0;
+    nvic.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&nvic);
 }
 
 static void i2s_dma_rx_start(void)
 {
-    DMA_InitTypeDef dma = {0};
+    DMA_InitTypeDef dma_init = {0};
 
     RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE);
 
-    DMA_DeInit(I2S_RX_DMA_CH);
+    DMA_DeInit(I2S_RX_DMA_CHANNEL);
 
-    s_rx_rd = 0U;
+    dma_init.DMA_PeripheralBaseAddr = (uint32_t)&SPI2->DATAR;
+    dma_init.DMA_MemoryBaseAddr = (uint32_t)s_rx_dma_buf;
+    dma_init.DMA_DIR = DMA_DIR_PeripheralSRC;
+    dma_init.DMA_BufferSize = I2S_RX_DMA_BUFFER_WORDS;
+    dma_init.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
+    dma_init.DMA_MemoryInc = DMA_MemoryInc_Enable;
+    dma_init.DMA_PeripheralDataSize = DMA_PeripheralDataSize_HalfWord;
+    dma_init.DMA_MemoryDataSize = DMA_MemoryDataSize_HalfWord;
+    dma_init.DMA_Mode = DMA_Mode_Circular;
+    dma_init.DMA_Priority = DMA_Priority_High;
+    dma_init.DMA_M2M = DMA_M2M_Disable;
+    DMA_Init(I2S_RX_DMA_CHANNEL, &dma_init);
 
-    dma.DMA_PeripheralBaseAddr = (uint32_t)&SPI2->DATAR;
-    dma.DMA_MemoryBaseAddr = (uint32_t)s_dma_buf;
-    dma.DMA_DIR = DMA_DIR_PeripheralSRC;
-    dma.DMA_BufferSize = (uint32_t)I2S_DMA_BUF_LEN;
-    dma.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
-    dma.DMA_MemoryInc = DMA_MemoryInc_Enable;
-    dma.DMA_PeripheralDataSize = DMA_PeripheralDataSize_HalfWord;
-    dma.DMA_MemoryDataSize = DMA_MemoryDataSize_HalfWord;
-    dma.DMA_Mode = DMA_Mode_Circular;
-    dma.DMA_Priority = DMA_Priority_High;
-    dma.DMA_M2M = DMA_M2M_Disable;
-
-    DMA_Init(I2S_RX_DMA_CH, &dma);
-
+    DMA_ClearITPendingBit(I2S_RX_DMA_GL_IT | I2S_RX_DMA_HT_IT | I2S_RX_DMA_TC_IT | I2S_RX_DMA_TE_IT);
+    DMA_ITConfig(I2S_RX_DMA_CHANNEL, DMA_IT_HT | DMA_IT_TC | DMA_IT_TE, ENABLE);
     SPI_I2S_DMACmd(SPI2, SPI_I2S_DMAReq_Rx, ENABLE);
-
     I2S_Cmd(SPI2, ENABLE);
-
-    DMA_Cmd(I2S_RX_DMA_CH, ENABLE);
+    DMA_Cmd(I2S_RX_DMA_CHANNEL, ENABLE);
 }
 
 static void i2s_dma_rx_stop(void)
 {
-    DMA_Cmd(I2S_RX_DMA_CH, DISABLE);
+    DMA_Cmd(I2S_RX_DMA_CHANNEL, DISABLE);
     SPI_I2S_DMACmd(SPI2, SPI_I2S_DMAReq_Rx, DISABLE);
-    DMA_DeInit(I2S_RX_DMA_CH);
+    DMA_DeInit(I2S_RX_DMA_CHANNEL);
+}
+
+/* Unfortunately we wired the clock wrong, so we have to use TIM8 as a clock out instead */
+static ErrorStatus i2s_hw_alt_clock_init_24mhz(void)
+{
+    GPIO_InitTypeDef gpio = {0};
+    TIM_TimeBaseInitTypeDef tim = {0};
+    TIM_OCInitTypeDef oc = {0};
+    RCC_ClocksTypeDef clocks = {0};
+    uint32_t tim_clk_hz;
+    uint32_t period_ticks;
+
+    RCC_GetClocksFreq(&clocks);
+
+    if((RCC->CFGR0 & RCC_PPRE2) == RCC_PPRE2_DIV1)
+    {
+        tim_clk_hz = clocks.PCLK2_Frequency;
+    }
+    else
+    {
+        tim_clk_hz = clocks.PCLK2_Frequency * 2U;
+    }
+
+    if((tim_clk_hz % 24000000U) != 0U)
+    {
+        return NoREADY;
+    }
+
+    period_ticks = tim_clk_hz / 24000000U;
+    if(period_ticks < 2U)
+    {
+        return NoREADY;
+    }
+
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC | RCC_APB2Periph_AFIO | RCC_APB2Periph_TIM8, ENABLE);
+
+    gpio.GPIO_Pin = GPIO_Pin_6;
+    gpio.GPIO_Mode = GPIO_Mode_AF_PP;
+    gpio.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(GPIOC, &gpio);
+
+    TIM_DeInit(TIM8);
+    tim.TIM_Prescaler = 0U;
+    tim.TIM_CounterMode = TIM_CounterMode_Up;
+    tim.TIM_Period = period_ticks - 1U;
+    tim.TIM_ClockDivision = TIM_CKD_DIV1;
+    tim.TIM_RepetitionCounter = 0U;
+    TIM_TimeBaseInit(TIM8, &tim);
+
+    oc.TIM_OCMode = TIM_OCMode_PWM1;
+    oc.TIM_OutputState = TIM_OutputState_Enable;
+    oc.TIM_Pulse = period_ticks / 2U;
+    oc.TIM_OCPolarity = TIM_OCPolarity_High;
+    TIM_OC1Init(TIM8, &oc);
+    TIM_OC1PreloadConfig(TIM8, TIM_OCPreload_Enable);
+    TIM_ARRPreloadConfig(TIM8, ENABLE);
+    TIM_CtrlPWMOutputs(TIM8, ENABLE);
+    TIM_Cmd(TIM8, ENABLE);
+
+    s_clock_out_hz = 24000000U;
+
+    return READY;
 }
 
 void i2s_hw_init(void)
@@ -68,18 +143,16 @@ void i2s_hw_init(void)
     GPIO_InitTypeDef gpio_init = {0};
     I2S_InitTypeDef i2s_init = {0};
 
+    s_clock_out_hz = 0U;
+    s_rx_word_count = 0U;
+
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC, ENABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI2, ENABLE);
 
     gpio_init.GPIO_Pin = I2S_WS_GPIO_PIN | I2S_CK_GPIO_PIN;
-    gpio_init.GPIO_Mode = GPIO_Mode_AF_PP;
+    gpio_init.GPIO_Mode = GPIO_Mode_IN_FLOATING;
     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(GPIOB, &gpio_init);
-
-    gpio_init.GPIO_Pin = I2S_MCK_GPIO_PIN;
-    gpio_init.GPIO_Mode = GPIO_Mode_AF_PP;
-    gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_Init(I2S_MCK_GPIO_PORT, &gpio_init);
 
     gpio_init.GPIO_Pin = I2S_SD_GPIO_PIN;
     gpio_init.GPIO_Mode = GPIO_Mode_IN_FLOATING;
@@ -87,14 +160,28 @@ void i2s_hw_init(void)
     GPIO_Init(GPIOB, &gpio_init);
 
     SPI_I2S_DeInit(SPI2);
-    i2s_init.I2S_Mode = I2S_Mode_MasterRx;
+    i2s_init.I2S_Mode = I2S_Mode_SlaveRx;
     i2s_init.I2S_Standard = I2S_Standard_Phillips;
     i2s_init.I2S_DataFormat = I2S_DataFormat_16b;
-    i2s_init.I2S_MCLKOutput = I2S_MCLKOutput_Enable;
-    i2s_init.I2S_AudioFreq = I2S_AudioFreq_96k;
+    i2s_init.I2S_MCLKOutput = I2S_MCLKOutput_Disable;
+    i2s_init.I2S_AudioFreq = I2S_AudioFreq_192k;
     i2s_init.I2S_CPOL = I2S_CPOL_Low;
 
     I2S_Init(SPI2, &i2s_init);
+
+    i2s_hw_dma_irq_init();
+
+    (void)i2s_hw_alt_clock_init_24mhz();
+}
+
+uint32_t i2s_hw_configured_mclk_hz(void)
+{
+    return s_clock_out_hz;
+}
+
+uint32_t i2s_hw_rx_word_count(void)
+{
+    return s_rx_word_count;
 }
 
 void i2s_hw_enable(FunctionalState state)
@@ -109,75 +196,22 @@ void i2s_hw_enable(FunctionalState state)
     i2s_dma_rx_start();
 }
 
-void i2s_hw_send_u16(uint16_t sample)
+void DMA1_Channel4_IRQHandler(void)
 {
-    while(SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) == RESET)
+    if(DMA_GetITStatus(I2S_RX_DMA_HT_IT) != RESET)
     {
-    }
-    SPI_I2S_SendData(SPI2, sample);
-}
-
-uint16_t i2s_hw_receive_u16(void)
-{
-    uint16_t w;
-
-    while(i2s_hw_try_receive_u16(&w) != READY)
-    {
+        DMA_ClearITPendingBit(I2S_RX_DMA_HT_IT);
+        s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
     }
 
-    return w;
-}
-
-ErrorStatus i2s_hw_try_receive_u16(uint16_t *sample)
-{
-    uint32_t wr;
-    uint32_t rd;
-
-    if(sample == 0)
+    if(DMA_GetITStatus(I2S_RX_DMA_TC_IT) != RESET)
     {
-        return NoREADY;
+        DMA_ClearITPendingBit(I2S_RX_DMA_TC_IT);
+        s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
     }
 
-    wr = i2s_dma_rx_write_idx();
-    rd = s_rx_rd;
-
-    if(wr == rd)
+    if(DMA_GetITStatus(I2S_RX_DMA_TE_IT) != RESET)
     {
-        return NoREADY;
+        DMA_ClearITPendingBit(I2S_RX_DMA_TE_IT);
     }
-
-    *sample = s_dma_buf[rd];
-    s_rx_rd = (rd + 1U) % I2S_DMA_BUF_LEN;
-
-    return READY;
-}
-
-void i2s_hw_receive_burst_blocking(uint16_t *buf, size_t n)
-{
-    size_t i;
-
-    for(i = 0U; i < n; ++i)
-    {
-        buf[i] = i2s_hw_receive_u16();
-    }
-}
-
-size_t i2s_hw_receive_drain_try(uint16_t *buf, size_t max_n)
-{
-    size_t i;
-
-    if(buf == NULL || max_n == 0U)
-    {
-        return 0U;
-    }
-
-    for(i = 0U; i < max_n; ++i)
-    {
-        if(i2s_hw_try_receive_u16(&buf[i]) != READY)
-        {
-            break;
-        }
-    }
-
-    return i;
 }
