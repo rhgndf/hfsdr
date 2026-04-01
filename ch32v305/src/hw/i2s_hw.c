@@ -162,7 +162,7 @@ void i2s_hw_init(void)
     SPI_I2S_DeInit(SPI2);
     i2s_init.I2S_Mode = I2S_Mode_SlaveRx;
     i2s_init.I2S_Standard = I2S_Standard_Phillips;
-    i2s_init.I2S_DataFormat = I2S_DataFormat_16b;
+    i2s_init.I2S_DataFormat = I2S_DataFormat_24b;
     i2s_init.I2S_MCLKOutput = I2S_MCLKOutput_Disable;
     i2s_init.I2S_AudioFreq = I2S_AudioFreq_192k;
     i2s_init.I2S_CPOL = I2S_CPOL_Low;

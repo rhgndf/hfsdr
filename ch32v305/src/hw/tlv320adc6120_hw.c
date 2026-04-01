@@ -12,6 +12,10 @@
 #define TLV320_REG_MST_CFG0        0x13U
 #define TLV320_REG_MST_CFG1        0x14U
 #define TLV320_REG_GPIO_CFG0       0x21U
+#define TLV320_REG_CM_TOL_CFG      0x3AU
+#define TLV320_REG_BIAS_CFG        0x3BU
+#define TLV320_REG_CH1_CFG0        0x3CU
+#define TLV320_REG_CH2_CFG0        0x41U
 #define TLV320_REG_IN_CH_EN        0x73U
 #define TLV320_REG_ASI_OUT_CH_EN   0x74U
 #define TLV320_REG_PWR_CFG         0x75U
@@ -23,16 +27,48 @@
 #define TLV320_SLEEP_CFG_VAL       ((TLV320ADC6120_USE_INTERNAL_AREG) != 0 ? TLV320_SLEEP_WAKE_INT_AREG : TLV320_SLEEP_WAKE_EXT_AREG)
 
 /*
- * ASI_CFG0 (0x07): I2S (ASI_FORMAT=01), 16-bit word (ASI_WLEN=00).
+ * ASI_CFG0 (0x07): I2S (ASI_FORMAT=01), 24-bit word (ASI_WLEN=10).
  * Remaining bits default: FSYNC/BCLK polarity default, TX_EDGE/TX_FILL = 0.
  */
-#define TLV320_ASI_CFG0_I2S_16BIT   0x40U
+#define TLV320_ASI_CFG0_I2S_24BIT   0x60U
 
 /*
  * GPIO_CFG0 (0x21): GPIO1 as MCLK input.
  * The drive mode bits are left at TI's documented 0b010 setting.
  */
 #define TLV320_GPIO_CFG0_MCLK_INPUT 0xA2U
+
+/*
+ * CM_TOL_CFG (0x3A):
+ * - CH1_INP_CM_TOL_CFG = 10b
+ * - CH2_INP_CM_TOL_CFG = 10b
+ *
+ * TI documents this as the high-CMRR mode that supports 0-AVDD common-mode
+ * tolerance when the analog input impedance is 10 kOhm or 20 kOhm.
+ */
+#define TLV320_CM_TOL_HIGH_CMRR_BOTH 0xA0U
+
+/*
+ * BIAS_CFG (0x3B):
+ * - MBIAS_VAL = 000b: MICBIAS = VREF
+ * - ADC_FSCALE = 00b: VREF = 2.75 V
+ *
+ * Keep the ADC reference at its default 2.75 V.
+ */
+#define TLV320_BIAS_CFG_VREF_2V75  0x00U
+
+/*
+ * CHx_CFG0 (0x3C / 0x41):
+ * - INTYP = 1b: line input
+ * - INSRC = 00b: analog differential input
+ * - DC = 0b: AC-coupled input
+ * - IMP = 01b: 10-kOhm input impedance
+ * - DREEN = 0b: disabled
+ *
+ * Differential AC-coupled mode lets the TLV320 establish the input common-mode
+ * internally on the codec side of the coupling capacitors.
+ */
+#define TLV320_CH_CFG0_LINE_DIFF_AC_10K 0x84U
 
 /*
  * MST_CFG0 (0x13):
@@ -48,9 +84,12 @@
 /*
  * MST_CFG1 (0x14):
  * - bits7:4 = 0110: FS_RATE = 192 kHz in the 48-kHz family
- * - bits3:0 = 0010: BCLK/FSYNC ratio = 32 (16-bit stereo I2S)
+ * - bits3:0 = 0100: BCLK/FSYNC ratio = 64
+ *
+ * CH32's SPI/I2S block uses 32-bit channel frames for I2S_DataFormat_24b, so
+ * the codec must also drive 64 BCLKs per stereo frame.
  */
-#define TLV320_MST_CFG1_192K_BCLK32 0x62U
+#define TLV320_MST_CFG1_192K_BCLK64 0x64U
 
 /* IN_CH_EN reset 0xC0: analog CH1+CH2 on; no change required. */
 
@@ -97,8 +136,8 @@ ErrorStatus tlv320adc6120_hw_init(void)
     }
     Delay_Ms(10U);
 
-    /* ASI: I2S, 16-bit — matches i2s_hw.c I2S_DataFormat_16b + Philips. */
-    if(tlv320adc6120_hw_write_reg(TLV320_REG_ASI_CFG0, TLV320_ASI_CFG0_I2S_16BIT) != READY)
+    /* ASI: I2S, 24-bit — matches i2s_hw.c I2S_DataFormat_24b + Philips. */
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_ASI_CFG0, TLV320_ASI_CFG0_I2S_24BIT) != READY)
     {
         return NoREADY;
     }
@@ -109,12 +148,34 @@ ErrorStatus tlv320adc6120_hw_init(void)
         return NoREADY;
     }
 
+    /*
+     * Configure both analog channels explicitly instead of relying on reset
+     * defaults: differential, AC-coupled, 10-kOhm line inputs. This avoids
+     * requiring an external DC bias on the source.
+     */
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_CM_TOL_CFG, TLV320_CM_TOL_HIGH_CMRR_BOTH) != READY)
+    {
+        return NoREADY;
+    }
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_BIAS_CFG, TLV320_BIAS_CFG_VREF_2V75) != READY)
+    {
+        return NoREADY;
+    }
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_CH1_CFG0, TLV320_CH_CFG0_LINE_DIFF_AC_10K) != READY)
+    {
+        return NoREADY;
+    }
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_CH2_CFG0, TLV320_CH_CFG0_LINE_DIFF_AC_10K) != READY)
+    {
+        return NoREADY;
+    }
+
     /* Codec drives BCLK/FSYNC at 192 kHz stereo from the external 24 MHz MCLK. */
     if(tlv320adc6120_hw_write_reg(TLV320_REG_MST_CFG0, TLV320_MST_CFG0_CTLR_24MHZ) != READY)
     {
         return NoREADY;
     }
-    if(tlv320adc6120_hw_write_reg(TLV320_REG_MST_CFG1, TLV320_MST_CFG1_192K_BCLK32) != READY)
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_MST_CFG1, TLV320_MST_CFG1_192K_BCLK64) != READY)
     {
         return NoREADY;
     }

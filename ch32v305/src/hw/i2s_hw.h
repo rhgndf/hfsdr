@@ -5,7 +5,7 @@
 #include "debug.h"
 
 /*
- * SPI2 in I2S slave RX: 16-bit Philips (see i2s_hw_init).
+ * SPI2 in I2S slave RX: 24-bit Philips in 32-bit channel frames (see i2s_hw_init).
  * WS (PB12) and CK (PB13) are supplied by an external I2S controller.
  * SD (PB15) receives serial data from an external I2S ADC / codec.
  * PC6 is reserved for an alternate 24 MHz clock output from TIM8_CH1, so the

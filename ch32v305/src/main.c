@@ -239,8 +239,9 @@ static void Scan_I2CBus_EverySecond(void)
 /*********************************************************************
  * TLV320ADC6120 I2S capture (CH1/CH2)
  *
- * In I2S stereo mode, words arrive as L then R per frame.
- * SPI2 RX DMA runs in circular mode; DMA HT/TC interrupts count incoming words.
+ * In the current 24-bit I2S mode, the CH32 peripheral uses 32-bit channel
+ * frames, so each stereo frame arrives as four 16-bit DMA words.
+ * SPI2 RX DMA runs in circular mode; DMA HT/TC interrupts count those words.
  * Report the incoming data rate once per second.
  *********************************************************************/
 static void TLV320_I2S_Poll(void)
@@ -273,7 +274,7 @@ static void TLV320_I2S_Poll(void)
     }
 
     words_per_sec = (uint32_t)((((uint64_t)(words_now - last_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
-    frames_per_sec = words_per_sec / 2U;
+    frames_per_sec = words_per_sec / 4U;
     bytes_per_sec = words_per_sec * (uint32_t)sizeof(uint16_t);
 
     printf("ADC I2S rate: %lu words/s, %lu frames/s, %lu B/s\r\n",
@@ -325,7 +326,7 @@ int main(void)
 
     if(tlv320adc6120_hw_init() == READY)
     {
-        printf("TLV320ADC6120: I2C 0x4E, I2S controller 16-bit CH1+CH2, expects 24 MHz MCLK\r\n");
+        printf("TLV320ADC6120: I2C 0x4E, I2S controller 24-bit CH1+CH2, expects 24 MHz MCLK\r\n");
         GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, Bit_SET);
     }
     else
