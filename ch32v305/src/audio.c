@@ -96,14 +96,24 @@ static bool audio_clock_get_request(uint8_t rhport, audio20_control_request_t co
 
 static bool audio_clock_set_request(uint8_t rhport, audio20_control_request_t const* request, uint8_t const* buf) {
   (void) rhport;
+  uint32_t requested_rate;
+  uint8_t i;
 
   TU_ASSERT(request->bEntityID == UAC2_ENTITY_CLOCK);
   TU_VERIFY(request->bRequest == AUDIO20_CS_REQ_CUR);
 
   if (request->bControlSelector == AUDIO20_CS_CTRL_SAM_FREQ) {
     TU_VERIFY(request->wLength == sizeof(audio20_control_cur_4_t));
-    current_sample_rate = (uint32_t) tu_le32toh(((audio20_control_cur_4_t const*) buf)->bCur);
-    return true;
+    requested_rate = (uint32_t) tu_le32toh(((audio20_control_cur_4_t const*) buf)->bCur);
+
+    for (i = 0U; i < TU_ARRAY_SIZE(sample_rates); ++i) {
+      if (sample_rates[i] == requested_rate) {
+        current_sample_rate = requested_rate;
+        return true;
+      }
+    }
+
+    return false;
   }
 
   return false;
