@@ -2655,6 +2655,12 @@
 		(uuid "bd97b1ac-9e5b-4363-a726-8a6bce6e87b1")
 	)
 	(junction
+		(at 80.01 157.48)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "c1316120-86d6-4e88-85e0-4b864f3f8c7a")
+	)
+	(junction
 		(at 157.48 78.74)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3500,7 +3506,7 @@
 	)
 	(wire
 		(pts
-			(xy 69.85 157.48) (xy 81.28 157.48)
+			(xy 69.85 157.48) (xy 80.01 157.48)
 		)
 		(stroke
 			(width 0)
@@ -3550,6 +3556,16 @@
 	)
 	(wire
 		(pts
+			(xy 80.01 157.48) (xy 81.28 157.48)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "f7972df1-6fda-4b19-8c6a-ece5e0f2ae25")
+	)
+	(wire
+		(pts
 			(xy 24.13 179.07) (xy 35.56 179.07)
 		)
 		(stroke
@@ -3557,6 +3573,16 @@
 			(type default)
 		)
 		(uuid "f872eec2-e7ee-4181-90f0-5f4ae8334d95")
+	)
+	(wire
+		(pts
+			(xy 80.01 157.48) (xy 80.01 165.1)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "f94fafa5-df00-4ec1-8b76-356cebae4898")
 	)
 	(global_label "WS"
 		(shape input)
@@ -7204,6 +7230,72 @@
 			(project "hfsdr"
 				(path "/a11445ed-c3bd-4d1c-a039-1c09b0dceab8/53c9ae5e-dd7f-4449-b148-e9a80e46b47d"
 					(reference "C42")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:+3.3V")
+		(at 80.01 165.1 180)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "c7adbcd3-ef67-4065-af0d-cb79aa8eadab")
+		(property "Reference" "#PWR082"
+			(at 80.01 161.29 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "+3.3V"
+			(at 80.01 170.18 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 80.01 165.1 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 80.01 165.1 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"+3.3V\""
+			(at 80.01 165.1 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "206dc67c-6a42-415d-b42e-e59bd5f08768")
+		)
+		(instances
+			(project "hfsdr"
+				(path "/a11445ed-c3bd-4d1c-a039-1c09b0dceab8/53c9ae5e-dd7f-4449-b148-e9a80e46b47d"
+					(reference "#PWR082")
 					(unit 1)
 				)
 			)
