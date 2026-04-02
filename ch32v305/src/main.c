@@ -31,6 +31,7 @@
 #include "hw/si5351_hw.h"
 #include "hw/i2s_hw.h"
 #include "hw/usb_hw.h"
+#include "hw/watchdog.h"
 
 /*********************************************************************
  * @fn      GPIO_Toggle_INIT
@@ -398,6 +399,7 @@ int main(void)
     LED_Blink_Init(1000U);
 
     /* display_spi_test_run(); */
+    //watchdog_init();
 
     while(1)
     {
@@ -407,5 +409,6 @@ int main(void)
         //Scan_I2CBus_EverySecond();
         //SysTick_Report_USB_EverySecond();
         LED_Blink_Task();
+        //watchdog_kick();
     }
 }

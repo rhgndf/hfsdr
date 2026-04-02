@@ -535,8 +535,3 @@ ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz)
 {
     return si5351_hw_clk0_quadrature_set_freq_hz(hz);
 }
-
-ErrorStatus si5351_hw_clk0_set_94mhz(void)
-{
-    return si5351_hw_clk0_set_freq_hz(94000000ULL);
-}
