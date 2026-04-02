@@ -5,11 +5,19 @@
 #include <stdint.h>
 #include "debug.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void i2c_hw_init(void);
 ErrorStatus i2c_hw_write_register(uint8_t addr_7bit, uint8_t reg, uint8_t value);
 /* Write reg then len data bytes in one I2C transaction (Si5351 multisynth blocks, etc.). */
 ErrorStatus i2c_hw_write_register_burst(uint8_t addr_7bit, uint8_t reg, const uint8_t *data, size_t len);
 ErrorStatus i2c_hw_read_register(uint8_t addr_7bit, uint8_t reg, uint8_t *value);
 ErrorStatus i2c_hw_scan_bus_at(uint8_t addr_7bit);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
