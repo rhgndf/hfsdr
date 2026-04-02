@@ -3,15 +3,22 @@
 #include <string.h>
 
 #include "debug.h"
+#include "si5351_hw.h"
 #include "tusb.h"
 #include "usb_descriptors.h"
 
 #define USB_ECHO_BUF_SIZE  512
 #define USB_ROOT_HUB_PORT  0
 #define USB_WEB_URL        "example.tinyusb.org/webusb-serial/index.html"
+#define USB_HW_CLK_FREQ_PAYLOAD_SIZE 8U
+#define USB_HW_CLK_FREQ_STATE_SIZE   (1U + USB_HW_CLK_FREQ_PAYLOAD_SIZE)
 
 static uint8_t usb_echo_buf[USB_ECHO_BUF_SIZE];
 static uint8_t vendor_buf[512];
+static uint8_t usb_hw_clk_freq_req[USB_HW_CLK_FREQ_PAYLOAD_SIZE];
+static uint8_t usb_hw_clk_freq_state[USB_HW_CLK_FREQ_STATE_SIZE];
+static uint64_t usb_hw_clk_freq_hz = 0U;
+static ErrorStatus usb_hw_clk_freq_status = NoREADY;
 static tusb_desc_webusb_url_t const desc_url = {
     .bLength = 3 + sizeof(USB_WEB_URL) - 1,
     .bDescriptorType = 3,
@@ -19,10 +26,60 @@ static tusb_desc_webusb_url_t const desc_url = {
     .url = USB_WEB_URL
 };
 
+static uint64_t usb_u64_from_le(uint8_t const *buf)
+{
+    uint64_t value = 0U;
+    uint32_t i;
+
+    for(i = 0U; i < USB_HW_CLK_FREQ_PAYLOAD_SIZE; ++i)
+    {
+        value |= ((uint64_t)buf[i]) << (8U * i);
+    }
+
+    return value;
+}
+
+static void usb_u64_to_le(uint64_t value, uint8_t *buf)
+{
+    uint32_t i;
+
+    for(i = 0U; i < USB_HW_CLK_FREQ_PAYLOAD_SIZE; ++i)
+    {
+        buf[i] = (uint8_t)(value >> (8U * i));
+    }
+}
+
+static void usb_hw_prepare_clk_freq_state(void)
+{
+    usb_hw_clk_freq_state[0] = (uint8_t)usb_hw_clk_freq_status;
+    usb_u64_to_le(usb_hw_clk_freq_hz, &usb_hw_clk_freq_state[1]);
+}
+
 static void usb_send_connected_banner(void)
 {
     static uint8_t const msg[] = "\r\nWebUSB interface connected\r\n";
     usb_send_data(msg, sizeof(msg) - 1U);
+}
+
+ErrorStatus usb_hw_set_clk_freq_hz(uint64_t hz)
+{
+    usb_hw_clk_freq_status = si5351_hw_clk0_set_freq_hz(hz);
+    if(usb_hw_clk_freq_status == READY)
+    {
+        usb_hw_clk_freq_hz = hz;
+    }
+
+    return usb_hw_clk_freq_status;
+}
+
+uint64_t usb_hw_get_clk_freq_hz(void)
+{
+    return usb_hw_clk_freq_hz;
+}
+
+ErrorStatus usb_hw_get_clk_freq_status(void)
+{
+    return usb_hw_clk_freq_status;
 }
 
 void usb_hw_init(void)
@@ -85,20 +142,23 @@ void tud_vendor_rx_cb(uint8_t idx, const uint8_t *buffer, uint32_t bufsize)
 
 bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const* request)
 {
-    if(stage != CONTROL_STAGE_SETUP)
-    {
-        return true;
-    }
-
     switch(request->bmRequestType_bit.type)
     {
         case TUSB_REQ_TYPE_VENDOR:
             switch(request->bRequest)
             {
                 case VENDOR_REQUEST_WEBUSB:
+                    if(stage != CONTROL_STAGE_SETUP)
+                    {
+                        return true;
+                    }
                     return tud_control_xfer(rhport, request, (void*)(uintptr_t)&desc_url, desc_url.bLength);
 
                 case VENDOR_REQUEST_MICROSOFT:
+                    if(stage != CONTROL_STAGE_SETUP)
+                    {
+                        return true;
+                    }
                     if(request->wIndex == 7U)
                     {
                         uint16_t total_len;
@@ -107,12 +167,57 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
                     }
                     return false;
 
+                case VENDOR_REQUEST_SET_CLK_FREQ:
+                    if(request->bmRequestType_bit.direction != TUSB_DIR_OUT)
+                    {
+                        return false;
+                    }
+                    if((request->wValue != 0U) || (request->wIndex != 0U) || (request->wLength != USB_HW_CLK_FREQ_PAYLOAD_SIZE))
+                    {
+                        return false;
+                    }
+
+                    if(stage == CONTROL_STAGE_SETUP)
+                    {
+                        /* Browser-side shape:
+                         * controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 3, value: 0, index: 0 }, freqHzLe64)
+                         */
+                        return tud_control_xfer(rhport, request, usb_hw_clk_freq_req, sizeof(usb_hw_clk_freq_req));
+                    }
+                    if(stage == CONTROL_STAGE_DATA)
+                    {
+                        return (usb_hw_set_clk_freq_hz(usb_u64_from_le(usb_hw_clk_freq_req)) == READY);
+                    }
+                    return true;
+
+                case VENDOR_REQUEST_GET_CLK_FREQ:
+                    if(stage != CONTROL_STAGE_SETUP)
+                    {
+                        return true;
+                    }
+                    if(request->bmRequestType_bit.direction != TUSB_DIR_IN)
+                    {
+                        return false;
+                    }
+                    if((request->wValue != 0U) || (request->wIndex != 0U))
+                    {
+                        return false;
+                    }
+
+                    /* Returns 1 status byte followed by uint64_t little-endian frequency in Hz. */
+                    usb_hw_prepare_clk_freq_state();
+                    return tud_control_xfer(rhport, request, usb_hw_clk_freq_state, sizeof(usb_hw_clk_freq_state));
+
                 default:
                     break;
             }
             break;
 
         case TUSB_REQ_TYPE_CLASS:
+            if(stage != CONTROL_STAGE_SETUP)
+            {
+                return true;
+            }
             if(request->bRequest == 0x22U)
             {
                 if(request->wValue != 0U)

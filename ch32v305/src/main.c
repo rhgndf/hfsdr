@@ -378,7 +378,7 @@ int main(void)
         printf("TLV320ADC6120: I2C init failed (check wiring / AVDD AREG define / 24 MHz MCLK)\r\n");
     }
 
-    if(si5351_hw_clk0_set_freq_hz(7067333ULL) == READY)
+    if(usb_hw_set_clk_freq_hz(7067333ULL) == READY)
     {
         printf("Si5351: LO CLK0/CLK1 = 12000000 Hz, CLK1 = +90 deg\r\n");
     }
