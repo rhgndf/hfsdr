@@ -15,7 +15,9 @@
 #define TLV320_REG_CM_TOL_CFG      0x3AU
 #define TLV320_REG_BIAS_CFG        0x3BU
 #define TLV320_REG_CH1_CFG0        0x3CU
+#define TLV320_REG_CH1_CFG1        0x3DU
 #define TLV320_REG_CH2_CFG0        0x41U
+#define TLV320_REG_CH2_CFG1        0x42U
 #define TLV320_REG_IN_CH_EN        0x73U
 #define TLV320_REG_ASI_OUT_CH_EN   0x74U
 #define TLV320_REG_PWR_CFG         0x75U
@@ -69,6 +71,13 @@
  * internally on the codec side of the coupling capacitors.
  */
 #define TLV320_CH_CFG0_LINE_DIFF_AC_10K 0x84U
+
+/*
+ * CHx_CFG1 (0x3D / 0x42):
+ * - CHx_GAIN[6:0] = 40d: +20.0 dB in 0.5-dB steps
+ * - CHx_GAIN_SIGN_BIT = 0b: positive gain
+ */
+#define TLV320_CH_CFG1_GAIN_POS_20DB   0x50U
 
 /*
  * MST_CFG0 (0x13):
@@ -165,7 +174,15 @@ ErrorStatus tlv320adc6120_hw_init(void)
     {
         return NoREADY;
     }
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_CH1_CFG1, TLV320_CH_CFG1_GAIN_POS_20DB) != READY)
+    {
+        return NoREADY;
+    }
     if(tlv320adc6120_hw_write_reg(TLV320_REG_CH2_CFG0, TLV320_CH_CFG0_LINE_DIFF_AC_10K) != READY)
+    {
+        return NoREADY;
+    }
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_CH2_CFG1, TLV320_CH_CFG1_GAIN_POS_20DB) != READY)
     {
         return NoREADY;
     }

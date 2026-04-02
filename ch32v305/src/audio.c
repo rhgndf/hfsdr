@@ -109,6 +109,24 @@ static bool audio_clock_set_request(uint8_t rhport, audio20_control_request_t co
   return false;
 }
 
+static bool audio_input_terminal_get_request(uint8_t rhport, audio20_control_request_t const* request) {
+  TU_ASSERT(request->bEntityID == UAC2_ENTITY_MIC_INPUT_TERMINAL);
+
+  if (request->bControlSelector == AUDIO20_TE_CTRL_CONNECTOR &&
+      request->bRequest == AUDIO20_CS_REQ_CUR) {
+    audio20_desc_channel_cluster_t connector = {
+      .bNrChannels = AUDIO_USB_CHANNELS,
+      .bmChannelConfig = tu_htole32(AUDIO20_CHANNEL_CONFIG_NON_PREDEFINED),
+      .iChannelNames = 0U
+    };
+
+    return tud_audio_buffer_and_schedule_control_xfer(
+        rhport, (tusb_control_request_t const*) request, &connector, sizeof(connector));
+  }
+
+  return false;
+}
+
 static bool audio_feature_unit_get_request(uint8_t rhport, audio20_control_request_t const* request) {
   TU_ASSERT(request->bEntityID == UAC2_ENTITY_MIC_FEATURE_UNIT);
   TU_VERIFY(request->bChannelNumber <= AUDIO_MIC_CTRL_CHANNELS);
@@ -171,6 +189,10 @@ static bool audio_feature_unit_set_request(uint8_t rhport, audio20_control_reque
 
 bool tud_audio_get_req_entity_cb(uint8_t rhport, tusb_control_request_t const* p_request) {
   audio20_control_request_t const* request = (audio20_control_request_t const*) p_request;
+
+  if (request->bEntityID == UAC2_ENTITY_MIC_INPUT_TERMINAL) {
+    return audio_input_terminal_get_request(rhport, request);
+  }
 
   if (request->bEntityID == UAC2_ENTITY_CLOCK) {
     return audio_clock_get_request(rhport, request);
