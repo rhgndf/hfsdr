@@ -271,7 +271,7 @@
       statusMessage = 'Device paired. Reading current frequency...'
 
       await readClockFrequency(selectedDevice)
-      startPllLockPolling(selectedDevice)
+      //startPllLockPolling(selectedDevice)
       startIqStream(selectedDevice)
     } catch (error) {
       pllLocked = null

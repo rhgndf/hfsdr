@@ -1,8 +1,8 @@
 import { claimVendorInterface, getVendorInEndpointNumber } from './webusb.js'
 
-const DEFAULT_TRANSFER_BYTES = 16 * 1024
+const DEFAULT_TRANSFER_BYTES = 64 * 1024
 const DEFAULT_REPORT_EVERY_MS = 1000
-const DEFAULT_IN_FLIGHT_TRANSFERS = 8
+const DEFAULT_IN_FLIGHT_TRANSFERS = 32
 const IQ_FRAME_BYTES = 8
 const IQ_FIXED_POINT_SCALE = 1 / 0x800000
 const BYTES_PER_MB = 1000 * 1000
@@ -98,11 +98,18 @@ export async function readVendorIqLoop(device, options = {}) {
       throw new Error(`Vendor read failed with status "${response.status}".`)
     }
 
+    // Copy out the payload and immediately resubmit this transfer before any
+    // decode/render/audio work so the browser keeps more reads in flight.
     const chunkBytes = new Uint8Array(
-      response.data.buffer,
-      response.data.byteOffset,
-      response.data.byteLength,
+      response.data.buffer.slice(
+        response.data.byteOffset,
+        response.data.byteOffset + response.data.byteLength,
+      ),
     )
+    pendingTransfers[nextTransferIndex] = submitTransferIn(device, endpointNumber, transferSize)
+    nextTransferIndex = (nextTransferIndex + 1) % transferCount
+
+    
     const mergedBytes = appendCarry(carryBytes, chunkBytes)
     const wholeByteLength = mergedBytes.byteLength - (mergedBytes.byteLength % IQ_FRAME_BYTES)
 
@@ -120,8 +127,6 @@ export async function readVendorIqLoop(device, options = {}) {
       onIqSamples?.(iqSamples)
     }
 
-    pendingTransfers[nextTransferIndex] = submitTransferIn(device, endpointNumber, transferSize)
-    nextTransferIndex = (nextTransferIndex + 1) % transferCount
     carryBytes = mergedBytes.subarray(wholeByteLength)
 
     const now = performance.now()
