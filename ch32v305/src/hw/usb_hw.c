@@ -12,9 +12,9 @@
 #define USB_WEB_URL        "example.tinyusb.org/webusb-serial/index.html"
 #define USB_HW_CLK_FREQ_PAYLOAD_SIZE 8U
 #define USB_HW_CLK_FREQ_STATE_SIZE   (1U + USB_HW_CLK_FREQ_PAYLOAD_SIZE)
+#define USB_VENDOR_STREAM_INDEX      0U
 
 static uint8_t usb_echo_buf[USB_ECHO_BUF_SIZE];
-static uint8_t vendor_buf[512];
 static uint8_t usb_hw_clk_freq_req[USB_HW_CLK_FREQ_PAYLOAD_SIZE];
 static uint8_t usb_hw_clk_freq_state[USB_HW_CLK_FREQ_STATE_SIZE];
 static uint64_t usb_hw_clk_freq_hz = 0U;
@@ -61,6 +61,23 @@ static void usb_send_connected_banner(void)
     usb_send_data(msg, sizeof(msg) - 1U);
 }
 
+void usb_hw_vendor_write_isr(volatile uint16_t const *src_words, size_t word_count)
+{
+    if((src_words == 0) || (word_count == 0U))
+    {
+        return;
+    }
+
+    if(tud_vendor_n_write_available(USB_VENDOR_STREAM_INDEX) < (word_count * sizeof(uint16_t)))
+    {
+        return;
+    }
+
+    (void)tud_vendor_n_write(USB_VENDOR_STREAM_INDEX,
+                             (uint8_t const *)(uintptr_t)src_words,
+                             (uint32_t)(word_count * sizeof(uint16_t)));
+}
+
 ErrorStatus usb_hw_set_clk_freq_hz(uint64_t hz)
 {
     usb_hw_clk_freq_status = si5351_hw_clk0_set_freq_hz(hz);
@@ -101,19 +118,6 @@ void usb_hw_init(void)
     tusb_init(USB_ROOT_HUB_PORT, &dev_init);
 }
 
-void usb_hw_task(void)
-{
-    if(tud_vendor_n_write_available(0) != 0U)
-    {
-        tud_vendor_write(vendor_buf, sizeof(vendor_buf));
-#if CFG_TUD_VENDOR_TXRX_BUFFERED
-        tud_vendor_write_flush();
-#endif
-    }
-
-    tud_task();
-}
-
 uint32_t usb_send_data(uint8_t const *buffer, uint32_t len)
 {
     uint32_t written = tud_cdc_write(buffer, len);
@@ -132,12 +136,17 @@ uint32_t usb_receive_data(uint8_t *buffer, uint32_t len)
 
 void tud_vendor_rx_cb(uint8_t idx, const uint8_t *buffer, uint32_t bufsize)
 {
-    (void) idx;
-    (void) buffer;
-    (void) bufsize;
-#if CFG_TUD_VENDOR_TXRX_BUFFERED
-    tud_vendor_read(vendor_buf, sizeof(vendor_buf));
-#endif
+    if((buffer == 0) || (bufsize == 0U))
+    {
+        return;
+    }
+
+    if(tud_vendor_n_write_available(idx) < bufsize)
+    {
+        return;
+    }
+
+    (void)tud_vendor_n_write(idx, buffer, bufsize);
 }
 
 bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const* request)

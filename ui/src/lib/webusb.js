@@ -1,8 +1,6 @@
 const HFSDR_VENDOR_ID = 0xcafe
 const USB_CONFIGURATION = 1
-const VENDOR_REQUEST_SET_CLK_FREQ = 3
-const VENDOR_REQUEST_GET_CLK_FREQ = 4
-const CLK_FREQ_RESPONSE_LENGTH = 9
+const VENDOR_INTERFACE_CLASS = 0xff
 
 function ensureWebUsbAvailable() {
   if (!('usb' in navigator)) {
@@ -10,7 +8,15 @@ function ensureWebUsbAvailable() {
   }
 }
 
-async function ensureDeviceOpen(device) {
+function isVendorAlternate(alternate) {
+  return alternate.interfaceClass === VENDOR_INTERFACE_CLASS
+}
+
+export async function ensureDeviceOpen(device) {
+  if (!device) {
+    throw new Error('No device paired.')
+  }
+
   if (!device.opened) {
     await device.open()
   }
@@ -20,40 +26,66 @@ async function ensureDeviceOpen(device) {
   }
 }
 
-function uint64ToLittleEndianBytes(value) {
-  const bytes = new Uint8Array(8)
-  let remaining = value
-
-  for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = Number(remaining & 0xffn)
-    remaining >>= 8n
-  }
-
-  return bytes
-}
-
-function littleEndianBytesToUint64(bytes) {
-  let value = 0n
-
-  for (let index = 0; index < bytes.length; index += 1) {
-    value |= BigInt(bytes[index]) << BigInt(index * 8)
-  }
-
-  return value
-}
-
-export function parseFrequencyInput(value) {
-  const normalized = value.trim()
-
-  if (!/^\d+$/.test(normalized)) {
-    throw new Error('Frequency must be a whole number in Hz.')
-  }
-
-  return BigInt(normalized)
-}
-
 export function describeDevice(device) {
   return device.productName || `0x${device.vendorId.toString(16)} device`
+}
+
+export function getVendorInterface(device) {
+  return device?.configuration?.interfaces.find((iface) =>
+    iface.alternates.some(isVendorAlternate),
+  ) ?? null
+}
+
+export function getVendorAlternate(device) {
+  const vendorInterface = getVendorInterface(device)
+
+  if (!vendorInterface) {
+    return null
+  }
+
+  return vendorInterface.alternate ?? vendorInterface.alternates.find(isVendorAlternate) ?? null
+}
+
+export function getVendorInEndpointNumber(device) {
+  const vendorAlternate = getVendorAlternate(device)
+  const inEndpoint = vendorAlternate?.endpoints.find((endpoint) => endpoint.direction === 'in')
+
+  if (!inEndpoint) {
+    throw new Error('Vendor IN endpoint not found in the active USB configuration.')
+  }
+
+  return inEndpoint.endpointNumber
+}
+
+export async function claimVendorInterface(device) {
+  await ensureDeviceOpen(device)
+
+  const vendorInterface = getVendorInterface(device)
+  if (!vendorInterface) {
+    throw new Error('Vendor interface not found in the active USB configuration.')
+  }
+
+  const vendorAlternate = vendorInterface.alternate ?? vendorInterface.alternates.find(isVendorAlternate)
+
+  if (!vendorInterface.claimed) {
+    await device.claimInterface(vendorInterface.interfaceNumber)
+  }
+
+  if (
+    vendorAlternate &&
+    vendorInterface.alternate &&
+    vendorInterface.alternate.alternateSetting !== vendorAlternate.alternateSetting
+  ) {
+    await device.selectAlternateInterface(
+      vendorInterface.interfaceNumber,
+      vendorAlternate.alternateSetting,
+    )
+  }
+
+  return {
+    interfaceNumber: vendorInterface.interfaceNumber,
+    alternate: getVendorAlternate(device) ?? vendorAlternate,
+  }
 }
 
 export async function requestHfsdrDevice() {
@@ -66,57 +98,4 @@ export async function requestHfsdrDevice() {
   await ensureDeviceOpen(device)
 
   return device
-}
-
-export async function readClockFrequency(device) {
-  if (!device) {
-    throw new Error('No device paired.')
-  }
-
-  await ensureDeviceOpen(device)
-
-  const response = await device.controlTransferIn(
-    {
-      requestType: 'vendor',
-      recipient: 'device',
-      request: VENDOR_REQUEST_GET_CLK_FREQ,
-      value: 0,
-      index: 0,
-    },
-    CLK_FREQ_RESPONSE_LENGTH,
-  )
-
-  if (response.status !== 'ok' || !response.data) {
-    throw new Error('Failed to read the clock frequency from the device.')
-  }
-
-  const data = new Uint8Array(response.data.buffer, response.data.byteOffset, response.data.byteLength)
-
-  return {
-    status: data[0],
-    frequencyHz: littleEndianBytesToUint64(data.slice(1, 9)),
-  }
-}
-
-export async function setClockFrequency(device, frequencyHz) {
-  if (!device) {
-    throw new Error('No device paired.')
-  }
-
-  await ensureDeviceOpen(device)
-
-  const response = await device.controlTransferOut(
-    {
-      requestType: 'vendor',
-      recipient: 'device',
-      request: VENDOR_REQUEST_SET_CLK_FREQ,
-      value: 0,
-      index: 0,
-    },
-    uint64ToLittleEndianBytes(frequencyHz),
-  )
-
-  if (response.status !== 'ok') {
-    throw new Error('Device rejected the frequency update.')
-  }
 }

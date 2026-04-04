@@ -32,6 +32,7 @@
 #include "hw/i2s_hw.h"
 #include "hw/usb_hw.h"
 #include "hw/watchdog.h"
+#include "tusb.h"
 
 /*********************************************************************
  * @fn      GPIO_Toggle_INIT
@@ -405,7 +406,7 @@ int main(void)
     {
         TLV320_I2S_Poll();
         DAC_Poll();
-        usb_hw_task();
+        tud_task();
         //Scan_I2CBus_EverySecond();
         //SysTick_Report_USB_EverySecond();
         LED_Blink_Task();

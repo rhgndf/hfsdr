@@ -1,11 +1,15 @@
 <script>
+  import { onDestroy } from 'svelte'
   import {
     describeDevice,
+    requestHfsdrDevice,
+  } from './lib/webusb.js'
+  import {
     parseFrequencyInput,
     readClockFrequency as readDeviceClockFrequency,
-    requestHfsdrDevice,
     setClockFrequency as writeClockFrequency,
-  } from './lib/webusb.js'
+  } from './lib/control.js'
+  import { startVendorReadBenchmark } from './lib/data.js'
 
   const READY_STATUS = 1
 
@@ -16,6 +20,27 @@
   let isConnecting = false
   let isReading = false
   let isSetting = false
+  let dataBenchmark = null
+
+  function stopDataBenchmark() {
+    if (dataBenchmark) {
+      dataBenchmark.stop()
+      dataBenchmark = null
+    }
+  }
+
+  function startDataBenchmark(selectedDevice) {
+    stopDataBenchmark()
+
+    dataBenchmark = startVendorReadBenchmark(selectedDevice)
+    dataBenchmark.done.catch((error) => {
+      if (error?.name === 'AbortError') {
+        return
+      }
+
+      console.error('Vendor read benchmark stopped:', error)
+    })
+  }
 
   async function readClockFrequency(selectedDevice = device) {
     if (!selectedDevice) {
@@ -43,6 +68,7 @@
 
   async function pairDevice() {
     isConnecting = true
+    stopDataBenchmark()
 
     try {
       const selectedDevice = await requestHfsdrDevice()
@@ -52,6 +78,7 @@
       statusMessage = 'Device paired. Reading current frequency...'
 
       await readClockFrequency(selectedDevice)
+      startDataBenchmark(selectedDevice)
     } catch (error) {
       statusMessage = error?.message || 'Failed to pair with the WebUSB device.'
     } finally {
@@ -79,6 +106,10 @@
       isSetting = false
     }
   }
+
+  onDestroy(() => {
+    stopDataBenchmark()
+  })
 </script>
 
 <main class="flex min-h-screen items-center justify-center bg-slate-50 px-6 py-16 text-slate-900">

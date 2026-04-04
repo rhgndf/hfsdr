@@ -5,6 +5,7 @@
 
 #include "debug.h"
 #include "pinout.h"
+#include "usb_hw.h"
 
 #include "ch32v30x_dma.h"
 #include "ch32v30x_misc.h"
@@ -27,6 +28,7 @@
 #define I2S_RX_DMA_BUFFER_WORDS      512U
 #define I2S_RX_FRAME_WORDS           4U
 #define I2S_RX_DMA_CHUNK_WORDS       (I2S_RX_DMA_BUFFER_WORDS / 2U)
+#define I2S_RX_DMA_CHUNK_BYTES       (I2S_RX_DMA_CHUNK_WORDS * sizeof(uint16_t))
 
 static_assert((I2S_RX_DMA_BUFFER_WORDS % I2S_RX_FRAME_WORDS) == 0U,
               "24-bit I2S DMA buffer must align to full stereo frames");
@@ -35,7 +37,6 @@ static volatile uint32_t s_rx_word_count = 0U;
 static volatile uint16_t s_rx_dma_buf[I2S_RX_DMA_BUFFER_WORDS];
 
 void DMA1_Channel4_IRQHandler(void) __attribute__((interrupt));
-
 extern void audio_usb_mic_write_isr(volatile uint16_t const *src_words, size_t word_count);
 
 static void i2s_hw_dma_irq_init(void)
@@ -203,6 +204,7 @@ void DMA1_Channel4_IRQHandler(void)
         DMA_ClearITPendingBit(I2S_RX_DMA_HT_IT);
         s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
         audio_usb_mic_write_isr(&s_rx_dma_buf[0], I2S_RX_DMA_CHUNK_WORDS);
+        usb_hw_vendor_write_isr(&s_rx_dma_buf[0], I2S_RX_DMA_CHUNK_WORDS);
     }
 
     if(DMA_GetITStatus(I2S_RX_DMA_TC_IT) != RESET)
@@ -210,6 +212,7 @@ void DMA1_Channel4_IRQHandler(void)
         DMA_ClearITPendingBit(I2S_RX_DMA_TC_IT);
         s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
         audio_usb_mic_write_isr(&s_rx_dma_buf[I2S_RX_DMA_CHUNK_WORDS], I2S_RX_DMA_CHUNK_WORDS);
+        usb_hw_vendor_write_isr(&s_rx_dma_buf[I2S_RX_DMA_CHUNK_WORDS], I2S_RX_DMA_CHUNK_WORDS);
     }
 
     if(DMA_GetITStatus(I2S_RX_DMA_TE_IT) != RESET)
