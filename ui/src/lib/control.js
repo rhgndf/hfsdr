@@ -1,4 +1,4 @@
-import { ensureDeviceOpen } from './webusb.js'
+import { claimVendorInterface, ensureDeviceOpen } from './webusb.js'
 
 const VENDOR_REQUEST_SET_CLK_FREQ = 3
 const VENDOR_REQUEST_GET_CLK_FREQ = 4
@@ -9,6 +9,19 @@ const PLL_LOCK_RESPONSE_LENGTH = 2
 export const TLV320_GAIN_MIN_DB = -11
 export const TLV320_GAIN_MAX_DB = 42
 export const TLV320_GAIN_STEP_DB = 0.5
+
+async function getVendorControlSetup(device, request) {
+  await ensureDeviceOpen(device)
+  const { interfaceNumber } = await claimVendorInterface(device)
+
+  return {
+    requestType: 'vendor',
+    recipient: 'interface',
+    request,
+    value: 0,
+    index: interfaceNumber,
+  }
+}
 
 function uint64ToLittleEndianBytes(value) {
   const bytes = new Uint8Array(8)
@@ -70,16 +83,10 @@ export function tlv320GainDbToRaw(gainDb) {
 }
 
 export async function readClockFrequency(device) {
-  await ensureDeviceOpen(device)
+  const setup = await getVendorControlSetup(device, VENDOR_REQUEST_GET_CLK_FREQ)
 
   const response = await device.controlTransferIn(
-    {
-      requestType: 'vendor',
-      recipient: 'device',
-      request: VENDOR_REQUEST_GET_CLK_FREQ,
-      value: 0,
-      index: 0,
-    },
+    setup,
     CLK_FREQ_RESPONSE_LENGTH,
   )
 
@@ -96,16 +103,10 @@ export async function readClockFrequency(device) {
 }
 
 export async function setClockFrequency(device, frequencyHz) {
-  await ensureDeviceOpen(device)
+  const setup = await getVendorControlSetup(device, VENDOR_REQUEST_SET_CLK_FREQ)
 
   const response = await device.controlTransferOut(
-    {
-      requestType: 'vendor',
-      recipient: 'device',
-      request: VENDOR_REQUEST_SET_CLK_FREQ,
-      value: 0,
-      index: 0,
-    },
+    setup,
     uint64ToLittleEndianBytes(frequencyHz),
   )
 
@@ -115,16 +116,10 @@ export async function setClockFrequency(device, frequencyHz) {
 }
 
 export async function readPllLock(device) {
-  await ensureDeviceOpen(device)
+  const setup = await getVendorControlSetup(device, VENDOR_REQUEST_GET_PLL_LOCK)
 
   const response = await device.controlTransferIn(
-    {
-      requestType: 'vendor',
-      recipient: 'device',
-      request: VENDOR_REQUEST_GET_PLL_LOCK,
-      value: 0,
-      index: 0,
-    },
+    setup,
     PLL_LOCK_RESPONSE_LENGTH,
   )
 
@@ -142,16 +137,10 @@ export async function readPllLock(device) {
 
 export async function setTlv320Gain(device, gainDb) {
   const gainRaw = tlv320GainDbToRaw(gainDb)
-  await ensureDeviceOpen(device)
+  const setup = await getVendorControlSetup(device, VENDOR_REQUEST_SET_TLV320_GAIN)
 
   const response = await device.controlTransferOut(
-    {
-      requestType: 'vendor',
-      recipient: 'device',
-      request: VENDOR_REQUEST_SET_TLV320_GAIN,
-      value: 0,
-      index: 0,
-    },
+    setup,
     new Uint8Array([gainRaw]),
   )
 

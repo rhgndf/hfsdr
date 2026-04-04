@@ -35,6 +35,21 @@ static tusb_desc_webusb_url_t const desc_url = {
     .url = USB_WEB_URL
 };
 
+static bool usb_hw_vendor_control_target_valid(tusb_control_request_t const* request)
+{
+    if(request->bmRequestType_bit.recipient == TUSB_REQ_RCPT_DEVICE)
+    {
+        return request->wIndex == 0U;
+    }
+
+    if(request->bmRequestType_bit.recipient == TUSB_REQ_RCPT_INTERFACE)
+    {
+        return request->wIndex == ITF_NUM_VENDOR;
+    }
+
+    return false;
+}
+
 static uint64_t usb_u64_from_le(uint8_t const *buf)
 {
     uint64_t value = 0U;
@@ -242,7 +257,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
                     {
                         return false;
                     }
-                    if((request->wValue != 0U) || (request->wIndex != 0U) || (request->wLength != USB_HW_CLK_FREQ_PAYLOAD_SIZE))
+                    if((request->wValue != 0U) || !usb_hw_vendor_control_target_valid(request) || (request->wLength != USB_HW_CLK_FREQ_PAYLOAD_SIZE))
                     {
                         return false;
                     }
@@ -250,7 +265,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
                     if(stage == CONTROL_STAGE_SETUP)
                     {
                         /* Browser-side shape:
-                         * controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 3, value: 0, index: 0 }, freqHzLe64)
+                         * controlTransferOut({ requestType: 'vendor', recipient: 'interface', request: 3, value: 0, index: ITF_NUM_VENDOR }, freqHzLe64)
                          */
                         return tud_control_xfer(rhport, request, usb_hw_clk_freq_req, sizeof(usb_hw_clk_freq_req));
                     }
@@ -269,7 +284,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
                     {
                         return false;
                     }
-                    if((request->wValue != 0U) || (request->wIndex != 0U))
+                    if((request->wValue != 0U) || !usb_hw_vendor_control_target_valid(request))
                     {
                         return false;
                     }
@@ -283,7 +298,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
                     {
                         return false;
                     }
-                    if((request->wValue != 0U) || (request->wIndex != 0U) || (request->wLength != USB_HW_TLV320_GAIN_REQ_SIZE))
+                    if((request->wValue != 0U) || !usb_hw_vendor_control_target_valid(request) || (request->wLength != USB_HW_TLV320_GAIN_REQ_SIZE))
                     {
                         return false;
                     }
@@ -307,7 +322,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
                     {
                         return false;
                     }
-                    if((request->wValue != 0U) || (request->wIndex != 0U))
+                    if((request->wValue != 0U) || !usb_hw_vendor_control_target_valid(request))
                     {
                         return false;
                     }
