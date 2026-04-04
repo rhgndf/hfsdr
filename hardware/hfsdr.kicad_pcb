@@ -128,7 +128,6 @@
 			(psnegative no)
 			(psa4output no)
 			(plot_black_and_white yes)
-			(plotinvisibletext no)
 			(sketchpadsonfab no)
 			(plotpadnumbers no)
 			(hidednponfab no)
@@ -4174,15 +4173,15 @@
 			(uuid "1a7e3827-5f85-4bc3-af00-07fd9953a899")
 		)
 		(embedded_fonts no)
-		(model "${KICAD9_3DMODEL_DIR}/Connector_Audio.3dshapes/Jack_3.5mm_KoreanHropartsElec_PJ-320D-4A_Horizontal.wrl"
+		(model "${KIPRJMOD}/easyeda.3dshapes/AUDIO-SMD_L12.1-W6.1-H5.0-4P.step"
 			(offset
-				(xyz 0 0 0)
+				(xyz -3 0 0)
 			)
 			(scale
 				(xyz 1 1 1)
 			)
 			(rotate
-				(xyz 0 0 0)
+				(xyz -0 -0 -90)
 			)
 		)
 	)
@@ -5262,15 +5261,15 @@
 			(uuid "0ee454f1-db00-44e7-8101-1b42d2913850")
 		)
 		(embedded_fonts no)
-		(model "${EASYEDA2KICAD}/easyeda2kicad.3dshapes/SW-SMD_MST-22D18G4-WT.wrl"
+		(model "${KIPRJMOD}/easyeda.3dshapes/SW-SMD_MST-22D18G4-WT.wrl"
 			(offset
-				(xyz 0 1.17 0)
+				(xyz 0 0.17 3.5)
 			)
 			(scale
 				(xyz 1 1 1)
 			)
 			(rotate
-				(xyz 0 0 270)
+				(xyz -0 -0 -90)
 			)
 		)
 	)
@@ -12441,15 +12440,15 @@
 			(uuid "1b5b9286-d68f-4331-a5bd-a906b012a3ad")
 		)
 		(embedded_fonts no)
-		(model "/Users/jiefeng/Documents/hfsdr/hardware/easyeda.3dshapes/FPC-SMD_18P-P0.50_FPC-05F-18PH20.wrl"
+		(model "${KIPRJMOD}/easyeda.3dshapes/FPC-SMD_18P-P0.50_FPC-05F-18PH20.wrl"
 			(offset
-				(xyz 0 -1.2 -0)
+				(xyz 0 1 -0)
 			)
 			(scale
 				(xyz 1 1 1)
 			)
 			(rotate
-				(xyz 0 0 0)
+				(xyz -0 -0 -0)
 			)
 		)
 	)
@@ -25678,7 +25677,7 @@
 			(net 13 "GND")
 			(pinfunction "Thermal_Pad(VSS)")
 			(pintype "power_in")
-			(uuid "8cb5bf62-5879-4283-b69c-6cc2cf2c6c75")
+			(uuid "bd2ee559-784a-4e8e-8225-38fd6a1595dc")
 		)
 		(pad "21" smd rect
 			(at 0 0 180)
@@ -25687,7 +25686,7 @@
 			(net 13 "GND")
 			(pinfunction "Thermal_Pad(VSS)")
 			(pintype "power_in")
-			(uuid "8cb5bf62-5879-4283-b69c-6cc2cf2c6c75")
+			(uuid "09f506c2-afd9-4e81-abc1-2d6d33c32dd4")
 		)
 		(pad "21" thru_hole circle
 			(at 0 0.449999 180)
@@ -25698,7 +25697,7 @@
 			(net 13 "GND")
 			(pinfunction "Thermal_Pad(VSS)")
 			(pintype "power_in")
-			(uuid "8cb5bf62-5879-4283-b69c-6cc2cf2c6c75")
+			(uuid "a21ca226-6c5d-444c-89e8-085e8ea8d3b0")
 		)
 		(pad "21" thru_hole circle
 			(at 0.449999 0 180)
@@ -25709,7 +25708,7 @@
 			(net 13 "GND")
 			(pinfunction "Thermal_Pad(VSS)")
 			(pintype "power_in")
-			(uuid "8cb5bf62-5879-4283-b69c-6cc2cf2c6c75")
+			(uuid "e0350c8c-0259-4f45-8c3b-941ed3da51b7")
 		)
 		(embedded_fonts no)
 	)
