@@ -9,6 +9,8 @@
 #define TLV320_REG_SW_RESET        0x01U
 #define TLV320_REG_SLEEP_CFG       0x02U
 #define TLV320_REG_ASI_CFG0        0x07U
+#define TLV320_REG_ASI_CH1         0x0BU
+#define TLV320_REG_ASI_CH2         0x0CU
 #define TLV320_REG_MST_CFG0        0x13U
 #define TLV320_REG_MST_CFG1        0x14U
 #define TLV320_REG_GPIO_CFG0       0x21U
@@ -33,6 +35,14 @@
  * Remaining bits default: FSYNC/BCLK polarity default, TX_EDGE/TX_FILL = 0.
  */
 #define TLV320_ASI_CFG0_I2S_24BIT   0x60U
+
+/*
+ * ASI_CH1 / ASI_CH2:
+ * In I2S mode, channel 1 must be routed to left slot 0 and channel 2 to right
+ * slot 0. The reset default for CH2 is slot 1, which is not the I2S right slot.
+ */
+#define TLV320_ASI_CH1_LEFT_SLOT0   0x00U
+#define TLV320_ASI_CH2_RIGHT_SLOT0  0x20U
 
 /*
  * GPIO_CFG0 (0x21): GPIO1 as MCLK input.
@@ -92,13 +102,13 @@
 
 /*
  * MST_CFG1 (0x14):
- * - bits7:4 = 0110: FS_RATE = 192 kHz in the 48-kHz family
+ * - bits7:4 = 0111: FS_RATE = 384 kHz in the 48-kHz family
  * - bits3:0 = 0100: BCLK/FSYNC ratio = 64
  *
  * CH32's SPI/I2S block uses 32-bit channel frames for I2S_DataFormat_24b, so
  * the codec must also drive 64 BCLKs per stereo frame.
  */
-#define TLV320_MST_CFG1_192K_BCLK64 0x64U
+#define TLV320_MST_CFG1_384K_BCLK64 0x74U
 
 /* IN_CH_EN reset 0xC0: analog CH1+CH2 on; no change required. */
 
@@ -150,6 +160,14 @@ ErrorStatus tlv320adc6120_hw_init(void)
     {
         return NoREADY;
     }
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_ASI_CH1, TLV320_ASI_CH1_LEFT_SLOT0) != READY)
+    {
+        return NoREADY;
+    }
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_ASI_CH2, TLV320_ASI_CH2_RIGHT_SLOT0) != READY)
+    {
+        return NoREADY;
+    }
 
     /* External 24 MHz MCLK arrives on GPIO1. */
     if(tlv320adc6120_hw_write_reg(TLV320_REG_GPIO_CFG0, TLV320_GPIO_CFG0_MCLK_INPUT) != READY)
@@ -187,12 +205,12 @@ ErrorStatus tlv320adc6120_hw_init(void)
         return NoREADY;
     }
 
-    /* Codec drives BCLK/FSYNC at 192 kHz stereo from the external 24 MHz MCLK. */
+    /* Codec drives BCLK/FSYNC at 384 kHz stereo from the external 24 MHz MCLK. */
     if(tlv320adc6120_hw_write_reg(TLV320_REG_MST_CFG0, TLV320_MST_CFG0_CTLR_24MHZ) != READY)
     {
         return NoREADY;
     }
-    if(tlv320adc6120_hw_write_reg(TLV320_REG_MST_CFG1, TLV320_MST_CFG1_192K_BCLK64) != READY)
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_MST_CFG1, TLV320_MST_CFG1_384K_BCLK64) != READY)
     {
         return NoREADY;
     }

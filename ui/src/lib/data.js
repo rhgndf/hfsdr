@@ -2,21 +2,43 @@ import { claimVendorInterface, getVendorInEndpointNumber } from './webusb.js'
 
 const DEFAULT_TRANSFER_BYTES = 16 * 1024
 const DEFAULT_REPORT_EVERY_MS = 1000
-const DEFAULT_IN_FLIGHT = 8
+const IQ_FRAME_BYTES = 8
+const IQ_FIXED_POINT_SCALE = 1 / 0x800000
 const BYTES_PER_MB = 1000 * 1000
 
-function formatMb(value) {
-  return value.toFixed(3)
+function decodeSlotSample(view, offset) {
+  const slotWordHi = view.getUint16(offset, true)
+  const slotWordLo = view.getUint16(offset + 2, true)
+  const slot = (slotWordHi << 16) | slotWordLo
+
+  return (slot >> 8) * IQ_FIXED_POINT_SCALE
 }
 
-function createTransferPromise(device, endpointNumber, transferSize, slot) {
-  return device.transferIn(endpointNumber, transferSize).then((response) => ({
-    response,
-    slot,
-  }))
+function decodeIqFrames(dataView) {
+  const frameCount = Math.floor(dataView.byteLength / IQ_FRAME_BYTES)
+  const iqSamples = new Float32Array(frameCount * 2)
+
+  for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+    const frameOffset = frameIndex * IQ_FRAME_BYTES
+    iqSamples[frameIndex * 2] = decodeSlotSample(dataView, frameOffset)
+    iqSamples[frameIndex * 2 + 1] = decodeSlotSample(dataView, frameOffset + 4)
+  }
+
+  return iqSamples
 }
 
-export async function readVendorDataLoop(device, options = {}) {
+function appendCarry(carryBytes, nextBytes) {
+  if (carryBytes.length === 0) {
+    return nextBytes
+  }
+
+  const merged = new Uint8Array(carryBytes.length + nextBytes.length)
+  merged.set(carryBytes, 0)
+  merged.set(nextBytes, carryBytes.length)
+  return merged
+}
+
+export async function readVendorIqLoop(device, options = {}) {
   if (!device) {
     throw new Error('No device paired.')
   }
@@ -24,7 +46,8 @@ export async function readVendorDataLoop(device, options = {}) {
   const {
     transferSize = DEFAULT_TRANSFER_BYTES,
     reportEveryMs = DEFAULT_REPORT_EVERY_MS,
-    inFlight = DEFAULT_IN_FLIGHT,
+    onIqSamples,
+    onStatus,
     signal,
   } = options
 
@@ -33,28 +56,45 @@ export async function readVendorDataLoop(device, options = {}) {
   const startedAt = performance.now()
   let reportStartedAt = startedAt
   let totalBytes = 0
+  let totalFrames = 0
   let reportBytes = 0
-  const pendingTransfers = new Map()
+  let reportFrames = 0
+  let carryBytes = new Uint8Array(0)
 
-  console.log(
-    `Starting vendor read benchmark on interface ${interfaceNumber}, endpoint 0x${endpointNumber.toString(16)} with ${transferSize} byte requests and ${inFlight} transfers in flight.`,
-  )
+  while (!signal?.aborted) {
+    const response = await device.transferIn(endpointNumber, transferSize)
 
-  for (let slot = 0; slot < inFlight; slot += 1) {
-    pendingTransfers.set(slot, createTransferPromise(device, endpointNumber, transferSize, slot))
-  }
-
-  while (!signal?.aborted && pendingTransfers.size > 0) {
-    const { response, slot } = await Promise.race(pendingTransfers.values())
-    pendingTransfers.delete(slot)
+    if (signal?.aborted) {
+      break
+    }
 
     if (response.status !== 'ok' || !response.data) {
       throw new Error(`Vendor read failed with status "${response.status}".`)
     }
 
-    const bytesRead = response.data.byteLength
-    totalBytes += bytesRead
-    reportBytes += bytesRead
+    const chunkBytes = new Uint8Array(
+      response.data.buffer,
+      response.data.byteOffset,
+      response.data.byteLength,
+    )
+    const mergedBytes = appendCarry(carryBytes, chunkBytes)
+    const wholeByteLength = mergedBytes.byteLength - (mergedBytes.byteLength % IQ_FRAME_BYTES)
+
+    if (wholeByteLength > 0) {
+      const frameBytes = mergedBytes.subarray(0, wholeByteLength)
+      const iqSamples = decodeIqFrames(
+        new DataView(frameBytes.buffer, frameBytes.byteOffset, frameBytes.byteLength),
+      )
+
+      totalBytes += frameBytes.byteLength
+      totalFrames += iqSamples.length / 2
+      reportBytes += frameBytes.byteLength
+      reportFrames += iqSamples.length / 2
+
+      onIqSamples?.(iqSamples)
+    }
+
+    carryBytes = mergedBytes.subarray(wholeByteLength)
 
     const now = performance.now()
     const reportElapsedMs = now - reportStartedAt
@@ -64,22 +104,24 @@ export async function readVendorDataLoop(device, options = {}) {
       const reportElapsedSeconds = Math.max(reportElapsedMs / 1000, Number.EPSILON)
       const totalMb = totalBytes / BYTES_PER_MB
       const mbPerSecond = reportBytes / reportElapsedSeconds / BYTES_PER_MB
+      const framesPerSecond = reportFrames / reportElapsedSeconds
 
-      console.log(
-        `Vendor IN ${formatMb(mbPerSecond)} MB/s | total ${formatMb(totalMb)} MB | elapsed ${totalElapsedSeconds.toFixed(1)} s`,
-      )
+      onStatus?.({
+        totalBytes,
+        totalFrames,
+        totalMb,
+        mbPerSecond,
+        framesPerSecond,
+      })
 
       reportBytes = 0
+      reportFrames = 0
       reportStartedAt = now
-    }
-
-    if (!signal?.aborted) {
-      pendingTransfers.set(slot, createTransferPromise(device, endpointNumber, transferSize, slot))
     }
   }
 }
 
-export function startVendorReadBenchmark(device, options = {}) {
+export function startVendorIqStream(device, options = {}) {
   const controller = new AbortController()
   const externalSignal = options.signal
 
@@ -93,13 +135,13 @@ export function startVendorReadBenchmark(device, options = {}) {
     }
   }
 
-  const done = readVendorDataLoop(device, {
+  const done = readVendorIqLoop(device, {
     ...options,
     signal: controller.signal,
   })
 
   return {
-    stop(reason = 'Stopped vendor read benchmark.') {
+    stop(reason = 'Stopped vendor I/Q stream.') {
       controller.abort(reason)
     },
     done,

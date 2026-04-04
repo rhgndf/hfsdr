@@ -1,44 +1,77 @@
 <script>
-  import { onDestroy } from 'svelte'
-  import {
-    describeDevice,
-    requestHfsdrDevice,
-  } from './lib/webusb.js'
+  import { onDestroy, onMount } from 'svelte'
+  import { describeDevice, requestHfsdrDevice } from './lib/webusb.js'
   import {
     parseFrequencyInput,
     readClockFrequency as readDeviceClockFrequency,
     setClockFrequency as writeClockFrequency,
   } from './lib/control.js'
-  import { startVendorReadBenchmark } from './lib/data.js'
+  import { startVendorIqStream } from './lib/data.js'
+  import {
+    createSpectrogramRenderer,
+    FFT_ROW_INTERVAL,
+    FFT_SIZE,
+    IQ_SAMPLE_RATE_HZ,
+  } from './lib/spectrogram.js'
 
   const READY_STATUS = 1
+  const ROW_RATE_HZ = IQ_SAMPLE_RATE_HZ / FFT_ROW_INTERVAL
+  const BIN_WIDTH_HZ = IQ_SAMPLE_RATE_HZ / FFT_SIZE
+  const HALF_BANDWIDTH_KHZ = IQ_SAMPLE_RATE_HZ / 2000
+  const QUARTER_BANDWIDTH_KHZ = IQ_SAMPLE_RATE_HZ / 4000
+  const FREQUENCY_LABELS = [
+    `-${HALF_BANDWIDTH_KHZ.toFixed(0)} kHz`,
+    `-${QUARTER_BANDWIDTH_KHZ.toFixed(0)} kHz`,
+    'DC',
+    `+${QUARTER_BANDWIDTH_KHZ.toFixed(0)} kHz`,
+    `+${HALF_BANDWIDTH_KHZ.toFixed(0)} kHz`,
+  ]
 
   let device = null
   let frequency = ''
   let deviceLabel = 'No device paired'
   let statusMessage = 'Pair a WebUSB device to read or set the clock frequency.'
+  let streamMessage = 'Pair a device to start the live I/Q spectrogram.'
   let isConnecting = false
   let isReading = false
   let isSetting = false
-  let dataBenchmark = null
+  let streamStats = null
+  let streamHandle = null
+  let spectrogramCanvas = null
+  let spectrogramRenderer = null
+  let historySeconds = 0
 
-  function stopDataBenchmark() {
-    if (dataBenchmark) {
-      dataBenchmark.stop()
-      dataBenchmark = null
+  function stopIqStream(message = 'Stream stopped.') {
+    if (streamHandle) {
+      streamHandle.stop()
+      streamHandle = null
     }
+
+    streamStats = null
+    streamMessage = message
   }
 
-  function startDataBenchmark(selectedDevice) {
-    stopDataBenchmark()
+  function startIqStream(selectedDevice) {
+    stopIqStream('Waiting for incoming I/Q samples...')
+    spectrogramRenderer?.clear()
 
-    dataBenchmark = startVendorReadBenchmark(selectedDevice)
-    dataBenchmark.done.catch((error) => {
+    streamHandle = startVendorIqStream(selectedDevice, {
+      onIqSamples(iqSamples) {
+        spectrogramRenderer?.pushIqSamples(iqSamples)
+      },
+      onStatus(nextStats) {
+        streamStats = nextStats
+        streamMessage = `Streaming ${Math.round(nextStats.framesPerSecond).toLocaleString()} complex samples/s at ${nextStats.mbPerSecond.toFixed(3)} MB/s.`
+      },
+    })
+
+    streamHandle.done.catch((error) => {
       if (error?.name === 'AbortError') {
         return
       }
 
-      console.error('Vendor read benchmark stopped:', error)
+      console.error('Vendor I/Q stream stopped:', error)
+      streamMessage = error?.message || 'I/Q stream stopped unexpectedly.'
     })
   }
 
@@ -50,7 +83,7 @@
     isReading = true
 
     try {
-      const { status, frequencyHz } = await readClockFrequencyFromDevice(selectedDevice)
+      const { status, frequencyHz } = await readDeviceClockFrequency(selectedDevice)
 
       frequency = frequencyHz.toString()
       statusMessage =
@@ -62,13 +95,9 @@
     }
   }
 
-  async function readClockFrequencyFromDevice(selectedDevice) {
-    return readDeviceClockFrequency(selectedDevice)
-  }
-
   async function pairDevice() {
     isConnecting = true
-    stopDataBenchmark()
+    stopIqStream('Pairing device...')
 
     try {
       const selectedDevice = await requestHfsdrDevice()
@@ -78,9 +107,10 @@
       statusMessage = 'Device paired. Reading current frequency...'
 
       await readClockFrequency(selectedDevice)
-      startDataBenchmark(selectedDevice)
+      startIqStream(selectedDevice)
     } catch (error) {
       statusMessage = error?.message || 'Failed to pair with the WebUSB device.'
+      streamMessage = 'Pair a device to start the live I/Q spectrogram.'
     } finally {
       isConnecting = false
     }
@@ -107,61 +137,169 @@
     }
   }
 
-  onDestroy(() => {
-    stopDataBenchmark()
+  onMount(() => {
+    if (spectrogramCanvas) {
+      spectrogramRenderer = createSpectrogramRenderer(spectrogramCanvas)
+    }
+
+    const handleResize = () => spectrogramRenderer?.resize()
+
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      stopIqStream()
+    }
   })
+
+  onDestroy(() => {
+    stopIqStream()
+  })
+
+  $: historySeconds = spectrogramCanvas ? spectrogramCanvas.height / ROW_RATE_HZ : 0
 </script>
 
-<main class="flex min-h-screen items-center justify-center bg-slate-50 px-6 py-16 text-slate-900">
-  <div class="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-8 shadow-sm sm:p-10">
-    <p class="text-sm font-medium uppercase tracking-[0.24em] text-slate-500">HFSDR Control</p>
-    <h1 class="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">WebUSB clock control</h1>
-    <p class="mt-4 text-base leading-7 text-slate-600">
-      Pair the device, read its current clock frequency, then update it with the vendor control requests
-      already implemented in firmware.
-    </p>
-
-    <div class="mt-8 rounded-xl border border-slate-200 bg-slate-50 p-5">
-      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p class="text-sm font-medium text-slate-500">Paired device</p>
-          <p class="mt-1 text-base font-semibold text-slate-900">{deviceLabel}</p>
+<main class="min-h-screen bg-slate-950 px-6 py-10 text-slate-100">
+  <div class="mx-auto flex w-full max-w-6xl flex-col gap-6">
+    <section class="rounded-[2rem] border border-cyan-500/20 bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.16),transparent_36%),linear-gradient(180deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96))] p-8 shadow-[0_30px_120px_rgba(8,145,178,0.16)] sm:p-10">
+      <div class="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
+        <div class="max-w-2xl">
+          <p class="text-sm font-medium uppercase tracking-[0.28em] text-cyan-300/80">HFSDR Control</p>
+          <h1 class="mt-3 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+            Live I/Q spectrogram
+          </h1>
+          <p class="mt-4 max-w-xl text-base leading-7 text-slate-300">
+            The vendor endpoint now streams fixed-point complex I/Q from the ADC. This view decodes
+            the raw I2S slots in the browser and paints a scrolling waterfall centered on DC.
+          </p>
         </div>
-        <button
-          class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
-          on:click={pairDevice}
-          disabled={isConnecting || isReading || isSetting}
-        >
-          {isConnecting ? 'Pairing...' : 'Pair device'}
-        </button>
-      </div>
-    </div>
 
-    <div class="mt-6">
-      <label class="block text-sm font-medium text-slate-700" for="frequency">Clock frequency (Hz)</label>
-      <div class="mt-2 flex flex-col gap-3 sm:flex-row">
-        <input
-          id="frequency"
-          class="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-          type="text"
-          inputmode="numeric"
-          bind:value={frequency}
-          placeholder="7067333"
-          disabled={!device || isConnecting || isReading || isSetting}
-        />
-        <button
-          class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-300"
-          on:click={setClockFrequency}
-          disabled={!device || isConnecting || isReading || isSetting}
-        >
-          {isSetting ? 'Setting...' : 'Set frequency'}
-        </button>
+        <div class="grid gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200 sm:grid-cols-2">
+          <div class="rounded-xl bg-slate-950/50 p-3">
+            <p class="text-xs uppercase tracking-[0.22em] text-slate-400">Sample Rate</p>
+            <p class="mt-2 text-lg font-semibold text-white">{(IQ_SAMPLE_RATE_HZ / 1000).toFixed(0)} kS/s</p>
+          </div>
+          <div class="rounded-xl bg-slate-950/50 p-3">
+            <p class="text-xs uppercase tracking-[0.22em] text-slate-400">FFT Size</p>
+            <p class="mt-2 text-lg font-semibold text-white">{FFT_SIZE} bins</p>
+          </div>
+          <div class="rounded-xl bg-slate-950/50 p-3">
+            <p class="text-xs uppercase tracking-[0.22em] text-slate-400">Bin Width</p>
+            <p class="mt-2 text-lg font-semibold text-white">{BIN_WIDTH_HZ.toFixed(1)} Hz</p>
+          </div>
+          <div class="rounded-xl bg-slate-950/50 p-3">
+            <p class="text-xs uppercase tracking-[0.22em] text-slate-400">Waterfall Rate</p>
+            <p class="mt-2 text-lg font-semibold text-white">{ROW_RATE_HZ.toFixed(1)} rows/s</p>
+          </div>
+        </div>
       </div>
-    </div>
+    </section>
 
-    <div class="mt-6 rounded-xl border border-slate-200 bg-white p-4">
-      <p class="text-sm font-medium text-slate-500">Status</p>
-      <p class="mt-2 text-sm leading-6 text-slate-700">{statusMessage}</p>
-    </div>
+    <section class="grid gap-6 lg:grid-cols-[minmax(0,1.8fr)_minmax(21rem,1fr)]">
+      <div class="rounded-[2rem] border border-cyan-500/20 bg-slate-900/80 p-5 shadow-[0_24px_90px_rgba(15,23,42,0.35)] sm:p-6">
+        <div class="flex flex-col gap-3 border-b border-white/10 pb-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p class="text-sm font-medium uppercase tracking-[0.24em] text-cyan-300/75">Waterfall</p>
+            <h2 class="mt-2 text-2xl font-semibold text-white">Complex baseband spectrum</h2>
+          </div>
+          <div class="text-sm text-slate-400">
+            {#if historySeconds > 0}
+              {historySeconds.toFixed(1)} s visible history
+            {:else}
+              Waiting for canvas
+            {/if}
+          </div>
+        </div>
+
+        <div class="mt-5">
+          <div class="relative overflow-hidden rounded-[1.5rem] border border-white/10 bg-slate-950">
+            <canvas bind:this={spectrogramCanvas} class="block h-[26rem] w-full"></canvas>
+
+            <div class="pointer-events-none absolute inset-x-0 top-0 flex justify-between px-4 py-3 text-xs font-medium uppercase tracking-[0.22em] text-white/60">
+              {#each FREQUENCY_LABELS as label}
+                <span>{label}</span>
+              {/each}
+            </div>
+
+            <div class="pointer-events-none absolute inset-x-0 bottom-0 border-t border-white/10 bg-gradient-to-t from-slate-950 via-slate-950/90 to-transparent px-4 py-3 text-sm text-slate-300">
+              {streamMessage}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex flex-col gap-6">
+        <section class="rounded-[2rem] border border-white/10 bg-slate-900/80 p-6 shadow-[0_24px_90px_rgba(15,23,42,0.35)]">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p class="text-sm font-medium uppercase tracking-[0.24em] text-slate-400">Paired Device</p>
+              <p class="mt-2 text-lg font-semibold text-white">{deviceLabel}</p>
+            </div>
+            <button
+              class="inline-flex items-center justify-center rounded-xl bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
+              on:click={pairDevice}
+              disabled={isConnecting || isReading || isSetting}
+            >
+              {isConnecting ? 'Pairing...' : 'Pair device'}
+            </button>
+          </div>
+
+          <div class="mt-6 rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+            <p class="text-sm font-medium text-slate-400">Clock frequency (Hz)</p>
+            <div class="mt-3 flex flex-col gap-3">
+              <input
+                id="frequency"
+                class="w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-base text-white outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
+                type="text"
+                inputmode="numeric"
+                bind:value={frequency}
+                placeholder="7067333"
+                disabled={!device || isConnecting || isReading || isSetting}
+              />
+              <button
+                class="inline-flex items-center justify-center rounded-xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
+                on:click={setClockFrequency}
+                disabled={!device || isConnecting || isReading || isSetting}
+              >
+                {isSetting ? 'Setting...' : 'Set frequency'}
+              </button>
+            </div>
+          </div>
+
+          <div class="mt-6 rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+            <p class="text-sm font-medium text-slate-400">Status</p>
+            <p class="mt-2 text-sm leading-6 text-slate-200">{statusMessage}</p>
+          </div>
+        </section>
+
+        <section class="rounded-[2rem] border border-amber-400/20 bg-slate-900/80 p-6 shadow-[0_24px_90px_rgba(15,23,42,0.35)]">
+          <p class="text-sm font-medium uppercase tracking-[0.24em] text-amber-300/80">Stream Telemetry</p>
+          <div class="mt-4 grid gap-3 sm:grid-cols-2">
+            <div class="rounded-2xl bg-slate-950/60 p-4">
+              <p class="text-xs uppercase tracking-[0.2em] text-slate-400">Throughput</p>
+              <p class="mt-2 text-xl font-semibold text-white">
+                {streamStats ? `${streamStats.mbPerSecond.toFixed(3)} MB/s` : 'Idle'}
+              </p>
+            </div>
+            <div class="rounded-2xl bg-slate-950/60 p-4">
+              <p class="text-xs uppercase tracking-[0.2em] text-slate-400">Complex Samples</p>
+              <p class="mt-2 text-xl font-semibold text-white">
+                {streamStats ? Math.round(streamStats.framesPerSecond).toLocaleString() : '0'} /s
+              </p>
+            </div>
+            <div class="rounded-2xl bg-slate-950/60 p-4">
+              <p class="text-xs uppercase tracking-[0.2em] text-slate-400">Captured</p>
+              <p class="mt-2 text-xl font-semibold text-white">
+                {streamStats ? `${streamStats.totalMb.toFixed(2)} MB` : '0.00 MB'}
+              </p>
+            </div>
+            <div class="rounded-2xl bg-slate-950/60 p-4">
+              <p class="text-xs uppercase tracking-[0.2em] text-slate-400">FFT Cadence</p>
+              <p class="mt-2 text-xl font-semibold text-white">1 row / {FFT_ROW_INTERVAL} samples</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
   </div>
 </main>

@@ -98,16 +98,6 @@ static uint64_t led12_blink_period_ticks = 0;
 static uint64_t led12_last_toggle_tick = 0;
 static BitAction led12_state = Bit_RESET;
 
-static void SysTick_FreeRun_Init(void)
-{
-    /* Use the known-good WCH mode (same style as TinyUSB BSP SysTick_Config). */
-    SysTick->CTLR = 0;
-    SysTick->SR = 0;
-    SysTick->CNT = 0;
-    SysTick->CMP = 0xFFFFFFFFFFFFFFFFULL;
-    SysTick->CTLR = 0x0F;
-}
-
 static void LED_Blink_Init(uint32_t period_ms)
 {
     if(period_ms == 0U)
@@ -250,6 +240,8 @@ static void TLV320_I2S_Poll(void)
 {
     static uint64_t last_report_tick = 0U;
     static uint32_t last_word_count = 0U;
+    static uint32_t last_vendor_total_word_count = 0U;
+    static uint32_t last_vendor_dropped_word_count = 0U;
     static uint8_t initialized = 0U;
     uint64_t now_tick;
     uint64_t elapsed_ticks;
@@ -257,14 +249,22 @@ static void TLV320_I2S_Poll(void)
     uint32_t words_per_sec;
     uint32_t frames_per_sec;
     uint32_t bytes_per_sec;
+    uint32_t vendor_words_now;
+    uint32_t vendor_dropped_words_now;
+    uint32_t vendor_words_per_sec;
+    uint32_t vendor_dropped_words_per_sec;
 
     now_tick = SysTick->CNT;
     words_now = i2s_hw_rx_word_count();
+    vendor_words_now = usb_hw_vendor_total_words();
+    vendor_dropped_words_now = usb_hw_vendor_dropped_words();
 
     if(initialized == 0U)
     {
         last_report_tick = now_tick;
         last_word_count = words_now;
+        last_vendor_total_word_count = vendor_words_now;
+        last_vendor_dropped_word_count = vendor_dropped_words_now;
         initialized = 1U;
         return;
     }
@@ -278,13 +278,20 @@ static void TLV320_I2S_Poll(void)
     words_per_sec = (uint32_t)((((uint64_t)(words_now - last_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
     frames_per_sec = words_per_sec / 4U;
     bytes_per_sec = words_per_sec * (uint32_t)sizeof(uint16_t);
+    vendor_words_per_sec = (uint32_t)((((uint64_t)(vendor_words_now - last_vendor_total_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
+    vendor_dropped_words_per_sec = (uint32_t)((((uint64_t)(vendor_dropped_words_now - last_vendor_dropped_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
 
-    printf("ADC I2S rate: %lu words/s, %lu frames/s, %lu B/s\r\n",
+    printf("ADC I2S rate: %lu words/s, %lu frames/s, %lu B/s | vendor %lu words/s drop %lu words/s | LO %llu Hz\r\n",
            (unsigned long)words_per_sec,
            (unsigned long)frames_per_sec,
-           (unsigned long)bytes_per_sec);
+           (unsigned long)bytes_per_sec,
+           (unsigned long)vendor_words_per_sec,
+           (unsigned long)vendor_dropped_words_per_sec,
+           (unsigned long long)usb_hw_get_clk_freq_hz());
 
     last_word_count = words_now;
+    last_vendor_total_word_count = vendor_words_now;
+    last_vendor_dropped_word_count = vendor_dropped_words_now;
     last_report_tick = now_tick;
 }
 
@@ -396,7 +403,6 @@ int main(void)
     dac_hw_static_noise_start(192000U);
     printf("DAC: static noise PA4+PA5 @ 48 ksps (TIM7 TRGO + DMA2 Ch3 refill IRQ)\r\n");
 
-    SysTick_FreeRun_Init();
     LED_Blink_Init(1000U);
 
     /* display_spi_test_run(); */

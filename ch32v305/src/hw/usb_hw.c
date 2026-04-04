@@ -19,6 +19,8 @@ static uint8_t usb_hw_clk_freq_req[USB_HW_CLK_FREQ_PAYLOAD_SIZE];
 static uint8_t usb_hw_clk_freq_state[USB_HW_CLK_FREQ_STATE_SIZE];
 static uint64_t usb_hw_clk_freq_hz = 0U;
 static ErrorStatus usb_hw_clk_freq_status = NoREADY;
+static volatile uint32_t usb_hw_vendor_total_word_count = 0U;
+static volatile uint32_t usb_hw_vendor_dropped_word_count = 0U;
 static tusb_desc_webusb_url_t const desc_url = {
     .bLength = 3 + sizeof(USB_WEB_URL) - 1,
     .bDescriptorType = 3,
@@ -68,8 +70,11 @@ void usb_hw_vendor_write_isr(volatile uint16_t const *src_words, size_t word_cou
         return;
     }
 
+    usb_hw_vendor_total_word_count += (uint32_t)word_count;
+
     if(tud_vendor_n_write_available(USB_VENDOR_STREAM_INDEX) < (word_count * sizeof(uint16_t)))
     {
+        usb_hw_vendor_dropped_word_count += (uint32_t)word_count;
         return;
     }
 
@@ -78,12 +83,29 @@ void usb_hw_vendor_write_isr(volatile uint16_t const *src_words, size_t word_cou
                              (uint32_t)(word_count * sizeof(uint16_t)));
 }
 
+uint32_t usb_hw_vendor_total_words(void)
+{
+    return usb_hw_vendor_total_word_count;
+}
+
+uint32_t usb_hw_vendor_dropped_words(void)
+{
+    return usb_hw_vendor_dropped_word_count;
+}
+
 ErrorStatus usb_hw_set_clk_freq_hz(uint64_t hz)
 {
     usb_hw_clk_freq_status = si5351_hw_clk0_set_freq_hz(hz);
     if(usb_hw_clk_freq_status == READY)
     {
         usb_hw_clk_freq_hz = hz;
+        printf("Si5351: LO set to %llu Hz\r\n", (unsigned long long)hz);
+    }
+    else
+    {
+        printf("Si5351: LO set failed for %llu Hz (status %u)\r\n",
+               (unsigned long long)hz,
+               (unsigned int)usb_hw_clk_freq_status);
     }
 
     return usb_hw_clk_freq_status;

@@ -13,8 +13,7 @@
 #include "debug.h"
 #include "hw/usb_hw.h"
 
-static uint8_t  p_us = 0;
-static uint16_t p_ms = 0;
+static uint32_t s_ticks_per_us = 0U;
 
 /*********************************************************************
  * @fn      Delay_Init
@@ -25,8 +24,17 @@ static uint16_t p_ms = 0;
  */
 void Delay_Init(void)
 {
-    p_us = SystemCoreClock / 8000000;
-    p_ms = (uint16_t)p_us * 1000;
+    s_ticks_per_us = SystemCoreClock / 1000000U;
+    if(s_ticks_per_us == 0U)
+    {
+        s_ticks_per_us = 1U;
+    }
+
+    SysTick->CTLR = 0;
+    SysTick->SR = 0;
+    SysTick->CNT = 0;
+    SysTick->CMP = 0xFFFFFFFFFFFFFFFFULL;
+    SysTick->CTLR = 0x0FU;
 }
 
 /*********************************************************************
@@ -40,18 +48,24 @@ void Delay_Init(void)
  */
 void Delay_Us(uint32_t n)
 {
-    uint32_t i;
+    uint64_t start_tick;
+    uint64_t wait_ticks;
 
-    SysTick->SR &= ~(1 << 0);
-    i = (uint32_t)n * p_us;
+    if(n == 0U)
+    {
+        return;
+    }
 
-    SysTick->CMP = i;
-    SysTick->CTLR |= (1 << 4);
-    SysTick->CTLR |= (1 << 5) | (1 << 0);
+    start_tick = SysTick->CNT;
+    wait_ticks = (uint64_t)n * (uint64_t)s_ticks_per_us;
+    if(wait_ticks == 0U)
+    {
+        wait_ticks = 1U;
+    }
 
-    while((SysTick->SR & (1 << 0)) != (1 << 0))
-        ;
-    SysTick->CTLR &= ~(1 << 0);
+    while((SysTick->CNT - start_tick) < wait_ticks)
+    {
+    }
 }
 
 /*********************************************************************
@@ -65,18 +79,24 @@ void Delay_Us(uint32_t n)
  */
 void Delay_Ms(uint32_t n)
 {
-    uint32_t i;
+    uint64_t start_tick;
+    uint64_t wait_ticks;
 
-    SysTick->SR &= ~(1 << 0);
-    i = (uint32_t)n * p_ms;
+    if(n == 0U)
+    {
+        return;
+    }
 
-    SysTick->CMP = i;
-    SysTick->CTLR |= (1 << 4);
-    SysTick->CTLR |= (1 << 5) | (1 << 0);
+    start_tick = SysTick->CNT;
+    wait_ticks = ((uint64_t)SystemCoreClock * (uint64_t)n) / 1000ULL;
+    if(wait_ticks == 0U)
+    {
+        wait_ticks = 1U;
+    }
 
-    while((SysTick->SR & (1 << 0)) != (1 << 0))
-        ;
-    SysTick->CTLR &= ~(1 << 0);
+    while((SysTick->CNT - start_tick) < wait_ticks)
+    {
+    }
 }
 
 /*********************************************************************
@@ -120,5 +140,4 @@ __attribute__((used)) void *_sbrk(ptrdiff_t incr)
     curbrk += incr;
     return curbrk - incr;
 }
-
 

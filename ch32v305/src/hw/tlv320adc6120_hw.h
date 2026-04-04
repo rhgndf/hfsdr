@@ -6,7 +6,7 @@
  * - Fixed 7-bit I2C address 0b1001110 (0x4E).
  * - tlv320adc6120_hw_init() targets ASI controller + I2S + 24-bit to match CH32 SPI2
  *   I2S slave RX in i2s_hw.c. The codec expects an external 24 MHz MCLK on GPIO1 and
- *   generates BCLK/FSYNC for 192 kHz stereo capture.
+ *   generates BCLK/FSYNC for 384 kHz stereo capture.
  *
  * AVDD / AREG: set TLV320ADC6120_USE_INTERNAL_AREG before including this header
  * (or in the build) if you use 3.3 V AVDD with the on-chip 1.8 V AREG regulator.
