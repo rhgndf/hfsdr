@@ -233,7 +233,6 @@
       console.error('Failed to close FM audio player:', error)
     }
   }
-
   async function readClockFrequency(selectedDevice = device) {
     if (!selectedDevice) {
       throw new Error('No device paired.')
