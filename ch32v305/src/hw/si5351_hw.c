@@ -13,7 +13,7 @@
 #define SI5351_CLKOUT_MAX_HZ   225000000ULL
 #define SI5351_PLL_VCO_MIN_HZ  400000000ULL
 #define SI5351_PLL_TARGET_HZ   900000000ULL
-#define SI5351_PLL_VCO_MAX_HZ  900000000ULL
+#define SI5351_PLL_VCO_MAX_HZ  1000000000ULL
 #define SI5351_PLL_DENOM_MAX   1048575U
 #define SI5351_MULTISYNTH_A_MIN 6U
 #define SI5351_MULTISYNTH_A_MAX 1800U
@@ -32,6 +32,7 @@
 #define SI5351_REG_CLK1_PHASE      166U
 #define SI5351_REG_PLL_RESET       177U
 #define SI5351_REG_CRYSTAL_LOAD    183U
+#define SI5351_DEVICE_STATUS_LOL_A 0x20U
 
 #define SI5351_CLK_INTEGER_MODE    (1U << 6)
 #define SI5351_MS_R_DIV_SHIFT      4U
@@ -534,4 +535,21 @@ static ErrorStatus si5351_hw_clk0_quadrature_set_freq_hz(uint64_t hz)
 ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz)
 {
     return si5351_hw_clk0_quadrature_set_freq_hz(hz);
+}
+
+ErrorStatus si5351_hw_get_plla_lock(uint8_t *locked)
+{
+    uint8_t device_status;
+
+    if(locked == 0)
+    {
+        return NoREADY;
+    }
+    if(i2c_hw_read_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_DEVICE_STATUS, &device_status) != READY)
+    {
+        return NoREADY;
+    }
+
+    *locked = ((device_status & SI5351_DEVICE_STATUS_LOL_A) == 0U) ? 1U : 0U;
+    return READY;
 }

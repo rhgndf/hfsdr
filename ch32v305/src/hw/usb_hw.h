@@ -6,6 +6,8 @@
 
 #include "debug.h"
 
+#define USB_HW_PLL_LOCK_STATE_SIZE 2U
+
 void usb_hw_init(void);
 void usb_hw_vendor_write_isr(volatile uint16_t const *src_words, size_t word_count);
 uint32_t usb_hw_vendor_total_words(void);
@@ -18,5 +20,6 @@ ErrorStatus usb_hw_set_clk_freq_hz(uint64_t hz);
 uint64_t usb_hw_get_clk_freq_hz(void);
 ErrorStatus usb_hw_get_clk_freq_status(void);
 ErrorStatus usb_hw_set_tlv320_gain_raw(uint8_t gain_raw);
+ErrorStatus usb_hw_get_pll_lock(uint8_t *locked);
 
 #endif

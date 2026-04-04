@@ -28,5 +28,6 @@
 
 ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz_hz);
 ErrorStatus si5351_hw_clk0_set_94mhz(void);
+ErrorStatus si5351_hw_get_plla_lock(uint8_t *locked);
 
 #endif

@@ -3,7 +3,9 @@ import { ensureDeviceOpen } from './webusb.js'
 const VENDOR_REQUEST_SET_CLK_FREQ = 3
 const VENDOR_REQUEST_GET_CLK_FREQ = 4
 const VENDOR_REQUEST_SET_TLV320_GAIN = 5
+const VENDOR_REQUEST_GET_PLL_LOCK = 6
 const CLK_FREQ_RESPONSE_LENGTH = 9
+const PLL_LOCK_RESPONSE_LENGTH = 2
 export const TLV320_GAIN_MIN_DB = -11
 export const TLV320_GAIN_MAX_DB = 42
 export const TLV320_GAIN_STEP_DB = 0.5
@@ -109,6 +111,32 @@ export async function setClockFrequency(device, frequencyHz) {
 
   if (response.status !== 'ok') {
     throw new Error('Device rejected the frequency update.')
+  }
+}
+
+export async function readPllLock(device) {
+  await ensureDeviceOpen(device)
+
+  const response = await device.controlTransferIn(
+    {
+      requestType: 'vendor',
+      recipient: 'device',
+      request: VENDOR_REQUEST_GET_PLL_LOCK,
+      value: 0,
+      index: 0,
+    },
+    PLL_LOCK_RESPONSE_LENGTH,
+  )
+
+  if (response.status !== 'ok' || !response.data) {
+    throw new Error('Failed to read PLL lock status from the device.')
+  }
+
+  const data = new Uint8Array(response.data.buffer, response.data.byteOffset, response.data.byteLength)
+
+  return {
+    status: data[0],
+    locked: data[1] !== 0,
   }
 }
 

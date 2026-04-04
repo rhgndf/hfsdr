@@ -14,12 +14,14 @@
 #define USB_HW_CLK_FREQ_PAYLOAD_SIZE 8U
 #define USB_HW_CLK_FREQ_STATE_SIZE   (1U + USB_HW_CLK_FREQ_PAYLOAD_SIZE)
 #define USB_HW_TLV320_GAIN_REQ_SIZE  1U
+#define USB_HW_PLL_LOCK_STATE_SIZE   2U
 #define USB_VENDOR_STREAM_INDEX      0U
 
 static uint8_t usb_echo_buf[USB_ECHO_BUF_SIZE];
 static uint8_t usb_hw_clk_freq_req[USB_HW_CLK_FREQ_PAYLOAD_SIZE];
 static uint8_t usb_hw_clk_freq_state[USB_HW_CLK_FREQ_STATE_SIZE];
 static uint8_t usb_hw_tlv320_gain_req[USB_HW_TLV320_GAIN_REQ_SIZE];
+static uint8_t usb_hw_pll_lock_state[USB_HW_PLL_LOCK_STATE_SIZE];
 static uint64_t usb_hw_clk_freq_hz = 0U;
 static ErrorStatus usb_hw_clk_freq_status = NoREADY;
 static uint8_t usb_hw_tlv320_gain_raw = 0x00U;
@@ -60,6 +62,20 @@ static void usb_hw_prepare_clk_freq_state(void)
 {
     usb_hw_clk_freq_state[0] = (uint8_t)usb_hw_clk_freq_status;
     usb_u64_to_le(usb_hw_clk_freq_hz, &usb_hw_clk_freq_state[1]);
+}
+
+ErrorStatus usb_hw_get_pll_lock(uint8_t *locked)
+{
+    return si5351_hw_get_plla_lock(locked);
+}
+
+static void usb_hw_prepare_pll_lock_state(void)
+{
+    uint8_t locked = 0U;
+    ErrorStatus pll_status = usb_hw_get_pll_lock(&locked);
+
+    usb_hw_pll_lock_state[0] = (uint8_t)pll_status;
+    usb_hw_pll_lock_state[1] = locked;
 }
 
 static void usb_send_connected_banner(void)
@@ -281,6 +297,23 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
                         return (usb_hw_set_tlv320_gain_raw(usb_hw_tlv320_gain_req[0]) == READY);
                     }
                     return true;
+
+                case VENDOR_REQUEST_GET_PLL_LOCK:
+                    if(stage != CONTROL_STAGE_SETUP)
+                    {
+                        return true;
+                    }
+                    if(request->bmRequestType_bit.direction != TUSB_DIR_IN)
+                    {
+                        return false;
+                    }
+                    if((request->wValue != 0U) || (request->wIndex != 0U))
+                    {
+                        return false;
+                    }
+
+                    usb_hw_prepare_pll_lock_state();
+                    return tud_control_xfer(rhport, request, usb_hw_pll_lock_state, sizeof(usb_hw_pll_lock_state));
 
                 default:
                     break;

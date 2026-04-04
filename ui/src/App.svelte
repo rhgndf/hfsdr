@@ -5,6 +5,7 @@
     parseFrequencyInput,
     parseTlv320GainInput,
     readClockFrequency as readDeviceClockFrequency,
+    readPllLock as readDevicePllLock,
     setClockFrequency as writeClockFrequency,
     setTlv320Gain as writeTlv320Gain,
     tlv320GainDbToRaw,
@@ -37,6 +38,7 @@
   let device = null
   let frequency = ''
   let tlv320Gain = 0
+  let pllLocked = null
   let deviceLabel = 'No device paired'
   let statusMessage = 'Pair a WebUSB device to read or set the clock frequency.'
   let streamMessage = 'Pair a device to start the live I/Q spectrogram.'
@@ -96,9 +98,13 @@
     isReading = true
 
     try {
-      const { status, frequencyHz } = await readDeviceClockFrequency(selectedDevice)
+      const [{ status, frequencyHz }, { status: pllStatus, locked }] = await Promise.all([
+        readDeviceClockFrequency(selectedDevice),
+        readDevicePllLock(selectedDevice),
+      ])
 
       frequency = frequencyHz.toString()
+      pllLocked = pllStatus === READY_STATUS ? locked : null
       statusMessage =
         status === READY_STATUS
           ? `Current device frequency: ${frequency} Hz`
@@ -110,6 +116,7 @@
 
   async function pairDevice() {
     isConnecting = true
+    pllLocked = null
     stopIqStream('Pairing device...')
 
     try {
@@ -122,6 +129,7 @@
       await readClockFrequency(selectedDevice)
       startIqStream(selectedDevice)
     } catch (error) {
+      pllLocked = null
       statusMessage = error?.message || 'Failed to pair with the WebUSB device.'
       streamMessage = 'Pair a device to start the live I/Q spectrogram.'
     } finally {
@@ -358,7 +366,27 @@
           </div>
 
           <div class="mt-6 rounded-2xl border border-white/10 bg-slate-950/60 p-4">
-            <p class="text-sm font-medium text-slate-400">Clock frequency (Hz)</p>
+            <div class="flex items-start justify-between gap-4">
+              <p class="text-sm font-medium text-slate-400">Clock frequency (Hz)</p>
+              <div class="flex items-center gap-2 text-sm font-medium">
+                <span
+                  class={`h-3 w-3 rounded-full ${
+                    pllLocked === true
+                      ? 'bg-emerald-400'
+                      : pllLocked === false
+                        ? 'bg-red-500'
+                        : 'bg-slate-500'
+                  }`}
+                ></span>
+                <span class={pllLocked === true ? 'text-emerald-300' : pllLocked === false ? 'text-red-300' : 'text-slate-400'}>
+                  {pllLocked === true
+                    ? 'PLL locked'
+                    : pllLocked === false
+                      ? 'PLL not locked'
+                      : 'PLL status unknown'}
+                </span>
+              </div>
+            </div>
             <div class="mt-3 flex flex-col gap-3">
               <input
                 id="frequency"
