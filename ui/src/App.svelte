@@ -14,6 +14,7 @@
     TLV320_GAIN_STEP_DB,
   } from './lib/control.js'
   import { startVendorIqStream } from './lib/data.js'
+  import { createFmAudioPlayer } from './lib/fm-audio.js'
   import {
     createSpectrogramRenderer,
     FFT_ROW_INTERVAL,
@@ -55,6 +56,10 @@
   let tlv320GainDebounceTimer = null
   let tlv320GainFlushRequested = false
   let lastTlv320GainSentAt = 0
+  let fmAudioPlayer = null
+  let isAudioStarting = false
+  let isAudioPlaying = false
+  let audioMessage = 'Pair a device, then start FM audio playback.'
 
   function stopIqStream(message = 'Stream stopped.') {
     if (streamHandle) {
@@ -64,6 +69,11 @@
 
     streamStats = null
     streamMessage = message
+    fmAudioPlayer?.reset()
+
+    if (isAudioPlaying) {
+      audioMessage = 'FM audio is running and waiting for live I/Q samples.'
+    }
   }
 
   function startIqStream(selectedDevice) {
@@ -73,6 +83,7 @@
     streamHandle = startVendorIqStream(selectedDevice, {
       onIqSamples(iqSamples) {
         spectrogramRenderer?.pushIqSamples(iqSamples)
+        fmAudioPlayer?.pushIqSamples(iqSamples)
       },
       onStatus(nextStats) {
         streamStats = nextStats
@@ -88,6 +99,81 @@
       console.error('Vendor I/Q stream stopped:', error)
       streamMessage = error?.message || 'I/Q stream stopped unexpectedly.'
     })
+  }
+
+  async function startFmAudio() {
+    if (!device) {
+      audioMessage = 'Pair a device before starting FM audio.'
+      return
+    }
+
+    isAudioStarting = true
+
+    try {
+      if (!fmAudioPlayer) {
+        fmAudioPlayer = await createFmAudioPlayer({
+          iqSampleRateHz: IQ_SAMPLE_RATE_HZ,
+        })
+      }
+
+      fmAudioPlayer.reset()
+      await fmAudioPlayer.start()
+      isAudioPlaying = true
+      audioMessage = `Playing FM-demodulated audio at ${(fmAudioPlayer.audioSampleRateHz / 1000).toFixed(0)} kHz.`
+    } catch (error) {
+      isAudioPlaying = false
+      audioMessage = error?.message || 'Failed to start FM audio playback.'
+    } finally {
+      isAudioStarting = false
+    }
+  }
+
+  async function stopFmAudio() {
+    if (!fmAudioPlayer) {
+      isAudioPlaying = false
+      audioMessage = 'FM audio stopped.'
+      return
+    }
+
+    try {
+      await fmAudioPlayer.stop()
+    } catch (error) {
+      audioMessage = error?.message || 'Failed to stop FM audio playback cleanly.'
+    } finally {
+      isAudioPlaying = false
+    }
+
+    if (audioMessage.startsWith('Playing FM-demodulated audio')) {
+      audioMessage = 'FM audio stopped.'
+    }
+  }
+
+  async function toggleFmAudio() {
+    if (isAudioPlaying) {
+      await stopFmAudio()
+      return
+    }
+
+    await startFmAudio()
+  }
+
+  async function closeFmAudioPlayer() {
+    if (!fmAudioPlayer) {
+      isAudioPlaying = false
+      isAudioStarting = false
+      return
+    }
+
+    const player = fmAudioPlayer
+    fmAudioPlayer = null
+    isAudioPlaying = false
+    isAudioStarting = false
+
+    try {
+      await player.close()
+    } catch (error) {
+      console.error('Failed to close FM audio player:', error)
+    }
   }
 
   async function readClockFrequency(selectedDevice = device) {
@@ -269,12 +355,14 @@
       window.removeEventListener('resize', handleResize)
       clearTlv320GainDebounceTimer()
       stopIqStream()
+      void closeFmAudioPlayer()
     }
   })
 
   onDestroy(() => {
     clearTlv320GainDebounceTimer()
     stopIqStream()
+    void closeFmAudioPlayer()
   })
 
   $: historySeconds = spectrogramCanvas ? spectrogramCanvas.height / ROW_RATE_HZ : 0
@@ -448,6 +536,35 @@
                   CHx_CFG1 = 0x{tlv320GainDbToRaw(tlv320Gain).toString(16).padStart(2, '0').toUpperCase()}
                 </p>
               </div>
+            </div>
+          </div>
+
+          <div class="mt-6 rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p class="text-sm font-medium text-slate-400">FM audio</p>
+                <p class="mt-2 text-sm leading-6 text-slate-500">
+                  Demodulates the live DC-centered I/Q stream into mono audio with a phase
+                  discriminator, 4:1 decimation, and de-emphasis.
+                </p>
+              </div>
+              <button
+                class="inline-flex items-center justify-center rounded-xl bg-fuchsia-400 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-fuchsia-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
+                on:click={toggleFmAudio}
+                disabled={!device || isConnecting || isAudioStarting}
+              >
+                {#if isAudioStarting}
+                  Starting...
+                {:else if isAudioPlaying}
+                  Stop audio
+                {:else}
+                  Start audio
+                {/if}
+              </button>
+            </div>
+
+            <div class="mt-4 rounded-xl border border-white/10 bg-slate-900/70 p-4">
+              <p class="text-sm leading-6 text-slate-200">{audioMessage}</p>
             </div>
           </div>
 
