@@ -4,6 +4,7 @@
 
 #include "debug.h"
 #include "si5351_hw.h"
+#include "tlv320adc6120_hw.h"
 #include "tusb.h"
 #include "usb_descriptors.h"
 
@@ -12,13 +13,17 @@
 #define USB_WEB_URL        "example.tinyusb.org/webusb-serial/index.html"
 #define USB_HW_CLK_FREQ_PAYLOAD_SIZE 8U
 #define USB_HW_CLK_FREQ_STATE_SIZE   (1U + USB_HW_CLK_FREQ_PAYLOAD_SIZE)
+#define USB_HW_TLV320_GAIN_REQ_SIZE  1U
 #define USB_VENDOR_STREAM_INDEX      0U
 
 static uint8_t usb_echo_buf[USB_ECHO_BUF_SIZE];
 static uint8_t usb_hw_clk_freq_req[USB_HW_CLK_FREQ_PAYLOAD_SIZE];
 static uint8_t usb_hw_clk_freq_state[USB_HW_CLK_FREQ_STATE_SIZE];
+static uint8_t usb_hw_tlv320_gain_req[USB_HW_TLV320_GAIN_REQ_SIZE];
 static uint64_t usb_hw_clk_freq_hz = 0U;
 static ErrorStatus usb_hw_clk_freq_status = NoREADY;
+static uint8_t usb_hw_tlv320_gain_raw = 0x00U;
+static ErrorStatus usb_hw_tlv320_gain_status = NoREADY;
 static volatile uint32_t usb_hw_vendor_total_word_count = 0U;
 static volatile uint32_t usb_hw_vendor_dropped_word_count = 0U;
 static tusb_desc_webusb_url_t const desc_url = {
@@ -109,6 +114,24 @@ ErrorStatus usb_hw_set_clk_freq_hz(uint64_t hz)
     }
 
     return usb_hw_clk_freq_status;
+}
+
+ErrorStatus usb_hw_set_tlv320_gain_raw(uint8_t gain_raw)
+{
+    usb_hw_tlv320_gain_status = tlv320adc6120_hw_set_ch_gain_raw(gain_raw);
+    if(usb_hw_tlv320_gain_status == READY)
+    {
+        usb_hw_tlv320_gain_raw = gain_raw;
+        printf("TLV320: CHx_CFG1 set to 0x%02X\r\n", (unsigned int)gain_raw);
+    }
+    else
+    {
+        printf("TLV320: CHx_CFG1 set failed for 0x%02X (status %u)\r\n",
+               (unsigned int)gain_raw,
+               (unsigned int)usb_hw_tlv320_gain_status);
+    }
+
+    return usb_hw_tlv320_gain_status;
 }
 
 uint64_t usb_hw_get_clk_freq_hz(void)
@@ -238,6 +261,26 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
                     /* Returns 1 status byte followed by uint64_t little-endian frequency in Hz. */
                     usb_hw_prepare_clk_freq_state();
                     return tud_control_xfer(rhport, request, usb_hw_clk_freq_state, sizeof(usb_hw_clk_freq_state));
+
+                case VENDOR_REQUEST_SET_TLV320_GAIN:
+                    if(request->bmRequestType_bit.direction != TUSB_DIR_OUT)
+                    {
+                        return false;
+                    }
+                    if((request->wValue != 0U) || (request->wIndex != 0U) || (request->wLength != USB_HW_TLV320_GAIN_REQ_SIZE))
+                    {
+                        return false;
+                    }
+
+                    if(stage == CONTROL_STAGE_SETUP)
+                    {
+                        return tud_control_xfer(rhport, request, usb_hw_tlv320_gain_req, sizeof(usb_hw_tlv320_gain_req));
+                    }
+                    if(stage == CONTROL_STAGE_DATA)
+                    {
+                        return (usb_hw_set_tlv320_gain_raw(usb_hw_tlv320_gain_req[0]) == READY);
+                    }
+                    return true;
 
                 default:
                     break;

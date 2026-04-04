@@ -97,7 +97,6 @@ target_link_options(${EXECUTABLE} PRIVATE
 
   -Wunused -Wuninitialized
   
-  --specs=nano.specs 
   --specs=nosys.specs
   
   -nostartfiles

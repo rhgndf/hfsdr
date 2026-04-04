@@ -3,8 +3,14 @@
   import { describeDevice, requestHfsdrDevice } from './lib/webusb.js'
   import {
     parseFrequencyInput,
+    parseTlv320GainInput,
     readClockFrequency as readDeviceClockFrequency,
     setClockFrequency as writeClockFrequency,
+    setTlv320Gain as writeTlv320Gain,
+    tlv320GainDbToRaw,
+    TLV320_GAIN_MAX_DB,
+    TLV320_GAIN_MIN_DB,
+    TLV320_GAIN_STEP_DB,
   } from './lib/control.js'
   import { startVendorIqStream } from './lib/data.js'
   import {
@@ -19,6 +25,7 @@
   const BIN_WIDTH_HZ = IQ_SAMPLE_RATE_HZ / FFT_SIZE
   const HALF_BANDWIDTH_KHZ = IQ_SAMPLE_RATE_HZ / 2000
   const QUARTER_BANDWIDTH_KHZ = IQ_SAMPLE_RATE_HZ / 4000
+  const TLV320_GAIN_DEBOUNCE_MS = 100
   const FREQUENCY_LABELS = [
     `-${HALF_BANDWIDTH_KHZ.toFixed(0)} kHz`,
     `-${QUARTER_BANDWIDTH_KHZ.toFixed(0)} kHz`,
@@ -29,17 +36,23 @@
 
   let device = null
   let frequency = ''
+  let tlv320Gain = 0
   let deviceLabel = 'No device paired'
   let statusMessage = 'Pair a WebUSB device to read or set the clock frequency.'
   let streamMessage = 'Pair a device to start the live I/Q spectrogram.'
   let isConnecting = false
   let isReading = false
   let isSetting = false
+  let isSettingGain = false
   let streamStats = null
   let streamHandle = null
   let spectrogramCanvas = null
   let spectrogramRenderer = null
   let historySeconds = 0
+  let pendingTlv320Gain = null
+  let tlv320GainDebounceTimer = null
+  let tlv320GainFlushRequested = false
+  let lastTlv320GainSentAt = 0
 
   function stopIqStream(message = 'Stream stopped.') {
     if (streamHandle) {
@@ -137,6 +150,104 @@
     }
   }
 
+  function clearTlv320GainDebounceTimer() {
+    if (tlv320GainDebounceTimer !== null) {
+      clearTimeout(tlv320GainDebounceTimer)
+      tlv320GainDebounceTimer = null
+    }
+  }
+
+  function scheduleTlv320GainSend(delayMs) {
+    clearTlv320GainDebounceTimer()
+    tlv320GainDebounceTimer = setTimeout(() => {
+      tlv320GainDebounceTimer = null
+      void flushTlv320Gain()
+    }, delayMs)
+  }
+
+  async function flushTlv320Gain(forceImmediate = false) {
+    if (!device || pendingTlv320Gain === null) {
+      return
+    }
+
+    if (isSettingGain) {
+      if (forceImmediate) {
+        tlv320GainFlushRequested = true
+      }
+      return
+    }
+
+    const elapsedMs = performance.now() - lastTlv320GainSentAt
+    if (!forceImmediate && lastTlv320GainSentAt !== 0 && elapsedMs < TLV320_GAIN_DEBOUNCE_MS) {
+      scheduleTlv320GainSend(TLV320_GAIN_DEBOUNCE_MS - elapsedMs)
+      return
+    }
+
+    const gainToSend = pendingTlv320Gain
+    pendingTlv320Gain = null
+    isSettingGain = true
+
+    try {
+      await writeTlv320Gain(device, gainToSend)
+      const gainRaw = tlv320GainDbToRaw(gainToSend)
+      statusMessage = `TLV320 gain update sent: ${gainToSend.toFixed(1)} dB (CHx_CFG1 0x${gainRaw.toString(16).padStart(2, '0').toUpperCase()})`
+      lastTlv320GainSentAt = performance.now()
+    } catch (error) {
+      statusMessage = error?.message || 'Failed to set the TLV320 gain.'
+      pendingTlv320Gain = null
+      tlv320GainFlushRequested = false
+    } finally {
+      isSettingGain = false
+    }
+
+    if (pendingTlv320Gain !== null) {
+      if (tlv320GainFlushRequested) {
+        tlv320GainFlushRequested = false
+        void flushTlv320Gain(true)
+      } else {
+        scheduleTlv320GainSend(TLV320_GAIN_DEBOUNCE_MS)
+      }
+    }
+  }
+
+  function queueTlv320Gain(nextGain = tlv320Gain, { forceImmediate = false } = {}) {
+    const parsedGain = parseTlv320GainInput(String(nextGain))
+    tlv320Gain = parsedGain
+    pendingTlv320Gain = parsedGain
+
+    if (!device) {
+      statusMessage = 'Pair a device before setting the ADC gain.'
+      return
+    }
+
+    if (forceImmediate) {
+      tlv320GainFlushRequested = true
+      clearTlv320GainDebounceTimer()
+      void flushTlv320Gain(true)
+      return
+    }
+
+    if (isSettingGain || tlv320GainDebounceTimer !== null) {
+      return
+    }
+
+    const elapsedMs = performance.now() - lastTlv320GainSentAt
+    const delayMs =
+      lastTlv320GainSentAt === 0
+        ? TLV320_GAIN_DEBOUNCE_MS
+        : Math.max(0, TLV320_GAIN_DEBOUNCE_MS - elapsedMs)
+
+    scheduleTlv320GainSend(delayMs)
+  }
+
+  function handleTlv320SliderInput() {
+    queueTlv320Gain(tlv320Gain)
+  }
+
+  function handleTlv320GainCommit() {
+    queueTlv320Gain(tlv320Gain, { forceImmediate: true })
+  }
+
   onMount(() => {
     if (spectrogramCanvas) {
       spectrogramRenderer = createSpectrogramRenderer(spectrogramCanvas)
@@ -148,11 +259,13 @@
 
     return () => {
       window.removeEventListener('resize', handleResize)
+      clearTlv320GainDebounceTimer()
       stopIqStream()
     }
   })
 
   onDestroy(() => {
+    clearTlv320GainDebounceTimer()
     stopIqStream()
   })
 
@@ -238,7 +351,7 @@
             <button
               class="inline-flex items-center justify-center rounded-xl bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
               on:click={pairDevice}
-              disabled={isConnecting || isReading || isSetting}
+              disabled={isConnecting || isReading || isSetting || isSettingGain}
             >
               {isConnecting ? 'Pairing...' : 'Pair device'}
             </button>
@@ -254,15 +367,59 @@
                 inputmode="numeric"
                 bind:value={frequency}
                 placeholder="7067333"
-                disabled={!device || isConnecting || isReading || isSetting}
+                disabled={!device || isConnecting || isReading || isSetting || isSettingGain}
               />
               <button
                 class="inline-flex items-center justify-center rounded-xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
                 on:click={setClockFrequency}
-                disabled={!device || isConnecting || isReading || isSetting}
+                disabled={!device || isConnecting || isReading || isSetting || isSettingGain}
               >
                 {isSetting ? 'Setting...' : 'Set frequency'}
               </button>
+            </div>
+          </div>
+
+          <div class="mt-6 rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-sm font-medium text-slate-400">ADC gain</p>
+                <p class="mt-2 text-sm leading-6 text-slate-500">
+                  Sends the same gain to TLV320 `CH1_CFG1` and `CH2_CFG1` in 0.5 dB steps.
+                </p>
+              </div>
+              <p class="text-sm font-semibold text-white">
+                {tlv320Gain.toFixed(1)} dB
+              </p>
+            </div>
+
+            <div class="mt-4 flex flex-col gap-4">
+              <input
+                class="w-full accent-amber-400"
+                type="range"
+                min={TLV320_GAIN_MIN_DB}
+                max={TLV320_GAIN_MAX_DB}
+                step={TLV320_GAIN_STEP_DB}
+                bind:value={tlv320Gain}
+                on:input={handleTlv320SliderInput}
+                on:change={handleTlv320GainCommit}
+                disabled={!device || isConnecting || isReading || isSetting}
+              />
+
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <input
+                  class="w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-base text-white outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20"
+                  type="number"
+                  min={TLV320_GAIN_MIN_DB}
+                  max={TLV320_GAIN_MAX_DB}
+                  step={TLV320_GAIN_STEP_DB}
+                  bind:value={tlv320Gain}
+                  on:change={handleTlv320GainCommit}
+                  disabled={!device || isConnecting || isReading || isSetting}
+                />
+                <p class="text-sm text-slate-500">
+                  CHx_CFG1 = 0x{tlv320GainDbToRaw(tlv320Gain).toString(16).padStart(2, '0').toUpperCase()}
+                </p>
+              </div>
             </div>
           </div>
 

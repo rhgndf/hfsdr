@@ -84,10 +84,10 @@
 
 /*
  * CHx_CFG1 (0x3D / 0x42):
- * - CHx_GAIN[6:0] = 40d: +20.0 dB in 0.5-dB steps
+ * - CHx_GAIN[6:0] = 0d: 0.0 dB in 0.5-dB steps
  * - CHx_GAIN_SIGN_BIT = 0b: positive gain
  */
-#define TLV320_CH_CFG1_GAIN_POS_20DB   0x50U
+#define TLV320_CH_CFG1_GAIN_0DB        0x00U
 
 /*
  * MST_CFG0 (0x13):
@@ -121,6 +121,24 @@
 static ErrorStatus tlv320adc6120_hw_write_reg(uint8_t reg, uint8_t value)
 {
     return i2c_hw_write_register(TLV320ADC6120_I2C_ADDR_7BIT, reg, value);
+}
+
+ErrorStatus tlv320adc6120_hw_set_ch_gain_raw(uint8_t gain_raw)
+{
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_PAGE_CFG, 0x00U) != READY)
+    {
+        return NoREADY;
+    }
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_CH1_CFG1, gain_raw) != READY)
+    {
+        return NoREADY;
+    }
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_CH2_CFG1, gain_raw) != READY)
+    {
+        return NoREADY;
+    }
+
+    return READY;
 }
 
 ErrorStatus tlv320adc6120_hw_init(void)
@@ -192,15 +210,11 @@ ErrorStatus tlv320adc6120_hw_init(void)
     {
         return NoREADY;
     }
-    if(tlv320adc6120_hw_write_reg(TLV320_REG_CH1_CFG1, TLV320_CH_CFG1_GAIN_POS_20DB) != READY)
-    {
-        return NoREADY;
-    }
     if(tlv320adc6120_hw_write_reg(TLV320_REG_CH2_CFG0, TLV320_CH_CFG0_LINE_DIFF_AC_10K) != READY)
     {
         return NoREADY;
     }
-    if(tlv320adc6120_hw_write_reg(TLV320_REG_CH2_CFG1, TLV320_CH_CFG1_GAIN_POS_20DB) != READY)
+    if(tlv320adc6120_hw_set_ch_gain_raw(TLV320_CH_CFG1_GAIN_0DB) != READY)
     {
         return NoREADY;
     }

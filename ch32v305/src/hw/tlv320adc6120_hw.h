@@ -22,5 +22,6 @@
 #define TLV320ADC6120_I2C_ADDR_7BIT 0x4EU
 
 [[nodiscard]] ErrorStatus tlv320adc6120_hw_init(void);
+[[nodiscard]] ErrorStatus tlv320adc6120_hw_set_ch_gain_raw(uint8_t gain_raw);
 
 #endif

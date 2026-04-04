@@ -17,5 +17,6 @@ uint32_t usb_receive_data(uint8_t *buffer, uint32_t len);
 ErrorStatus usb_hw_set_clk_freq_hz(uint64_t hz);
 uint64_t usb_hw_get_clk_freq_hz(void);
 ErrorStatus usb_hw_get_clk_freq_status(void);
+ErrorStatus usb_hw_set_tlv320_gain_raw(uint8_t gain_raw);
 
 #endif
