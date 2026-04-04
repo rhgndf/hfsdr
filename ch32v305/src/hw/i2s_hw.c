@@ -39,6 +39,36 @@ static volatile uint16_t s_rx_dma_buf[I2S_RX_DMA_BUFFER_WORDS];
 void DMA1_Channel4_IRQHandler(void) __attribute__((interrupt));
 extern void audio_usb_mic_write_isr(volatile uint16_t const *src_words, size_t word_count);
 
+static void i2s_hw_rx_flush(void)
+{
+    volatile uint16_t discarded_data;
+    volatile uint16_t discarded_status;
+
+    /*
+     * DATAR is only 16 bits wide in I2S mode. If RXNE or OVR survives a stop,
+     * the next DMA start can consume a stale half-word and shift the stream by
+     * 16 bits. Drain any unread receive data and clear OVR using the required
+     * DATAR then STATR sequence from the reference manual.
+     */
+    do
+    {
+        while(SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_RXNE) != RESET)
+        {
+            discarded_data = SPI_I2S_ReceiveData(SPI2);
+            (void)discarded_data;
+        }
+
+        if(SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_OVR) != RESET)
+        {
+            discarded_data = SPI_I2S_ReceiveData(SPI2);
+            discarded_status = SPI2->STATR;
+            (void)discarded_data;
+            (void)discarded_status;
+        }
+    } while((SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_RXNE) != RESET) ||
+            (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_OVR) != RESET));
+}
+
 static void i2s_hw_dma_irq_init(void)
 {
     NVIC_InitTypeDef nvic = {0};
@@ -56,7 +86,10 @@ static void i2s_dma_rx_start(void)
 
     RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE);
 
+    SPI_I2S_DMACmd(SPI2, SPI_I2S_DMAReq_Rx, DISABLE);
+    DMA_Cmd(I2S_RX_DMA_CHANNEL, DISABLE);
     DMA_DeInit(I2S_RX_DMA_CHANNEL);
+    i2s_hw_rx_flush();
 
     dma_init.DMA_PeripheralBaseAddr = (uint32_t)&SPI2->DATAR;
     dma_init.DMA_MemoryBaseAddr = (uint32_t)s_rx_dma_buf;
@@ -73,16 +106,20 @@ static void i2s_dma_rx_start(void)
 
     DMA_ClearITPendingBit(I2S_RX_DMA_GL_IT | I2S_RX_DMA_HT_IT | I2S_RX_DMA_TC_IT | I2S_RX_DMA_TE_IT);
     DMA_ITConfig(I2S_RX_DMA_CHANNEL, DMA_IT_HT | DMA_IT_TC | DMA_IT_TE, ENABLE);
+    DMA_Cmd(I2S_RX_DMA_CHANNEL, ENABLE);
     SPI_I2S_DMACmd(SPI2, SPI_I2S_DMAReq_Rx, ENABLE);
     I2S_Cmd(SPI2, ENABLE);
-    DMA_Cmd(I2S_RX_DMA_CHANNEL, ENABLE);
 }
 
 static void i2s_dma_rx_stop(void)
 {
-    DMA_Cmd(I2S_RX_DMA_CHANNEL, DISABLE);
+    I2S_Cmd(SPI2, DISABLE);
     SPI_I2S_DMACmd(SPI2, SPI_I2S_DMAReq_Rx, DISABLE);
+    DMA_Cmd(I2S_RX_DMA_CHANNEL, DISABLE);
+    DMA_ITConfig(I2S_RX_DMA_CHANNEL, DMA_IT_HT | DMA_IT_TC | DMA_IT_TE, DISABLE);
+    DMA_ClearITPendingBit(I2S_RX_DMA_GL_IT | I2S_RX_DMA_HT_IT | I2S_RX_DMA_TC_IT | I2S_RX_DMA_TE_IT);
     DMA_DeInit(I2S_RX_DMA_CHANNEL);
+    i2s_hw_rx_flush();
 }
 
 /* Unfortunately we wired the clock wrong, so we have to use TIM8 as a clock out instead */
@@ -190,7 +227,6 @@ void i2s_hw_enable(FunctionalState state)
     if(state == DISABLE)
     {
         i2s_dma_rx_stop();
-        I2S_Cmd(SPI2, DISABLE);
         return;
     }
 
