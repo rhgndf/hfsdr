@@ -109,7 +109,7 @@ extern "C" {
 #define CFG_TUD_AUDIO_FUNC_1_N_FORMATS                               1
 
 // Audio format type I specifications
-#define CFG_TUD_AUDIO_FUNC_1_MAX_SAMPLE_RATE                         192000
+#define CFG_TUD_AUDIO_FUNC_1_MAX_SAMPLE_RATE                         384000
 #define CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX                           2
 #define CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_RX                           0
 
@@ -123,7 +123,7 @@ extern "C" {
 #define CFG_TUD_AUDIO_FUNC_1_FORMAT_1_EP_SZ_IN    TUD_AUDIO_EP_SIZE(TUD_OPT_HIGH_SPEED, CFG_TUD_AUDIO_FUNC_1_MAX_SAMPLE_RATE, CFG_TUD_AUDIO_FUNC_1_FORMAT_1_N_BYTES_PER_SAMPLE_TX, CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX)
 
 #define CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX         CFG_TUD_AUDIO_FUNC_1_FORMAT_1_EP_SZ_IN
-#define CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ      (TUD_OPT_HIGH_SPEED ? 32 : 4) * CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX // Example read FIFO every 1ms, so it should be 8 times larger for HS device
+#define CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ      (TUD_OPT_HIGH_SPEED ? 16 : 4) * CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX // Example read FIFO every 1ms, so it should be 8 times larger for HS device
 
 #define CFG_TUD_AUDIO_ENABLE_EP_OUT               0
 

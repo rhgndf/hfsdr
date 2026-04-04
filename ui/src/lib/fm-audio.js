@@ -1,11 +1,41 @@
 const DEFAULT_AUDIO_SAMPLE_RATE_HZ = 48000
 const DEFAULT_DEEMPHASIS_US = 75
 const DEFAULT_AUDIO_GAIN = 0.8
+const DEFAULT_AUDIO_CUTOFF_HZ = 15000
 const OUTPUT_WORKLET_NAME = 'queued-audio-output'
 const WORKLET_MODULE_URL = new URL('./audio-output-worklet.js', import.meta.url)
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max)
+}
+
+function createLowPassFilterTaps({ sampleRateHz, cutoffHz, tapCount }) {
+  const taps = new Float32Array(tapCount)
+  const normalizedCutoff = Math.min(
+    Math.max(cutoffHz / sampleRateHz, Number.EPSILON),
+    0.499,
+  )
+  const center = (tapCount - 1) / 2
+  let tapSum = 0
+
+  for (let index = 0; index < tapCount; index += 1) {
+    const offset = index - center
+    const sinc =
+      offset === 0
+        ? 2 * normalizedCutoff
+        : Math.sin(2 * Math.PI * normalizedCutoff * offset) / (Math.PI * offset)
+    const window = 0.54 - 0.46 * Math.cos((2 * Math.PI * index) / (tapCount - 1))
+    const value = sinc * window
+
+    taps[index] = value
+    tapSum += value
+  }
+
+  for (let index = 0; index < tapCount; index += 1) {
+    taps[index] /= tapSum
+  }
+
+  return taps
 }
 
 function createFmDemodulator({
@@ -16,6 +46,13 @@ function createFmDemodulator({
 }) {
   const decimationFactor = Math.max(1, Math.round(iqSampleRateHz / audioSampleRateHz))
   const actualAudioSampleRateHz = iqSampleRateHz / decimationFactor
+  const audioCutoffHz = Math.min(DEFAULT_AUDIO_CUTOFF_HZ, actualAudioSampleRateHz * 0.45)
+  const firTapCount = Math.max(33, decimationFactor * 8 + 1)
+  const firTaps = createLowPassFilterTaps({
+    sampleRateHz: iqSampleRateHz,
+    cutoffHz: audioCutoffHz,
+    tapCount: firTapCount,
+  })
   const dt = 1 / actualAudioSampleRateHz
   const deemphasisAlpha =
     deemphasisTimeConstantUs <= 0
@@ -27,7 +64,8 @@ function createFmDemodulator({
   let previousInput = 0
   let dcBlocked = 0
   let deemphasis = 0
-  let decimationSum = 0
+  let firWriteIndex = 0
+  const firHistory = new Float32Array(firTapCount)
   let decimationCount = 0
 
   function reset() {
@@ -36,7 +74,8 @@ function createFmDemodulator({
     previousInput = 0
     dcBlocked = 0
     deemphasis = 0
-    decimationSum = 0
+    firWriteIndex = 0
+    firHistory.fill(0)
     decimationCount = 0
   }
 
@@ -58,15 +97,22 @@ function createFmDemodulator({
       dcBlocked = dcBlockInput - previousInput + 0.995 * dcBlocked
       previousInput = dcBlockInput
 
-      decimationSum += dcBlocked
+      firHistory[firWriteIndex] = dcBlocked
+      firWriteIndex = (firWriteIndex + 1) % firTapCount
       decimationCount += 1
 
       if (decimationCount === decimationFactor) {
-        const averagedSample = decimationSum / decimationFactor
-        decimationSum = 0
+        let filteredSample = 0
+        let historyIndex = firWriteIndex
+
+        for (let tapIndex = 0; tapIndex < firTapCount; tapIndex += 1) {
+          historyIndex = (historyIndex + firTapCount - 1) % firTapCount
+          filteredSample += firTaps[tapIndex] * firHistory[historyIndex]
+        }
+
         decimationCount = 0
 
-        deemphasis += deemphasisAlpha * (averagedSample - deemphasis)
+        deemphasis += deemphasisAlpha * (filteredSample - deemphasis)
         output[outputIndex] = clamp(deemphasis * audioGain, -1, 1)
         outputIndex += 1
       }

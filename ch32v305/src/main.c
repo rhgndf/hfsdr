@@ -401,7 +401,7 @@ int main(void)
 
     dac_hw_init();
     dac_hw_static_noise_start(192000U);
-    printf("DAC: static noise PA4+PA5 @ 48 ksps (TIM7 TRGO + DMA2 Ch3 refill IRQ)\r\n");
+    printf("DAC: static noise PA4+PA5 @ 384 ksps (TIM7 TRGO + DMA2 Ch3 refill IRQ)\r\n");
 
     LED_Blink_Init(1000U);
 
