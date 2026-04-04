@@ -28,6 +28,7 @@
   const HALF_BANDWIDTH_KHZ = IQ_SAMPLE_RATE_HZ / 2000
   const QUARTER_BANDWIDTH_KHZ = IQ_SAMPLE_RATE_HZ / 4000
   const TLV320_GAIN_DEBOUNCE_MS = 100
+  const PLL_POLL_INTERVAL_MS = 200
   const FREQUENCY_LABELS = [
     `-${HALF_BANDWIDTH_KHZ.toFixed(0)} kHz`,
     `-${QUARTER_BANDWIDTH_KHZ.toFixed(0)} kHz`,
@@ -60,6 +61,10 @@
   let isAudioStarting = false
   let isAudioPlaying = false
   let audioMessage = 'Pair a device, then start FM audio playback.'
+  let hoverFrequencyInfo = null
+  let pllPollTimer = null
+  let pllPollGeneration = 0
+  let pllPollInFlight = false
 
   function stopIqStream(message = 'Stream stopped.') {
     if (streamHandle) {
@@ -99,6 +104,59 @@
       console.error('Vendor I/Q stream stopped:', error)
       streamMessage = error?.message || 'I/Q stream stopped unexpectedly.'
     })
+  }
+
+  function stopPllLockPolling() {
+    pllPollGeneration += 1
+    pllPollInFlight = false
+
+    if (pllPollTimer !== null) {
+      clearInterval(pllPollTimer)
+      pllPollTimer = null
+    }
+  }
+
+  async function pollPllLock(selectedDevice = device, generation = pllPollGeneration) {
+    if (!selectedDevice || pllPollInFlight || generation !== pllPollGeneration) {
+      return
+    }
+
+    pllPollInFlight = true
+
+    try {
+      const { status, locked } = await readDevicePllLock(selectedDevice)
+
+      if (generation !== pllPollGeneration || selectedDevice !== device) {
+        return
+      }
+
+      pllLocked = status === READY_STATUS ? locked : null
+    } catch {
+      if (generation !== pllPollGeneration || selectedDevice !== device) {
+        return
+      }
+
+      pllLocked = null
+    } finally {
+      if (generation === pllPollGeneration) {
+        pllPollInFlight = false
+      }
+    }
+  }
+
+  function startPllLockPolling(selectedDevice = device) {
+    stopPllLockPolling()
+
+    if (!selectedDevice) {
+      pllLocked = null
+      return
+    }
+
+    const generation = pllPollGeneration
+    pllPollTimer = setInterval(() => {
+      void pollPllLock(selectedDevice, generation)
+    }, PLL_POLL_INTERVAL_MS)
+    void pollPllLock(selectedDevice, generation)
   }
 
   async function startFmAudio() {
@@ -203,6 +261,7 @@
   async function pairDevice() {
     isConnecting = true
     pllLocked = null
+    stopPllLockPolling()
     stopIqStream('Pairing device...')
 
     try {
@@ -213,6 +272,7 @@
       statusMessage = 'Device paired. Reading current frequency...'
 
       await readClockFrequency(selectedDevice)
+      startPllLockPolling(selectedDevice)
       startIqStream(selectedDevice)
     } catch (error) {
       pllLocked = null
@@ -342,6 +402,45 @@
     queueTlv320Gain(tlv320Gain, { forceImmediate: true })
   }
 
+  function formatHz(value) {
+    return `${value.toLocaleString()} Hz`
+  }
+
+  function clearSpectrogramHover() {
+    hoverFrequencyInfo = null
+  }
+
+  function updateSpectrogramHover(event) {
+    if (!spectrogramCanvas) {
+      hoverFrequencyInfo = null
+      return
+    }
+
+    const normalizedFrequency = frequency.trim()
+    if (!/^\d+$/.test(normalizedFrequency)) {
+      hoverFrequencyInfo = null
+      return
+    }
+
+    const rect = spectrogramCanvas.getBoundingClientRect()
+    const relativeX = Math.min(Math.max(event.clientX - rect.left, 0), rect.width)
+    const normalizedX = rect.width > 0 ? relativeX / rect.width : 0
+    const offsetHz = Math.round((normalizedX - 0.5) * IQ_SAMPLE_RATE_HZ)
+    const absoluteHz = BigInt(normalizedFrequency) + BigInt(offsetHz)
+    const dbfs = spectrogramRenderer?.getDbfsAtNormalizedX(normalizedX) ?? null
+    const anchor =
+      normalizedX <= 0.18 ? 'left' : normalizedX >= 0.82 ? 'right' : 'center'
+
+    hoverFrequencyInfo = {
+      x: relativeX,
+      y: Math.min(Math.max(event.clientY - rect.top, 0), rect.height),
+      offsetHz,
+      absoluteHz,
+      dbfs,
+      anchor,
+    }
+  }
+
   onMount(() => {
     if (spectrogramCanvas) {
       spectrogramRenderer = createSpectrogramRenderer(spectrogramCanvas)
@@ -354,6 +453,7 @@
     return () => {
       window.removeEventListener('resize', handleResize)
       clearTlv320GainDebounceTimer()
+      stopPllLockPolling()
       stopIqStream()
       void closeFmAudioPlayer()
     }
@@ -361,6 +461,7 @@
 
   onDestroy(() => {
     clearTlv320GainDebounceTimer()
+    stopPllLockPolling()
     stopIqStream()
     void closeFmAudioPlayer()
   })
@@ -421,18 +522,43 @@
         </div>
 
         <div class="mt-5">
-          <div class="relative overflow-hidden rounded-[1.5rem] border border-white/10 bg-slate-950">
-            <canvas bind:this={spectrogramCanvas} class="block h-[26rem] w-full"></canvas>
+          <div class="relative rounded-[1.5rem] border border-white/10 bg-slate-950">
+            <div class="overflow-hidden rounded-[inherit]">
+              <canvas
+                bind:this={spectrogramCanvas}
+                class="block h-[26rem] w-full"
+                on:mousemove={updateSpectrogramHover}
+                on:mouseleave={clearSpectrogramHover}
+              ></canvas>
 
-            <div class="pointer-events-none absolute inset-x-0 top-0 flex justify-between px-4 py-3 text-xs font-medium uppercase tracking-[0.22em] text-white/60">
-              {#each FREQUENCY_LABELS as label}
-                <span>{label}</span>
-              {/each}
+              <div class="pointer-events-none absolute inset-x-0 top-0 flex justify-between px-4 py-3 text-xs font-medium uppercase tracking-[0.22em] text-white/60">
+                {#each FREQUENCY_LABELS as label}
+                  <span>{label}</span>
+                {/each}
+              </div>
+
+              <div class="pointer-events-none absolute inset-x-0 bottom-0 border-t border-white/10 bg-gradient-to-t from-slate-950 via-slate-950/90 to-transparent px-4 py-3 text-sm text-slate-300">
+                {streamMessage}
+              </div>
             </div>
 
-            <div class="pointer-events-none absolute inset-x-0 bottom-0 border-t border-white/10 bg-gradient-to-t from-slate-950 via-slate-950/90 to-transparent px-4 py-3 text-sm text-slate-300">
-              {streamMessage}
-            </div>
+            {#if hoverFrequencyInfo}
+              <div
+                class="pointer-events-none absolute z-20 rounded-xl border border-cyan-300/20 bg-slate-950/95 px-3 py-2 text-xs text-slate-100 shadow-[0_16px_40px_rgba(8,145,178,0.2)] whitespace-nowrap"
+                style={`left: ${hoverFrequencyInfo.x}px; top: ${Math.min(hoverFrequencyInfo.y + 18, (spectrogramCanvas?.clientHeight ?? hoverFrequencyInfo.y) - 8)}px; transform: ${
+                  hoverFrequencyInfo.anchor === 'left'
+                    ? 'translate(0, 0)'
+                    : hoverFrequencyInfo.anchor === 'right'
+                      ? 'translate(-100%, 0)'
+                      : 'translate(-50%, 0)'
+                };`}
+              >
+                <p class="font-semibold text-cyan-200">{formatHz(hoverFrequencyInfo.absoluteHz)}</p>
+                {#if hoverFrequencyInfo.dbfs !== null}
+                  <p class="mt-1 text-amber-200">{hoverFrequencyInfo.dbfs.toFixed(1)} dBFS</p>
+                {/if}
+              </div>
+            {/if}
           </div>
         </div>
       </div>

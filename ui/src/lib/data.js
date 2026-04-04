@@ -2,6 +2,7 @@ import { claimVendorInterface, getVendorInEndpointNumber } from './webusb.js'
 
 const DEFAULT_TRANSFER_BYTES = 16 * 1024
 const DEFAULT_REPORT_EVERY_MS = 1000
+const DEFAULT_IN_FLIGHT_TRANSFERS = 8
 const IQ_FRAME_BYTES = 8
 const IQ_FIXED_POINT_SCALE = 1 / 0x800000
 const BYTES_PER_MB = 1000 * 1000
@@ -38,6 +39,21 @@ function appendCarry(carryBytes, nextBytes) {
   return merged
 }
 
+function clampInFlightTransfers(value) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_IN_FLIGHT_TRANSFERS
+  }
+
+  return Math.max(1, Math.floor(value))
+}
+
+function submitTransferIn(device, endpointNumber, transferSize) {
+  return device
+    .transferIn(endpointNumber, transferSize)
+    .then((response) => ({ response }))
+    .catch((error) => ({ error }))
+}
+
 export async function readVendorIqLoop(device, options = {}) {
   if (!device) {
     throw new Error('No device paired.')
@@ -46,13 +62,15 @@ export async function readVendorIqLoop(device, options = {}) {
   const {
     transferSize = DEFAULT_TRANSFER_BYTES,
     reportEveryMs = DEFAULT_REPORT_EVERY_MS,
+    inFlightTransfers = DEFAULT_IN_FLIGHT_TRANSFERS,
     onIqSamples,
     onStatus,
     signal,
   } = options
 
-  const { interfaceNumber } = await claimVendorInterface(device)
+  await claimVendorInterface(device)
   const endpointNumber = getVendorInEndpointNumber(device)
+  const transferCount = clampInFlightTransfers(inFlightTransfers)
   const startedAt = performance.now()
   let reportStartedAt = startedAt
   let totalBytes = 0
@@ -60,12 +78,20 @@ export async function readVendorIqLoop(device, options = {}) {
   let reportBytes = 0
   let reportFrames = 0
   let carryBytes = new Uint8Array(0)
+  const pendingTransfers = Array.from({ length: transferCount }, () =>
+    submitTransferIn(device, endpointNumber, transferSize),
+  )
+  let nextTransferIndex = 0
 
   while (!signal?.aborted) {
-    const response = await device.transferIn(endpointNumber, transferSize)
+    const { response, error } = await pendingTransfers[nextTransferIndex]
 
     if (signal?.aborted) {
       break
+    }
+
+    if (error) {
+      throw error
     }
 
     if (response.status !== 'ok' || !response.data) {
@@ -94,6 +120,8 @@ export async function readVendorIqLoop(device, options = {}) {
       onIqSamples?.(iqSamples)
     }
 
+    pendingTransfers[nextTransferIndex] = submitTransferIn(device, endpointNumber, transferSize)
+    nextTransferIndex = (nextTransferIndex + 1) % transferCount
     carryBytes = mergedBytes.subarray(wholeByteLength)
 
     const now = performance.now()

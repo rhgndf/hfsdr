@@ -86,6 +86,7 @@ export function createSpectrogramRenderer(canvas, options = {}) {
   let samplesSinceLastRow = 0
   let displayFloorDb = INITIAL_DB_FLOOR
   let displayCeilingDb = INITIAL_DB_CEILING
+  let hasRenderedRow = false
 
   context.imageSmoothingEnabled = false
 
@@ -181,6 +182,20 @@ export function createSpectrogramRenderer(canvas, options = {}) {
     }
 
     context.putImageData(rowImage, 0, 0)
+    hasRenderedRow = true
+  }
+
+  function getDbfsAtNormalizedX(normalizedX) {
+    if (!hasRenderedRow) {
+      return null
+    }
+
+    const sourceIndex = Math.min(
+      Math.floor(clamp(normalizedX, 0, 1) * (FFT_SIZE - 1)),
+      FFT_SIZE - 1,
+    )
+
+    return dbValues[sourceIndex]
   }
 
   function pushIqSamples(iqSamples) {
@@ -202,6 +217,7 @@ export function createSpectrogramRenderer(canvas, options = {}) {
 
   return {
     clear,
+    getDbfsAtNormalizedX,
     pushIqSamples,
     resize,
   }
