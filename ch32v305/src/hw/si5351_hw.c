@@ -75,6 +75,8 @@ struct si5351_output_config
     struct si5351_ms ms;
 };
 
+uint64_t si5351_actual_frequency;
+
 static void si5351_pack_ms(struct si5351_ms ms, uint8_t buf[8])
 {
     buf[0] = (uint8_t)((ms.p3 >> 8) & 0xFFU);
@@ -120,25 +122,12 @@ static struct si5351_ms si5351_calc_pll_ms(const struct si5351_pll_config *pll_c
     return ms;
 }
 
-static struct si5351_ms si5351_calc_integer_output_ms(uint32_t div)
+static void si5351_approximate_fraction(uint64_t num, uint64_t den, uint64_t max_den,
+                                        uint64_t *out_num, uint64_t *out_den)
 {
-    struct si5351_ms ms;
-
-    ms.p1 = 128U * div - 512U;
-    ms.p2 = 0U;
-    ms.p3 = 1U;
-    return ms;
-}
-
-static void si5351_approximate_fraction(uint64_t num, uint64_t den, uint32_t max_den,
-                                        uint32_t *out_num, uint32_t *out_den)
-{
-    uint64_t p0 = 0U;
-    uint64_t q0 = 1U;
-    uint64_t p1 = 1U;
-    uint64_t q1 = 0U;
-    uint64_t n = num;
-    uint64_t d = den;
+    uint64_t p0 = 0U, q0 = 1U;
+    uint64_t p1 = 1U, q1 = 0U;
+    uint64_t n = num, d = den;
 
     while(d != 0U)
     {
@@ -181,89 +170,15 @@ static void si5351_approximate_fraction(uint64_t num, uint64_t den, uint32_t max
 
         if((2U * d * bound1_den) <= den)
         {
-            *out_num = (uint32_t)p1;
-            *out_den = (uint32_t)q1;
+            *out_num = p1;
+            *out_den = q1;
         }
         else
         {
-            *out_num = (uint32_t)bound1_num;
-            *out_den = (uint32_t)bound1_den;
+            *out_num = bound1_num;
+            *out_den = bound1_den;
         }
     }
-}
-
-static uint8_t si5351_is_valid_output_divider(uint32_t div)
-{
-    if(div == 4U)
-    {
-        return 1U;
-    }
-
-    if((div < SI5351_MULTISYNTH_A_MIN) || (div > SI5351_MULTISYNTH_A_MAX))
-    {
-        return 0U;
-    }
-
-    if((div & 1U) != 0U)
-    {
-        return 0U;
-    }
-
-    return 1U;
-}
-
-static ErrorStatus si5351_pick_output_divider(uint64_t output_clock_scaled, uint32_t *out_div)
-{
-    const uint64_t pll_min_scaled = SI5351_PLL_VCO_MIN_HZ * SI5351_FREQ_MULT;
-    const uint64_t pll_target_scaled = SI5351_PLL_TARGET_HZ * SI5351_FREQ_MULT;
-    const uint64_t pll_max_scaled = SI5351_PLL_VCO_MAX_HZ * SI5351_FREQ_MULT;
-    uint32_t min_div;
-    uint32_t max_div;
-    uint32_t ideal_div;
-    uint32_t delta;
-
-    min_div = (uint32_t)((pll_min_scaled + output_clock_scaled - 1ULL) / output_clock_scaled);
-    max_div = (uint32_t)(pll_max_scaled / output_clock_scaled);
-
-    if(min_div < 4U)
-    {
-        min_div = 4U;
-    }
-    if(max_div > SI5351_MULTISYNTH_A_MAX)
-    {
-        max_div = SI5351_MULTISYNTH_A_MAX;
-    }
-    if(min_div > max_div)
-    {
-        return NoREADY;
-    }
-
-    ideal_div = (uint32_t)((pll_target_scaled + (output_clock_scaled / 2ULL)) / output_clock_scaled);
-    if(ideal_div < min_div)
-    {
-        ideal_div = min_div;
-    }
-    if(ideal_div > max_div)
-    {
-        ideal_div = max_div;
-    }
-
-    for(delta = 0U; delta <= (max_div - min_div); ++delta)
-    {
-        if((ideal_div >= (min_div + delta)) && si5351_is_valid_output_divider(ideal_div - delta))
-        {
-            *out_div = ideal_div - delta;
-            return READY;
-        }
-
-        if(((ideal_div + delta) <= max_div) && si5351_is_valid_output_divider(ideal_div + delta))
-        {
-            *out_div = ideal_div + delta;
-            return READY;
-        }
-    }
-
-    return NoREADY;
 }
 
 static uint8_t si5351_select_r_div(uint64_t *freq_scaled)
@@ -300,50 +215,38 @@ static ErrorStatus si5351_calculate_clk0_config(uint64_t freq_scaled, struct si5
 {
     const uint64_t xtal_scaled = (uint64_t)SI5351_XTAL_FREQ_HZ * SI5351_FREQ_MULT;
     uint64_t output_clock_scaled = freq_scaled;
-    uint64_t pll_num;
-    uint64_t pll_freq_scaled;
-    uint32_t base_num;
-    uint32_t base_den;
+    uint64_t pll_num, base_num, base_den;
 
     out_conf->r_div = si5351_select_r_div(&output_clock_scaled);
     out_conf->r_div_factor = si5351_r_div_factor(out_conf->r_div);
     out_conf->allow_integer_mode = 1U;
     out_conf->phase_offset = 0U;
 
-    si5351_approximate_fraction(output_clock_scaled, xtal_scaled, SI5351_PLL_DENOM_MAX, &base_num, &base_den);
+
+    uint64_t calculated_div = (SI5351_PLL_TARGET_HZ * SI5351_FREQ_MULT / 2) / freq_scaled * 2;
+    if (calculated_div < 4) {
+        calculated_div = 4;
+    } else if (calculated_div > 126) {
+        calculated_div = 126;
+    }
+    out_conf->div = calculated_div;
+    out_conf->div_by_4 = (out_conf->div == 4U) ? 1U : 0U;
+    out_conf->ms = out_conf->div_by_4 ? (struct si5351_ms){0U, 0U, 1U}
+                                      : (struct si5351_ms){out_conf->div, 0U, 1U};
+
+    uint64_t vco_freq = output_clock_scaled * calculated_div;
+    si5351_approximate_fraction(vco_freq, xtal_scaled, SI5351_PLL_DENOM_MAX, &base_num, &base_den);
+    
     if(base_den == 0U)
     {
         return NoREADY;
     }
 
-    if(si5351_pick_output_divider(output_clock_scaled, &out_conf->div) != READY)
-    {
-        return NoREADY;
-    }
-
-    pll_num = (uint64_t)base_num * out_conf->div;
-    pll_conf->mult = (uint32_t)(pll_num / base_den);
-    pll_conf->num = (uint32_t)(pll_num % base_den);
+    pll_conf->mult = (uint32_t)(base_num / base_den);
+    pll_conf->num = (uint32_t)(base_num % base_den);
     pll_conf->denom = base_den;
-
-    if((pll_conf->mult < SI5351_PLL_A_MIN) || (pll_conf->mult > SI5351_PLL_A_MAX))
-    {
-        return NoREADY;
-    }
-
-    out_conf->div_by_4 = (out_conf->div == 4U) ? 1U : 0U;
-    out_conf->allow_integer_mode = 1U;
-    out_conf->ms = out_conf->div_by_4 ? (struct si5351_ms){0U, 0U, 1U}
-                                      : si5351_calc_integer_output_ms(out_conf->div);
     pll_conf->ms = si5351_calc_pll_ms(pll_conf);
-
-    pll_freq_scaled = xtal_scaled * pll_conf->mult;
-    pll_freq_scaled += (xtal_scaled * pll_conf->num) / pll_conf->denom;
-    if((pll_freq_scaled < (SI5351_PLL_VCO_MIN_HZ * SI5351_FREQ_MULT)) ||
-       (pll_freq_scaled > (SI5351_PLL_VCO_MAX_HZ * SI5351_FREQ_MULT)))
-    {
-        return NoREADY;
-    }
+    si5351_actual_frequency = xtal_scaled * (pll_conf->mult * base_den + pll_conf->num) / (base_den * calculated_div);
 
     return READY;
 }
@@ -468,10 +371,6 @@ static ErrorStatus si5351_hw_clk0_quadrature_set_freq_hz(uint64_t hz)
     }
 
     phase_offset = (uint32_t)clk0_conf.div * (uint32_t)clk0_conf.r_div_factor;
-    if((clk0_conf.div <= 8U) || (si5351_validate_phase_offset(phase_offset) != READY))
-    {
-        return NoREADY;
-    }
 
     clk1_conf = clk0_conf;
     clk0_conf.allow_integer_mode = 0U;
@@ -535,6 +434,11 @@ static ErrorStatus si5351_hw_clk0_quadrature_set_freq_hz(uint64_t hz)
 ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz)
 {
     return si5351_hw_clk0_quadrature_set_freq_hz(hz);
+}
+
+uint64_t si5351_hw_clk0_get_freq_hz()
+{
+    return si5351_actual_frequency / SI5351_FREQ_MULT;
 }
 
 ErrorStatus si5351_hw_get_plla_lock(uint8_t *locked)

@@ -281,13 +281,13 @@ static void TLV320_I2S_Poll(void)
     vendor_words_per_sec = (uint32_t)((((uint64_t)(vendor_words_now - last_vendor_total_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
     vendor_dropped_words_per_sec = (uint32_t)((((uint64_t)(vendor_dropped_words_now - last_vendor_dropped_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
 
-    printf("ADC I2S rate: %lu words/s, %lu frames/s, %lu B/s | vendor %lu words/s drop %lu words/s | LO %llu Hz\r\n",
+    printf("ADC I2S rate: %lu words/s, %lu frames/s, %lu B/s | vendor %lu words/s drop %lu words/s | LO %lu Hz\r\n",
            (unsigned long)words_per_sec,
            (unsigned long)frames_per_sec,
            (unsigned long)bytes_per_sec,
            (unsigned long)vendor_words_per_sec,
            (unsigned long)vendor_dropped_words_per_sec,
-           (unsigned long long)usb_hw_get_clk_freq_hz());
+           (unsigned long)si5351_hw_clk0_get_freq_hz());
 
     last_word_count = words_now;
     last_vendor_total_word_count = vendor_words_now;

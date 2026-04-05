@@ -22,7 +22,6 @@ static uint8_t usb_hw_clk_freq_req[USB_HW_CLK_FREQ_PAYLOAD_SIZE];
 static uint8_t usb_hw_clk_freq_state[USB_HW_CLK_FREQ_STATE_SIZE];
 static uint8_t usb_hw_tlv320_gain_req[USB_HW_TLV320_GAIN_REQ_SIZE];
 static uint8_t usb_hw_pll_lock_state[USB_HW_PLL_LOCK_STATE_SIZE];
-static uint64_t usb_hw_clk_freq_hz = 0U;
 static ErrorStatus usb_hw_clk_freq_status = NoREADY;
 static uint8_t usb_hw_tlv320_gain_raw = 0x00U;
 static ErrorStatus usb_hw_tlv320_gain_status = NoREADY;
@@ -76,7 +75,7 @@ static void usb_u64_to_le(uint64_t value, uint8_t *buf)
 static void usb_hw_prepare_clk_freq_state(void)
 {
     usb_hw_clk_freq_state[0] = (uint8_t)usb_hw_clk_freq_status;
-    usb_u64_to_le(usb_hw_clk_freq_hz, &usb_hw_clk_freq_state[1]);
+    usb_u64_to_le(si5351_hw_clk0_get_freq_hz(), &usb_hw_clk_freq_state[1]);
 }
 
 ErrorStatus usb_hw_get_pll_lock(uint8_t *locked)
@@ -134,7 +133,6 @@ ErrorStatus usb_hw_set_clk_freq_hz(uint64_t hz)
     usb_hw_clk_freq_status = si5351_hw_clk0_set_freq_hz(hz);
     if(usb_hw_clk_freq_status == READY)
     {
-        usb_hw_clk_freq_hz = hz;
         printf("Si5351: LO set to %llu Hz\r\n", (unsigned long long)hz);
     }
     else
@@ -163,11 +161,6 @@ ErrorStatus usb_hw_set_tlv320_gain_raw(uint8_t gain_raw)
     }
 
     return usb_hw_tlv320_gain_status;
-}
-
-uint64_t usb_hw_get_clk_freq_hz(void)
-{
-    return usb_hw_clk_freq_hz;
 }
 
 ErrorStatus usb_hw_get_clk_freq_status(void)
