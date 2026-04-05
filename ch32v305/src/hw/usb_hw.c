@@ -133,12 +133,12 @@ ErrorStatus usb_hw_set_clk_freq_hz(uint64_t hz)
     usb_hw_clk_freq_status = si5351_hw_clk0_set_freq_hz(hz);
     if(usb_hw_clk_freq_status == READY)
     {
-        printf("Si5351: LO set to %llu Hz\r\n", (unsigned long long)hz);
+        printf("Si5351: LO set to %lu Hz\r\n", (unsigned long)hz);
     }
     else
     {
-        printf("Si5351: LO set failed for %llu Hz (status %u)\r\n",
-               (unsigned long long)hz,
+        printf("Si5351: LO set failed for %lu Hz (status %u)\r\n",
+               (unsigned long)hz,
                (unsigned int)usb_hw_clk_freq_status);
     }
 

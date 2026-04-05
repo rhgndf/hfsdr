@@ -205,7 +205,7 @@ void i2s_hw_init(void)
     SPI_I2S_DeInit(SPI2);
     i2s_init.I2S_Mode = I2S_Mode_SlaveRx;
     i2s_init.I2S_Standard = I2S_Standard_Phillips;
-    i2s_init.I2S_DataFormat = I2S_DataFormat_24b;
+    i2s_init.I2S_DataFormat = I2S_DataFormat_32b;
     i2s_init.I2S_MCLKOutput = I2S_MCLKOutput_Disable;
     i2s_init.I2S_AudioFreq = 384000U;
     i2s_init.I2S_CPOL = I2S_CPOL_Low;
@@ -239,7 +239,7 @@ void DMA1_Channel4_IRQHandler(void)
     {
         DMA_ClearITPendingBit(I2S_RX_DMA_HT_IT);
         s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
-        audio_usb_mic_write_isr(&s_rx_dma_buf[0], I2S_RX_DMA_CHUNK_WORDS);
+        //audio_usb_mic_write_isr(&s_rx_dma_buf[0], I2S_RX_DMA_CHUNK_WORDS);
         usb_hw_vendor_write_isr(&s_rx_dma_buf[0], I2S_RX_DMA_CHUNK_WORDS);
     }
 
@@ -247,7 +247,7 @@ void DMA1_Channel4_IRQHandler(void)
     {
         DMA_ClearITPendingBit(I2S_RX_DMA_TC_IT);
         s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
-        audio_usb_mic_write_isr(&s_rx_dma_buf[I2S_RX_DMA_CHUNK_WORDS], I2S_RX_DMA_CHUNK_WORDS);
+        //audio_usb_mic_write_isr(&s_rx_dma_buf[I2S_RX_DMA_CHUNK_WORDS], I2S_RX_DMA_CHUNK_WORDS);
         usb_hw_vendor_write_isr(&s_rx_dma_buf[I2S_RX_DMA_CHUNK_WORDS], I2S_RX_DMA_CHUNK_WORDS);
     }
 

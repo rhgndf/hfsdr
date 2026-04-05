@@ -24,36 +24,58 @@
 #define TLV320_REG_ASI_OUT_CH_EN   0x74U
 #define TLV320_REG_PWR_CFG         0x75U
 
-/* SLEEP_CFG (0x02): SLEEP_ENZ=1 exits sleep; AREG_SELECT per AVDD hookup. */
+/*
+ * SLEEP_CFG (0x02):
+ * - bit7: AREG_SELECT = 0/1 for external/internal analog regulator
+ * - bit0: SLEEP_ENZ = 1, device awake
+ *
+ * Choose the regulator source to match the AVDD hookup, but always keep the
+ * device out of sleep during normal streaming.
+ */
 #define TLV320_SLEEP_WAKE_EXT_AREG 0x01U   /* 1.8 V AVDD, external AREG */
 #define TLV320_SLEEP_WAKE_INT_AREG 0x81U   /* 3.3 V AVDD, internal AREG regulator */
 
 #define TLV320_SLEEP_CFG_VAL       ((TLV320ADC6120_USE_INTERNAL_AREG) != 0 ? TLV320_SLEEP_WAKE_INT_AREG : TLV320_SLEEP_WAKE_EXT_AREG)
 
 /*
- * ASI_CFG0 (0x07): I2S (ASI_FORMAT=01), 24-bit word (ASI_WLEN=10).
- * Remaining bits default: FSYNC/BCLK polarity default, TX_EDGE/TX_FILL = 0.
+ * ASI_CFG0 (0x07):
+ * - bits7:6: ASI_FORMAT = 01b, I2S mode
+ * - bits5:4: ASI_WLEN = 11b, 32-bit word length
+ * - bit3: FSYNC_POL = 0
+ * - bit2: BCLK_POL = 0
+ * - bit1: TX_EDGE = 0
+ * - bit0: TX_FILL = 0
+ *
+ * Keep the serial port in Philips I2S mode with 24-bit samples.
  */
-#define TLV320_ASI_CFG0_I2S_24BIT   0x60U
+#define TLV320_ASI_CFG0_I2S_24BIT   0x70U
 
 /*
  * ASI_CH1 / ASI_CH2:
- * In I2S mode, channel 1 must be routed to left slot 0 and channel 2 to right
- * slot 0. The reset default for CH2 is slot 1, which is not the I2S right slot.
+ * - bits7:6: ASI_CHx_SRC = 00b, output comes from ADC channel 1/2 path
+ * - bits5:0: ASI_CHx_SLOT = slot index
+ *   TLV320_ASI_CH1_LEFT_SLOT0  = 0x00: ASI_CH1_SLOT = 0, channel 1 -> left slot 0
+ *   TLV320_ASI_CH2_RIGHT_SLOT0 = 0x20: ASI_CH2_SLOT = 32, channel 2 -> right slot 0
+ *
+ * In stereo I2S, CH1 must appear in the first slot and CH2 in the second slot.
+ * CH2 reset-defaults to slot 1 in the TDM numbering, so program it explicitly.
  */
 #define TLV320_ASI_CH1_LEFT_SLOT0   0x00U
 #define TLV320_ASI_CH2_RIGHT_SLOT0  0x20U
 
 /*
- * GPIO_CFG0 (0x21): GPIO1 as MCLK input.
- * The drive mode bits are left at TI's documented 0b010 setting.
+ * GPIO_CFG0 (0x21):
+ * - bits7:5: GPIO1_CFG = 101b, MCLK input
+ * - bits4:0: GPIO1_DRV = 0x02, TI-documented drive/buffer setting
+ *
+ * GPIO1 is repurposed from GPIO to the external 24 MHz master-clock input.
  */
 #define TLV320_GPIO_CFG0_MCLK_INPUT 0xA2U
 
 /*
  * CM_TOL_CFG (0x3A):
- * - CH1_INP_CM_TOL_CFG = 10b
- * - CH2_INP_CM_TOL_CFG = 10b
+ * - bits7:6: CH1_INP_CM_TOL_CFG = 10b
+ * - bits5:4: CH2_INP_CM_TOL_CFG = 10b
  *
  * TI documents this as the high-CMRR mode that supports 0-AVDD common-mode
  * tolerance when the analog input impedance is 10 kOhm or 20 kOhm.
@@ -62,20 +84,22 @@
 
 /*
  * BIAS_CFG (0x3B):
- * - MBIAS_VAL = 000b: MICBIAS = VREF
- * - ADC_FSCALE = 00b: VREF = 2.75 V
+ * - bits7:5: MBIAS_VAL = 000b, MICBIAS = VREF
+ * - bits4:3: ADC_FSCALE = 00b, 2.75 V reference
+ * - bits2:0: defaults unchanged
  *
- * Keep the ADC reference at its default 2.75 V.
+ * Keep the ADC full-scale/reference setting at the default 2.75 V.
  */
 #define TLV320_BIAS_CFG_VREF_2V75  0x00U
 
 /*
  * CHx_CFG0 (0x3C / 0x41):
- * - INTYP = 1b: line input
- * - INSRC = 00b: analog differential input
- * - DC = 0b: AC-coupled input
- * - IMP = 01b: 10-kOhm input impedance
- * - DREEN = 0b: disabled
+ * - bit7: INTYP = 1, line input
+ * - bits6:5: INSRC = 00b, analog differential input
+ * - bit4: DC = 0, AC-coupled input path
+ * - bits3:2: IMP = 01b, 10-kOhm input impedance
+ * - bit1: DREEN = 0, disabled
+ * - bit0: reserved/default
  *
  * Differential AC-coupled mode lets the TLV320 establish the input common-mode
  * internally on the codec side of the coupling capacitors.
@@ -84,38 +108,60 @@
 
 /*
  * CHx_CFG1 (0x3D / 0x42):
- * - CHx_GAIN[6:0] = 0d: 0.0 dB in 0.5-dB steps
- * - CHx_GAIN_SIGN_BIT = 0b: positive gain
+ * - bit7: CHx_GAIN_SIGN_BIT = 0, positive gain
+ * - bits6:0: CHx_GAIN = 0d, 0.0 dB in 0.5-dB steps
  */
 #define TLV320_CH_CFG1_GAIN_0DB        0x00U
 
 /*
  * MST_CFG0 (0x13):
- * - bit7 = 1: controller mode (codec drives BCLK/FSYNC)
- * - bit6 = 0: auto clock enabled
- * - bit5 = 0: PLL enabled in auto mode
- * - bit4 = 0: do not gate BCLK/FSYNC
- * - bit3 = 0: 48-kHz family
- * - bits2:0 = 110: 24.000 MHz MCLK input selection
+ * - bit7: MST_SLV_CFG = 1, controller mode (codec drives BCLK/FSYNC)
+ * - bit6: AUTO_CLK_CFG = 0, auto clock enabled
+ * - bit5: AUTO_PLL_CFG = 0, PLL enabled in auto mode
+ * - bit4: BCLK_FSYNC_GATE = 0, do not gate BCLK/FSYNC
+ * - bit3: FS_BCLK_RATIO = 0, 48-kHz family
+ * - bits2:0: MCLK_FREQ_SEL = 110b, 24.000 MHz MCLK input selection
  */
 #define TLV320_MST_CFG0_CTLR_24MHZ  0x86U
 
 /*
  * MST_CFG1 (0x14):
- * - bits7:4 = 0111: FS_RATE = 384 kHz in the 48-kHz family
- * - bits3:0 = 0100: BCLK/FSYNC ratio = 64
+ * - bits7:4: FS_RATE = 0111b, 384 kHz in the 48-kHz family
+ * - bits3:0: BCLK_FSYNC_RATIO = 0100b, BCLK/FSYNC ratio = 64
  *
  * CH32's SPI/I2S block uses 32-bit channel frames for I2S_DataFormat_24b, so
  * the codec must also drive 64 BCLKs per stereo frame.
  */
 #define TLV320_MST_CFG1_384K_BCLK64 0x74U
 
-/* IN_CH_EN reset 0xC0: analog CH1+CH2 on; no change required. */
+/*
+ * IN_CH_EN (0x73):
+ * - bits7:6: IN_CH_EN = 11b, analog CH1 + CH2 enabled
+ * - remaining bits left at reset
+ *
+ * The reset value already enables both analog input channels, so no write is
+ * needed here.
+ */
 
-/* ASI_OUT_CH_EN: enable slots for CH1 and CH2 on SDOUT. */
+/*
+ * ASI_OUT_CH_EN (0x74):
+ * - bit7: ASI_OUT_CH1_EN = 1, CH1 routed to ASI output
+ * - bit6: ASI_OUT_CH2_EN = 1, CH2 routed to ASI output
+ * - bits5:0: remaining ASI output slots disabled
+ *
+ * Enable only the two stereo channels on SDOUT.
+ */
 #define TLV320_ASI_OUT_CH12_EN      0xC0U
 
-/* PWR_CFG: power ADC + PLL (MICBIAS off). Add 0x80 if mic bias is required. */
+/*
+ * PWR_CFG (0x75):
+ * - bit6: ADC_PDZ = 1, ADC powered
+ * - bit5: PLL_PDZ = 1, PLL powered
+ * - bit7: MICBIAS_PDZ = 0, MICBIAS off
+ * - remaining bits: defaults unchanged
+ *
+ * Bring up the ADC datapath and PLL without enabling microphone bias.
+ */
 #define TLV320_PWR_ADC_PLL_ON       0x60U
 
 static ErrorStatus tlv320adc6120_hw_write_reg(uint8_t reg, uint8_t value)
