@@ -1581,7 +1581,7 @@
 				)
 			)
 		)
-		(property "Value" "470nF"
+		(property "Value" "1uF"
 			(at 78.74 111.76 90)
 			(effects
 				(font
@@ -1728,7 +1728,7 @@
 				)
 			)
 		)
-		(property "Value" "470nF"
+		(property "Value" "1uF"
 			(at 78.74 62.23 90)
 			(effects
 				(font

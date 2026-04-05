@@ -5153,6 +5153,12 @@
 		(uuid "2f2d480f-d579-490b-b962-b745dc29fc37")
 	)
 	(junction
+		(at 345.44 30.48)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "367be5ca-7a21-465d-b50b-d85b48e6258f")
+	)
+	(junction
 		(at 332.74 38.1)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -5483,6 +5489,16 @@
 			(type default)
 		)
 		(uuid "23af9521-69d7-4eb4-b8ce-28a168af37c3")
+	)
+	(wire
+		(pts
+			(xy 332.74 30.48) (xy 345.44 30.48)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "25bcae66-023c-42fe-91f9-7ad7d28c5cd9")
 	)
 	(wire
 		(pts
@@ -20659,7 +20675,7 @@
 				)
 			)
 		)
-		(property "Value" "4.7k"
+		(property "Value" "2k"
 			(at 298.45 227.33 90)
 			(effects
 				(font
@@ -21888,6 +21904,76 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:C")
+		(at 345.44 34.29 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "3d20abb2-8f83-43ae-9b43-15a004169c81")
+		(property "Reference" "C53"
+			(at 349.25 33.0199 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "1uF"
+			(at 349.25 35.5599 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+			(at 346.4052 38.1 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 345.44 34.29 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 345.44 34.29 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "08753055-4beb-465b-8acc-881742e81d62")
+		)
+		(pin "1"
+			(uuid "4d2ccd75-1c76-4de8-b4dd-fa48bef6a9c0")
+		)
+		(instances
+			(project "hfsdr"
+				(path "/a11445ed-c3bd-4d1c-a039-1c09b0dceab8"
+					(reference "C53")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Connector:TestPoint")
 		(at 276.86 120.65 90)
 		(unit 1)
@@ -22105,7 +22191,7 @@
 				)
 			)
 		)
-		(property "Value" "4.7k"
+		(property "Value" "2k"
 			(at 288.29 227.33 90)
 			(effects
 				(font
@@ -22615,6 +22701,72 @@
 			(project "hfsdr"
 				(path "/a11445ed-c3bd-4d1c-a039-1c09b0dceab8"
 					(reference "TP16")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 345.44 30.48 180)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "5b1ad178-5bb9-40a8-8e66-45d6888f5360")
+		(property "Reference" "#PWR089"
+			(at 345.44 24.13 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 345.44 25.4 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 345.44 30.48 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 345.44 30.48 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 345.44 30.48 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "f5e1a87f-a013-446a-a41b-243c9f77243e")
+		)
+		(instances
+			(project "hfsdr"
+				(path "/a11445ed-c3bd-4d1c-a039-1c09b0dceab8"
+					(reference "#PWR089")
 					(unit 1)
 				)
 			)
@@ -23543,7 +23695,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "2.2nF"
+		(property "Value" "10nF"
 			(at 322.58 43.1799 0)
 			(effects
 				(font
@@ -25490,6 +25642,76 @@
 			(project "hfsdr"
 				(path "/a11445ed-c3bd-4d1c-a039-1c09b0dceab8"
 					(reference "TP3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C")
+		(at 332.74 34.29 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "c9288657-188d-48ff-8026-a6c7e4b9e40f")
+		(property "Reference" "C54"
+			(at 336.55 33.0199 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "100nF"
+			(at 336.55 35.5599 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+			(at 333.7052 38.1 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 332.74 34.29 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 332.74 34.29 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "0b9e48b8-3811-4139-9972-0615adc8aecb")
+		)
+		(pin "1"
+			(uuid "f9a61b98-b9ed-4c29-becb-d50e0bdc26fe")
+		)
+		(instances
+			(project "hfsdr"
+				(path "/a11445ed-c3bd-4d1c-a039-1c09b0dceab8"
+					(reference "C54")
 					(unit 1)
 				)
 			)
