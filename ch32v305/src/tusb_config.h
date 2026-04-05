@@ -109,7 +109,7 @@ extern "C" {
 #define CFG_TUD_AUDIO_FUNC_1_N_FORMATS                               1
 
 // Audio format type I specifications
-#define CFG_TUD_AUDIO_FUNC_1_MAX_SAMPLE_RATE                         384000
+#define CFG_TUD_AUDIO_FUNC_1_MAX_SAMPLE_RATE                         192000
 #define CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX                           2
 #define CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_RX                           0
 

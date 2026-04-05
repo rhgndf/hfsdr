@@ -4,15 +4,11 @@ const DEFAULT_TRANSFER_BYTES = 64 * 1024
 const DEFAULT_REPORT_EVERY_MS = 1000
 const DEFAULT_IN_FLIGHT_TRANSFERS = 32
 const IQ_FRAME_BYTES = 8
-const IQ_FIXED_POINT_SCALE = 1 / 0x800000
+const IQ_FIXED_POINT_SCALE = 1 / 0x80000000
 const BYTES_PER_MB = 1000 * 1000
 
 function decodeSlotSample(view, offset) {
-  const slotWordHi = view.getUint16(offset, true)
-  const slotWordLo = view.getUint16(offset + 2, true)
-  const slot = (slotWordHi << 16) | slotWordLo
-
-  return (slot >> 8) * IQ_FIXED_POINT_SCALE
+  return view.getInt32(offset, true) * IQ_FIXED_POINT_SCALE
 }
 
 function decodeIqFrames(dataView) {

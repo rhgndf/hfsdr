@@ -13,8 +13,8 @@
 #define VOLUME_CTRL_0_DB   0
 #define VOLUME_CTRL_50_DB  12800 // 50 dB in 1/256 dB units
 
-static const uint32_t sample_rates[] = {384000U};
-static uint32_t current_sample_rate = 384000U;
+static const uint32_t sample_rates[] = {192000U};
+static uint32_t current_sample_rate = 192000U;
 
 static int8_t mute[AUDIO_MIC_CTRL_CHANNELS + 1U];
 static int16_t volume[AUDIO_MIC_CTRL_CHANNELS + 1U];

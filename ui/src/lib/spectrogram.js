@@ -1,6 +1,6 @@
 import FFT from 'fft.js'
 
-export const IQ_SAMPLE_RATE_HZ = 384000
+export const IQ_SAMPLE_RATE_HZ = 192000
 export const FFT_SIZE = 2048
 export const FFT_ROW_INTERVAL = 4096
 

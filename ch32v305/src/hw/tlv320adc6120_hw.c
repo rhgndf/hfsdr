@@ -126,13 +126,13 @@
 
 /*
  * MST_CFG1 (0x14):
- * - bits7:4: FS_RATE = 0111b, 384 kHz in the 48-kHz family
+ * - bits7:4: FS_RATE = 0110b, 192 kHz in the 48-kHz family
  * - bits3:0: BCLK_FSYNC_RATIO = 0100b, BCLK/FSYNC ratio = 64
  *
  * CH32's SPI/I2S block uses 32-bit channel frames for I2S_DataFormat_24b, so
  * the codec must also drive 64 BCLKs per stereo frame.
  */
-#define TLV320_MST_CFG1_384K_BCLK64 0x74U
+#define TLV320_MST_CFG1_192K_BCLK64 0x64U
 
 /*
  * IN_CH_EN (0x73):
@@ -265,12 +265,12 @@ ErrorStatus tlv320adc6120_hw_init(void)
         return NoREADY;
     }
 
-    /* Codec drives BCLK/FSYNC at 384 kHz stereo from the external 24 MHz MCLK. */
+    /* Codec drives BCLK/FSYNC at 192 kHz stereo from the external 24 MHz MCLK. */
     if(tlv320adc6120_hw_write_reg(TLV320_REG_MST_CFG0, TLV320_MST_CFG0_CTLR_24MHZ) != READY)
     {
         return NoREADY;
     }
-    if(tlv320adc6120_hw_write_reg(TLV320_REG_MST_CFG1, TLV320_MST_CFG1_384K_BCLK64) != READY)
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_MST_CFG1, TLV320_MST_CFG1_192K_BCLK64) != READY)
     {
         return NoREADY;
     }
