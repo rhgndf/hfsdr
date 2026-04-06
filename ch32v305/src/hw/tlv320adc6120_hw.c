@@ -46,9 +46,9 @@
  * - bit1: TX_EDGE = 0
  * - bit0: TX_FILL = 0
  *
- * Keep the serial port in Philips I2S mode with 24-bit samples.
+ * Keep the serial port in Philips I2S mode with 32-bit samples.
  */
-#define TLV320_ASI_CFG0_I2S_24BIT   0x70U
+#define TLV320_ASI_CFG0_I2S_32BIT   0x70U
 
 /*
  * ASI_CH1 / ASI_CH2:
@@ -220,7 +220,7 @@ ErrorStatus tlv320adc6120_hw_init(void)
     Delay_Ms(10U);
 
     /* ASI: I2S, 24-bit — matches i2s_hw.c I2S_DataFormat_24b + Philips. */
-    if(tlv320adc6120_hw_write_reg(TLV320_REG_ASI_CFG0, TLV320_ASI_CFG0_I2S_24BIT) != READY)
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_ASI_CFG0, TLV320_ASI_CFG0_I2S_32BIT) != READY)
     {
         return NoREADY;
     }

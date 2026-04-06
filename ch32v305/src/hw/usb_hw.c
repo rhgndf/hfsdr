@@ -172,7 +172,6 @@ void usb_hw_init(void)
 {
     RCC_USBCLK48MConfig(RCC_USBCLK48MCLKSource_USBPHY);
     RCC_USBHSPLLCLKConfig(RCC_HSBHSPLLCLKSource_HSE);
-    //RCC_USBHSPLLCLKConfig(RCC_HSBHSPLLCLKSource_HSI);
     /* Board is fixed at 24 MHz HSE, so keep the USBHS PHY divider aligned to an 8 MHz ref. */
     RCC_USBHSConfig(RCC_USBPLL_Div3);
     RCC_USBHSPLLCKREFCLKConfig(RCC_USBHSPLLCKREFCLK_8M);
