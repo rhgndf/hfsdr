@@ -1406,7 +1406,7 @@
 			)
 			(embedded_fonts no)
 		)
-		(symbol "Device:RotaryEncoder_Switch"
+		(symbol "Device:RotaryEncoder_Switch_MP"
 			(pin_names
 				(offset 0.254)
 				(hide yes)
@@ -1415,15 +1415,15 @@
 			(in_bom yes)
 			(on_board yes)
 			(property "Reference" "SW"
-				(at 0 6.604 0)
+				(at 0 8.89 0)
 				(effects
 					(font
 						(size 1.27 1.27)
 					)
 				)
 			)
-			(property "Value" "RotaryEncoder_Switch"
-				(at 0 -6.604 0)
+			(property "Value" "RotaryEncoder_Switch_MP"
+				(at 0 6.35 0)
 				(effects
 					(font
 						(size 1.27 1.27)
@@ -1440,7 +1440,7 @@
 				)
 			)
 			(property "Datasheet" "~"
-				(at 0 6.604 0)
+				(at 0 -12.7 0)
 				(effects
 					(font
 						(size 1.27 1.27)
@@ -1448,8 +1448,8 @@
 					(hide yes)
 				)
 			)
-			(property "Description" "Rotary encoder, dual channel, incremental quadrate outputs, with switch"
-				(at 0 0 0)
+			(property "Description" "Rotary encoder, dual channel, incremental quadrate outputs, with switch and MP Pin"
+				(at 0 -15.24 0)
 				(effects
 					(font
 						(size 1.27 1.27)
@@ -1475,7 +1475,7 @@
 					(hide yes)
 				)
 			)
-			(symbol "RotaryEncoder_Switch_0_1"
+			(symbol "RotaryEncoder_Switch_MP_0_1"
 				(rectangle
 					(start -5.08 5.08)
 					(end 5.08 -5.08)
@@ -1700,7 +1700,7 @@
 					)
 				)
 			)
-			(symbol "RotaryEncoder_Switch_1_1"
+			(symbol "RotaryEncoder_Switch_MP_1_1"
 				(pin passive line
 					(at -7.62 2.54 0)
 					(length 2.54)
@@ -1748,6 +1748,24 @@
 						)
 					)
 					(number "B"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 0 -7.62 90)
+					(length 2.54)
+					(name "MP"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "MP"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -5135,6 +5153,12 @@
 		(uuid "29bb9459-4b44-41f1-b798-5a9c47737fd5")
 	)
 	(junction
+		(at 375.92 87.63)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "29d5be01-0411-4689-ac95-b5b91a2765fb")
+	)
+	(junction
 		(at 210.82 270.51)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -5669,6 +5693,16 @@
 			(type default)
 		)
 		(uuid "3dce2a1c-395a-418d-af86-e2ddd25a1403")
+	)
+	(wire
+		(pts
+			(xy 370.84 132.08) (xy 367.03 132.08)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "3e350505-6220-4e64-97c4-87cd0823dda7")
 	)
 	(wire
 		(pts
@@ -22838,6 +22872,73 @@
 		)
 	)
 	(symbol
+		(lib_id "power:GND")
+		(at 370.84 132.08 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "5c1fa5b5-ce18-4b04-bd6d-0e5b0dddb1c9")
+		(property "Reference" "#PWR092"
+			(at 377.19 132.08 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 374.65 132.0799 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" ""
+			(at 370.84 132.08 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 370.84 132.08 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 370.84 132.08 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "f3020fa0-c16f-43ca-9c23-1256ea49fb6a")
+		)
+		(instances
+			(project "hfsdr"
+				(path "/a11445ed-c3bd-4d1c-a039-1c09b0dceab8"
+					(reference "#PWR092")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:C")
 		(at 236.22 266.7 0)
 		(unit 1)
@@ -24758,7 +24859,7 @@
 		)
 	)
 	(symbol
-		(lib_id "Device:RotaryEncoder_Switch")
+		(lib_id "Device:RotaryEncoder_Switch_MP")
 		(at 359.41 132.08 90)
 		(unit 1)
 		(exclude_from_sim no)
@@ -24768,21 +24869,21 @@
 		(fields_autoplaced yes)
 		(uuid "a28486da-c00d-45f1-9e47-d1cdfca4ab6f")
 		(property "Reference" "SW4"
-			(at 365.76 130.8099 90)
+			(at 353.06 130.8099 90)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
-				(justify right)
+				(justify left)
 			)
 		)
 		(property "Value" "RotaryEncoder_Switch"
-			(at 365.76 133.3499 90)
+			(at 353.06 133.3499 90)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
-				(justify right)
+				(justify left)
 			)
 		)
 		(property "Footprint" "Rotary_Encoder:RotaryEncoder_Alps_EC11E-Switch_Vertical_H20mm_MountingHoles"
@@ -24795,7 +24896,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 352.806 132.08 0)
+			(at 372.11 132.08 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -24803,8 +24904,8 @@
 				(hide yes)
 			)
 		)
-		(property "Description" "Rotary encoder, dual channel, incremental quadrate outputs, with switch"
-			(at 359.41 132.08 0)
+		(property "Description" "Rotary encoder, dual channel, incremental quadrate outputs, with switch and MP Pin"
+			(at 374.65 132.08 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -24826,6 +24927,9 @@
 		)
 		(pin "B"
 			(uuid "9e533a41-b3c9-4132-ab26-7a1826ffd916")
+		)
+		(pin "MP"
+			(uuid "71247c50-9674-4a44-91b6-2f55a686ebff")
 		)
 		(instances
 			(project ""
@@ -25511,6 +25615,73 @@
 			(project "hfsdr"
 				(path "/a11445ed-c3bd-4d1c-a039-1c09b0dceab8"
 					(reference "#PWR068")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Jumper:SolderJumper_2_Open")
+		(at 379.73 87.63 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom no)
+		(on_board yes)
+		(dnp no)
+		(uuid "c414f00d-41b9-494d-bd6c-c2e581c7bc80")
+		(property "Reference" "JP2"
+			(at 386.334 89.662 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "Shield GND"
+			(at 386.334 92.202 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Jumper:SolderJumper-2_P1.3mm_Open_RoundedPad1.0x1.5mm"
+			(at 379.73 87.63 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 379.73 87.63 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Solder Jumper, 2-pole, open"
+			(at 379.73 87.63 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "2"
+			(uuid "3e03e867-0b82-4785-8aca-f3a14afd6928")
+		)
+		(pin "1"
+			(uuid "176fdd97-ffcd-40e9-bc2f-e9a5a660e210")
+		)
+		(instances
+			(project "hfsdr"
+				(path "/a11445ed-c3bd-4d1c-a039-1c09b0dceab8"
+					(reference "JP2")
 					(unit 1)
 				)
 			)

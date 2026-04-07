@@ -1446,6 +1446,28 @@
 		)
 		(uuid "fb32b89c-292f-4b62-8222-be3fa7b8994a")
 	)
+	(global_label "PA11"
+		(shape input)
+		(at 105.41 102.87 270)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "60ad47c3-9860-403e-b2bb-524466e58aea")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 105.41 110.6328 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+				(hide yes)
+			)
+		)
+	)
 	(global_label "DAC2_OUT"
 		(shape input)
 		(at 69.85 67.31 180)
