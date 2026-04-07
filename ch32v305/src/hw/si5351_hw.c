@@ -232,7 +232,7 @@ static ErrorStatus si5351_calculate_clk0_config(uint64_t freq_scaled, struct si5
     out_conf->div = calculated_div;
     out_conf->div_by_4 = (out_conf->div == 4U) ? 1U : 0U;
     out_conf->ms = out_conf->div_by_4 ? (struct si5351_ms){0U, 0U, 1U}
-                                      : (struct si5351_ms){out_conf->div, 0U, 1U};
+                                      : (struct si5351_ms){128U * out_conf->div - 512, 0U, 1U};
 
     uint64_t vco_freq = output_clock_scaled * calculated_div;
     si5351_approximate_fraction(vco_freq, xtal_scaled, SI5351_PLL_DENOM_MAX, &base_num, &base_den);
@@ -247,7 +247,7 @@ static ErrorStatus si5351_calculate_clk0_config(uint64_t freq_scaled, struct si5
     pll_conf->denom = base_den;
     pll_conf->ms = si5351_calc_pll_ms(pll_conf);
     si5351_actual_frequency = xtal_scaled * (pll_conf->mult * base_den + pll_conf->num) / (base_den * calculated_div);
-
+    printf("div: %d, pll: %d %d %d\n", out_conf->div, pll_conf->mult, pll_conf->num, pll_conf->denom);
     return READY;
 }
 
