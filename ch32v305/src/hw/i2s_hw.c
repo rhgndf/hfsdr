@@ -35,6 +35,8 @@ static_assert((I2S_RX_DMA_BUFFER_WORDS % I2S_RX_FRAME_WORDS) == 0U,
 
 static volatile uint32_t s_rx_word_count = 0U;
 static volatile uint16_t s_rx_dma_buf[I2S_RX_DMA_BUFFER_WORDS];
+static volatile uint32_t s_i2s_reset_coincidences = 0U;
+static volatile uint32_t s_i2s_coincidences_samples = 0U;
 
 void DMA1_Channel4_IRQHandler(void) __attribute__((interrupt));
 extern void audio_usb_mic_write_isr(volatile uint16_t const *src_words, size_t word_count);
@@ -78,6 +80,34 @@ static void i2s_hw_dma_irq_init(void)
     nvic.NVIC_IRQChannelSubPriority = 0;
     nvic.NVIC_IRQChannelCmd = ENABLE;
     NVIC_Init(&nvic);
+}
+
+static void i2s_hw_dma_irq_deinit(void)
+{
+    NVIC_InitTypeDef nvic = {0};
+
+    nvic.NVIC_IRQChannel = I2S_RX_DMA_IRQn;
+    nvic.NVIC_IRQChannelCmd = DISABLE;
+    NVIC_Init(&nvic);
+}
+
+static void i2s_process_buf(volatile uint16_t const *src_words)
+{
+    // Compare the top bit with the LSB, which is effectively noise
+    uint32_t coincidences = 0;
+    for(size_t i = 0; i < I2S_RX_DMA_CHUNK_WORDS - 4; i += 2U)
+    {
+        uint32_t sample_32 = ((uint32_t)src_words[i] << 16) | src_words[i + 1U];
+        bool first_two_bits_same = (sample_32 >> 31) == ((sample_32 >> 30) & 1);
+        bool last_bit_different = (sample_32 >> 31) != (sample_32 & 1);
+        coincidences += first_two_bits_same && last_bit_different;
+    }
+    s_i2s_reset_coincidences += coincidences;
+    s_i2s_coincidences_samples += I2S_RX_DMA_CHUNK_WORDS / 2 - 2;
+
+    s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
+    //audio_usb_mic_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
+    usb_hw_vendor_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
 }
 
 static void i2s_dma_rx_start(void)
@@ -182,12 +212,30 @@ static ErrorStatus i2s_hw_alt_clock_init_24mhz(void)
     return READY;
 }
 
+static void i2s_hw_alt_clock_deinit(void)
+{
+    GPIO_InitTypeDef gpio = {0};
+
+    TIM_Cmd(TIM8, DISABLE);
+    TIM_CtrlPWMOutputs(TIM8, DISABLE);
+    TIM_OC1PreloadConfig(TIM8, TIM_OCPreload_Disable);
+    TIM_DeInit(TIM8);
+
+    gpio.GPIO_Pin = GPIO_Pin_6;
+    gpio.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+    gpio.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(GPIOC, &gpio);
+
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_TIM8, DISABLE);
+}
+
 void i2s_hw_init(void)
 {
     GPIO_InitTypeDef gpio_init = {0};
     I2S_InitTypeDef i2s_init = {0};
     
     s_rx_word_count = 0U;
+    s_i2s_reset_coincidences = 64U;
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC, ENABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI2, ENABLE);
@@ -217,9 +265,46 @@ void i2s_hw_init(void)
     (void)i2s_hw_alt_clock_init_24mhz();
 }
 
+void i2s_hw_deinit(void)
+{
+    GPIO_InitTypeDef gpio_init = {0};
+
+    s_i2s_reset_coincidences = 0U;
+    i2s_dma_rx_stop();
+    i2s_hw_dma_irq_deinit();
+    i2s_hw_alt_clock_deinit();
+    SPI_I2S_DeInit(SPI2);
+
+    gpio_init.GPIO_Pin = I2S_WS_GPIO_PIN | I2S_CK_GPIO_PIN | I2S_SD_GPIO_PIN;
+    gpio_init.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+    gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(GPIOB, &gpio_init);
+
+    s_rx_word_count = 0U;
+
+    RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, DISABLE);
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI2, DISABLE);
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC, DISABLE);
+}
+
 uint32_t i2s_hw_rx_word_count(void)
 {
     return s_rx_word_count;
+}
+
+bool i2s_needs_reset(void)
+{
+    printf("coincidences: %ld/%ld\n", s_i2s_reset_coincidences, s_i2s_coincidences_samples);
+    // If i2s is not bitslipped, we expect coincidences to be random with 50% probability
+    // We do a two sided Z-test here
+    bool ret = false;
+    if (s_i2s_reset_coincidences < s_i2s_coincidences_samples / 2 - 1000) {
+        // Is bitslipped, request reset outside the ISR.
+        ret = true;
+    }
+    s_i2s_coincidences_samples = 0;
+    s_i2s_reset_coincidences = 0;
+    return ret;
 }
 
 void i2s_hw_enable(FunctionalState state)
@@ -238,17 +323,13 @@ void DMA1_Channel4_IRQHandler(void)
     if(DMA_GetITStatus(I2S_RX_DMA_HT_IT) != RESET)
     {
         DMA_ClearITPendingBit(I2S_RX_DMA_HT_IT);
-        s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
-        //audio_usb_mic_write_isr(&s_rx_dma_buf[0], I2S_RX_DMA_CHUNK_WORDS);
-        usb_hw_vendor_write_isr(&s_rx_dma_buf[0], I2S_RX_DMA_CHUNK_WORDS);
+        i2s_process_buf(&s_rx_dma_buf[0]);
     }
 
     if(DMA_GetITStatus(I2S_RX_DMA_TC_IT) != RESET)
     {
         DMA_ClearITPendingBit(I2S_RX_DMA_TC_IT);
-        s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
-        //audio_usb_mic_write_isr(&s_rx_dma_buf[I2S_RX_DMA_CHUNK_WORDS], I2S_RX_DMA_CHUNK_WORDS);
-        usb_hw_vendor_write_isr(&s_rx_dma_buf[I2S_RX_DMA_CHUNK_WORDS], I2S_RX_DMA_CHUNK_WORDS);
+        i2s_process_buf(&s_rx_dma_buf[I2S_RX_DMA_CHUNK_WORDS]);
     }
 
     if(DMA_GetITStatus(I2S_RX_DMA_TE_IT) != RESET)

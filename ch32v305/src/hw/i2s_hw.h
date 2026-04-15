@@ -1,6 +1,7 @@
 #ifndef I2S_HW_H
 #define I2S_HW_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "debug.h"
@@ -18,7 +19,9 @@
  */
 
 void i2s_hw_init(void);
+void i2s_hw_deinit(void);
 void i2s_hw_enable(FunctionalState state);
+[[nodiscard]] bool i2s_needs_reset(void);
 [[nodiscard]] uint32_t i2s_hw_rx_word_count(void);
 
 #endif

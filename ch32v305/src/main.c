@@ -266,33 +266,41 @@ static void TLV320_I2S_Poll(void)
         last_vendor_total_word_count = vendor_words_now;
         last_vendor_dropped_word_count = vendor_dropped_words_now;
         initialized = 1U;
-        return;
     }
-
-    elapsed_ticks = now_tick - last_report_tick;
-    if(elapsed_ticks < (uint64_t)SystemCoreClock)
+    else
     {
-        return;
+        elapsed_ticks = now_tick - last_report_tick;
+        if(elapsed_ticks >= (uint64_t)SystemCoreClock)
+        {
+            words_per_sec = (uint32_t)((((uint64_t)(words_now - last_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
+            frames_per_sec = words_per_sec / 4U;
+            bytes_per_sec = words_per_sec * (uint32_t)sizeof(uint16_t);
+            vendor_words_per_sec = (uint32_t)((((uint64_t)(vendor_words_now - last_vendor_total_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
+            vendor_dropped_words_per_sec = (uint32_t)((((uint64_t)(vendor_dropped_words_now - last_vendor_dropped_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
+
+            printf("ADC I2S rate: %lu words/s, %lu frames/s, %lu B/s | vendor %lu words/s drop %lu words/s | LO %lu Hz\r\n",
+                   (unsigned long)words_per_sec,
+                   (unsigned long)frames_per_sec,
+                   (unsigned long)bytes_per_sec,
+                   (unsigned long)vendor_words_per_sec,
+                   (unsigned long)vendor_dropped_words_per_sec,
+                   (unsigned long)si5351_hw_clk0_get_freq_hz());
+
+            last_word_count = words_now;
+            last_vendor_total_word_count = vendor_words_now;
+            last_vendor_dropped_word_count = vendor_dropped_words_now;
+            last_report_tick = now_tick;
+
+            if(i2s_needs_reset())
+            {
+                printf("bitslipped, resetting\n");
+                /*i2s_hw_deinit();
+                i2s_hw_init();
+                i2s_hw_enable(ENABLE);
+                initialized = 0U;*/
+            }
+        }
     }
-
-    words_per_sec = (uint32_t)((((uint64_t)(words_now - last_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
-    frames_per_sec = words_per_sec / 4U;
-    bytes_per_sec = words_per_sec * (uint32_t)sizeof(uint16_t);
-    vendor_words_per_sec = (uint32_t)((((uint64_t)(vendor_words_now - last_vendor_total_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
-    vendor_dropped_words_per_sec = (uint32_t)((((uint64_t)(vendor_dropped_words_now - last_vendor_dropped_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
-
-    printf("ADC I2S rate: %lu words/s, %lu frames/s, %lu B/s | vendor %lu words/s drop %lu words/s | LO %lu Hz\r\n",
-           (unsigned long)words_per_sec,
-           (unsigned long)frames_per_sec,
-           (unsigned long)bytes_per_sec,
-           (unsigned long)vendor_words_per_sec,
-           (unsigned long)vendor_dropped_words_per_sec,
-           (unsigned long)si5351_hw_clk0_get_freq_hz());
-
-    last_word_count = words_now;
-    last_vendor_total_word_count = vendor_words_now;
-    last_vendor_dropped_word_count = vendor_dropped_words_now;
-    last_report_tick = now_tick;
 }
 
 static void DAC_Poll(void)
