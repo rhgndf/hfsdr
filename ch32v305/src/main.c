@@ -51,9 +51,9 @@ void GPIO_Toggle_INIT(void)
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(LED_GPIO_PORT, &GPIO_InitStructure);
 
-    GPIO_InitStructure.GPIO_Pin = BOOT_GPIO_PIN;
+    GPIO_InitStructure.GPIO_Pin = ENC_BTN_GPIO_PIN;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPD;
-    GPIO_Init(BOOT_GPIO_PORT, &GPIO_InitStructure);
+    GPIO_Init(ENC_BTN_GPIO_PORT, &GPIO_InitStructure);
 
     GPIO_InitStructure.GPIO_Pin = LED1_GPIO_PIN | LED2_GPIO_PIN;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
@@ -90,59 +90,219 @@ void GPIO_Toggle_INIT(void)
 }
 
 
-static uint64_t led_blink_period_ticks = 0;
-static uint64_t led_last_toggle_tick = 0;
-static BitAction led_state = Bit_RESET;
-
-static uint64_t led12_blink_period_ticks = 0;
-static uint64_t led12_last_toggle_tick = 0;
-static BitAction led12_state = Bit_RESET;
-
-static void LED_Blink_Init(uint32_t period_ms)
+typedef enum
 {
-    if(period_ms == 0U)
-    {
-        period_ms = 1U;
-    }
+    LED_MODE_SLOW_BLINK = 0,
+    LED_MODE_FAST_BLINK,
+    LED_MODE_HEARTBEAT,
+    LED_MODE_BREATHING,
+    LED_MODE_ALTERNATING,
+    LED_MODE_COUNT
+} led_mode_t;
 
-    led_blink_period_ticks = ((uint64_t)SystemCoreClock * (uint64_t)period_ms) / 1000ULL;
-    if(led_blink_period_ticks == 0U)
-    {
-        led_blink_period_ticks = 1U;
-    }
+typedef struct
+{
+    led_mode_t selected_mode;
+    uint8_t usb_data_seen;
+    uint8_t freq_changed_seen;
+    uint32_t last_vendor_total_words;
+    uint64_t initial_frequency_hz;
+    uint64_t activity_window_until_tick;
+    uint64_t activity_led1_until_tick;
+    uint8_t button_raw_state;
+    uint8_t button_stable_state;
+    uint64_t button_last_change_tick;
+} led_control_state_t;
 
-    led_last_toggle_tick = SysTick->CNT;
-    led_state = Bit_RESET;
-    GPIO_WriteBit(LED_GPIO_PORT, LED_GPIO_PIN, led_state);
+static led_control_state_t g_led_ctrl = {0};
 
-    led12_blink_period_ticks = ((uint64_t)SystemCoreClock * (uint64_t)period_ms) / 1000ULL;
-    if(led12_blink_period_ticks == 0U)
+static uint64_t ticks_from_ms(uint32_t ms)
+{
+    uint64_t ticks = ((uint64_t)SystemCoreClock * (uint64_t)ms) / 1000ULL;
+    if(ticks == 0U)
     {
-        led12_blink_period_ticks = 1U;
+        ticks = 1U;
     }
-    led12_last_toggle_tick = SysTick->CNT;
-    led12_state = Bit_RESET;
-    GPIO_WriteBit(LED1_GPIO_PORT, LED1_GPIO_PIN, led12_state);
-    //GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, led12_state);
+    return ticks;
 }
 
-static void LED_Blink_Task(void)
+static uint32_t ticks_to_ms(uint64_t ticks)
+{
+    uint64_t div = (uint64_t)SystemCoreClock / 1000ULL;
+    if(div == 0U)
+    {
+        div = 1U;
+    }
+    return (uint32_t)(ticks / div);
+}
+
+static void LED_Output_Apply(BitAction led1_state, BitAction led2_state)
+{
+    GPIO_WriteBit(LED_GPIO_PORT, LED_GPIO_PIN, led1_state);
+    GPIO_WriteBit(LED1_GPIO_PORT, LED1_GPIO_PIN, led1_state);
+    GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, led2_state);
+}
+
+static uint8_t LED_Is_Link_Activity_Enabled(uint64_t now_tick)
+{
+    if(g_led_ctrl.freq_changed_seen == 0U)
+    {
+        return 0U;
+    }
+
+    if(g_led_ctrl.usb_data_seen == 0U)
+    {
+        return 0U;
+    }
+
+    return (uint8_t)(now_tick < g_led_ctrl.activity_window_until_tick);
+}
+
+static void LED_Mode_Init(void)
+{
+    g_led_ctrl.selected_mode = LED_MODE_SLOW_BLINK;
+    g_led_ctrl.usb_data_seen = 0U;
+    g_led_ctrl.freq_changed_seen = 0U;
+    g_led_ctrl.last_vendor_total_words = usb_hw_vendor_total_words();
+    g_led_ctrl.initial_frequency_hz = si5351_hw_clk0_get_freq_hz();
+    g_led_ctrl.activity_window_until_tick = 0U;
+    g_led_ctrl.activity_led1_until_tick = 0U;
+    g_led_ctrl.button_raw_state = (uint8_t)GPIO_ReadInputDataBit(ENC_BTN_GPIO_PORT, ENC_BTN_GPIO_PIN);
+    g_led_ctrl.button_stable_state = g_led_ctrl.button_raw_state;
+    g_led_ctrl.button_last_change_tick = SysTick->CNT;
+    LED_Output_Apply(Bit_RESET, Bit_RESET);
+}
+
+static void LED_Poll_Button(uint64_t now_tick)
+{
+    uint8_t raw_state = (uint8_t)GPIO_ReadInputDataBit(ENC_BTN_GPIO_PORT, ENC_BTN_GPIO_PIN);
+    uint64_t debounce_ticks = ticks_from_ms(30U);
+
+    if(raw_state != g_led_ctrl.button_raw_state)
+    {
+        g_led_ctrl.button_raw_state = raw_state;
+        g_led_ctrl.button_last_change_tick = now_tick;
+    }
+
+    if((now_tick - g_led_ctrl.button_last_change_tick) < debounce_ticks)
+    {
+        return;
+    }
+
+    if(g_led_ctrl.button_stable_state == g_led_ctrl.button_raw_state)
+    {
+        return;
+    }
+
+    g_led_ctrl.button_stable_state = g_led_ctrl.button_raw_state;
+    if(g_led_ctrl.button_stable_state != 0U)
+    {
+        g_led_ctrl.selected_mode = (led_mode_t)(((uint32_t)g_led_ctrl.selected_mode + 1U) % (uint32_t)LED_MODE_COUNT);
+        printf("LED mode -> %u\r\n", (unsigned int)g_led_ctrl.selected_mode);
+    }
+}
+
+static void LED_Update_Activity_Gates(uint64_t now_tick)
+{
+    uint32_t vendor_total_words_now = usb_hw_vendor_total_words();
+    uint32_t vendor_delta_words = vendor_total_words_now - g_led_ctrl.last_vendor_total_words;
+    uint64_t freq_now_hz = si5351_hw_clk0_get_freq_hz();
+
+    if(vendor_delta_words > 0U)
+    {
+        g_led_ctrl.usb_data_seen = 1U;
+        g_led_ctrl.activity_window_until_tick = now_tick + ticks_from_ms(500U);
+        g_led_ctrl.activity_led1_until_tick = now_tick + ticks_from_ms(60U + (vendor_delta_words > 240U ? 240U : vendor_delta_words));
+    }
+    g_led_ctrl.last_vendor_total_words = vendor_total_words_now;
+
+    if(freq_now_hz != g_led_ctrl.initial_frequency_hz)
+    {
+        g_led_ctrl.freq_changed_seen = 1U;
+    }
+}
+
+static void LED_Render_Selected_Mode(led_mode_t mode, uint64_t now_tick)
+{
+    uint32_t t_ms = ticks_to_ms(now_tick);
+    BitAction led1 = Bit_RESET;
+    BitAction led2 = Bit_RESET;
+
+    switch(mode)
+    {
+        case LED_MODE_SLOW_BLINK:
+        {
+            uint32_t phase = t_ms % 1000U;
+            led1 = (phase < 500U) ? Bit_SET : Bit_RESET;
+            led2 = (phase < 80U) ? Bit_SET : Bit_RESET;
+            break;
+        }
+
+        case LED_MODE_FAST_BLINK:
+        {
+            uint32_t period = 200U;
+            uint32_t phase1 = t_ms % period;
+            uint32_t phase2 = (t_ms + 50U) % period; /* 90-degree phase offset. */
+            led1 = (phase1 < 100U) ? Bit_SET : Bit_RESET;
+            led2 = (phase2 < 100U) ? Bit_SET : Bit_RESET;
+            break;
+        }
+
+        case LED_MODE_HEARTBEAT:
+        {
+            uint32_t phase = t_ms % 1000U;
+            led1 = ((phase < 100U) || ((phase >= 200U) && (phase < 300U))) ? Bit_SET : Bit_RESET;
+            led2 = (led1 == Bit_SET) ? Bit_RESET : Bit_SET;
+            break;
+        }
+
+        case LED_MODE_BREATHING:
+        {
+            uint32_t breath_phase = t_ms % 2000U;
+            uint32_t ramp = (breath_phase < 1000U) ? breath_phase : (2000U - breath_phase);
+            uint32_t level = (ramp * 100U) / 1000U;
+            uint32_t pwm_phase = t_ms % 100U;
+            uint32_t inv_level = 100U - level;
+            led1 = (pwm_phase < level) ? Bit_SET : Bit_RESET;
+            led2 = (pwm_phase < (inv_level / 2U)) ? Bit_SET : Bit_RESET;
+            break;
+        }
+
+        case LED_MODE_ALTERNATING:
+        default:
+        {
+            uint32_t phase = t_ms % 500U;
+            led1 = (phase < 250U) ? Bit_SET : Bit_RESET;
+            led2 = (led1 == Bit_SET) ? Bit_RESET : Bit_SET;
+            break;
+        }
+    }
+
+    LED_Output_Apply(led1, led2);
+}
+
+static void LED_Render_Link_Activity(uint64_t now_tick)
+{
+    uint32_t t_ms = ticks_to_ms(now_tick);
+    BitAction led1 = (now_tick < g_led_ctrl.activity_led1_until_tick) ? Bit_SET : Bit_RESET;
+    BitAction led2 = ((t_ms % 1000U) < 180U) ? Bit_SET : Bit_RESET;
+    LED_Output_Apply(led1, led2);
+}
+
+static void LED_Mode_Task(void)
 {
     uint64_t now_tick = SysTick->CNT;
 
-    if((now_tick - led_last_toggle_tick) >= led_blink_period_ticks)
-    {
-        led_last_toggle_tick = now_tick;
-        led_state = (led_state == Bit_RESET) ? Bit_SET : Bit_RESET;
-        GPIO_WriteBit(LED_GPIO_PORT, LED_GPIO_PIN, led_state);
-    }
+    LED_Poll_Button(now_tick);
+    LED_Update_Activity_Gates(now_tick);
 
-    if((now_tick - led12_last_toggle_tick) >= led12_blink_period_ticks)
+    if(LED_Is_Link_Activity_Enabled(now_tick) != 0U)
     {
-        led12_last_toggle_tick = now_tick;
-        led12_state = (led12_state == Bit_RESET) ? Bit_SET : Bit_RESET;
-        GPIO_WriteBit(LED1_GPIO_PORT, LED1_GPIO_PIN, led12_state);
-        //GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, led12_state);
+        LED_Render_Link_Activity(now_tick);
+    }
+    else
+    {
+        LED_Render_Selected_Mode(g_led_ctrl.selected_mode, now_tick);
     }
 }
 
@@ -411,7 +571,7 @@ int main(void)
     dac_hw_static_noise_start(192000U);
     printf("DAC: static noise PA4+PA5 @ 192 ksps (TIM7 TRGO + DMA2 Ch3 refill IRQ)\r\n");
 
-    LED_Blink_Init(1000U);
+    LED_Mode_Init();
 
     /* display_spi_test_run(); */
     //watchdog_init();
@@ -423,7 +583,7 @@ int main(void)
         tud_task();
         //Scan_I2CBus_EverySecond();
         //SysTick_Report_USB_EverySecond();
-        LED_Blink_Task();
+        LED_Mode_Task();
         //watchdog_kick();
     }
 }

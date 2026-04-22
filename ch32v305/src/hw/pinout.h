@@ -8,10 +8,6 @@
 #define LED_GPIO_PORT      GPIOA
 #define LED_GPIO_PIN       GPIO_Pin_3
 
-/* Change these if your BOOT button is on another GPIO */
-#define BOOT_GPIO_PORT     GPIOA
-#define BOOT_GPIO_PIN      GPIO_Pin_14
-
 // --- hfsdr badge ---------------------------------------
 /* LEDs */
 #define LED1_GPIO_PORT     GPIOC
