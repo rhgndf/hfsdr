@@ -224,7 +224,7 @@ char const *string_desc_arr[] =
 {
   (const char[]) { 0x09, 0x04 },  // 0: is supported language is English (0x0409)
   "HFSDR",                        // 1: Manufacturer
-  "HFSDR USB Microphone",         // 2: Product
+  "HFSDR Software Defined Radio", // 2: Product
   NULL,                           // 3: Serials will use unique ID if possible
   "I2S Stereo Microphone",        // 4: Audio Interface
   "WebUSB Vendor",                // 5: Vendor Interface
