@@ -66,8 +66,8 @@ void fm_audio_out_set_enabled(bool enabled)
     }
     else
     {
-        /* Preserve existing baseline behavior when FM path is disabled. */
-        dac_hw_stream_noise_start(192000U);
+        /* Baseline output when FM path is disabled: constant A4 reference tone. */
+        dac_hw_stream_sine_start(440U, 192000U);
     }
 }
 

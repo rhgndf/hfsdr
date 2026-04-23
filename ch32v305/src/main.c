@@ -409,7 +409,7 @@ int main(void)
     }
     else
     {
-        printf("DAC: static noise PA4+PA5 @ 192 ksps (TIM7 TRGO + DMA2 Ch3 refill IRQ)\r\n");
+        printf("DAC: A4 sine 440 Hz on PA4+PA5 @ 192 ksps\r\n");
     }
 
     blinky_init();
