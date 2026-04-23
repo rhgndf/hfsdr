@@ -68,7 +68,7 @@ class basic_spectrum_iq(gr.top_block, Qt.QWidget):
         self.wf_db_min = wf_db_min = -110
         self.wf_db_max = wf_db_max = -55
         self.samp_rate = samp_rate = 96000
-        self.gain_const = gain_const = 1.0
+        self.gain_const = gain_const = 0.5
         self.freq = freq = 7080000
         self.fft_size = fft_size = 2048
         self.dc_block_len = dc_block_len = 64
@@ -205,7 +205,7 @@ class basic_spectrum_iq(gr.top_block, Qt.QWidget):
 
         self._qtgui_freq_sink_x_0_win = sip.wrapinstance(self.qtgui_freq_sink_x_0.qwidget(), Qt.QWidget)
         self.top_layout.addWidget(self._qtgui_freq_sink_x_0_win)
-        self.epy_block_0 = epy_block_0.blk(sample_rate=samp_rate, vid=0xCAFE, pid=0x4031, interface=4, endpoint_in=0x85, transfer_bytes=65536, usb_timeout_ms=200, buffer_ms=1000, scale=(1.0 / 2147483648.0), lo_hz=freq, apply_lo_on_start=True, gain_raw=0x2D, apply_gain_on_start=False, stats_report_s=1.0, stats_to_console=True, module_root="C:\\Users\\zunmun\\Documents\\Stuff\\Github\\GROUP PROJECTS\\hfsdr")
+        self.epy_block_0 = epy_block_0.blk(sample_rate=samp_rate, vid=0xCAFE, pid=0x4031, interface=4, endpoint_in=0x85, transfer_bytes=65536, usb_timeout_ms=200, buffer_ms=1000, scale=(1.0 / 2147483648.0), lo_hz=freq, apply_lo_on_start=True, gain_raw=0x2D, apply_gain_on_start=True, stats_report_s=1.0, stats_to_console=True, module_root="C:\\Users\\zunmun\\Documents\\Stuff\\Github\\GROUP PROJECTS\\hfsdr")
         self.dc_blocker_xx_0 = filter.dc_blocker_cc(dc_block_len, True)
         self.blocks_multiply_const_vxx_0 = blocks.multiply_const_cc(gain_const)
 

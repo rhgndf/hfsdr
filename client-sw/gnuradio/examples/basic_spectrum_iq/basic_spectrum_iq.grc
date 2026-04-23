@@ -73,7 +73,7 @@ blocks:
   id: variable
   parameters:
     comment: ''
-    value: '1.0'
+    value: '0.5'
   states:
     bus_sink: false
     bus_source: false
@@ -284,7 +284,7 @@ blocks:
       \                \"last_report\": dict(self._last_report),\n            }\n"
     affinity: ''
     alias: ''
-    apply_gain_on_start: 'False'
+    apply_gain_on_start: 'True'
     apply_lo_on_start: 'True'
     buffer_ms: '1000'
     comment: ''
