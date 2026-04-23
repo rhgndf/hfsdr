@@ -116,16 +116,18 @@ blocks:
       \        pid=0x4031,\n        interface=4,\n        endpoint_in=0x85,\n    \
       \    transfer_bytes=4096,\n        usb_timeout_ms=200,\n        buffer_ms=250,\n\
       \        scale=(1.0 / 2147483648.0),\n        lo_hz=7067333,\n        apply_lo_on_start=True,\n\
-      \        module_root=\"\",  # optional absolute path to repo root\n    ):\n\
-      \        gr.sync_block.__init__(\n            self,\n            name=\"HFSDR\
-      \ Embedded Source\",\n            in_sig=None,\n            out_sig=[np.complex64],\n\
-      \        )\n\n        repo_root = module_root if module_root else os.getcwd()\n\
-      \        host_py = os.path.abspath(os.path.join(repo_root, \"client-sw\", \"\
-      host\", \"python\"))\n        if host_py not in sys.path:\n            sys.path.insert(0,\
-      \ host_py)\n\n        from hfsdr_usb import HfSdrUsb  # import after sys.path\
-      \ update\n\n        self._HfSdrUsb = HfSdrUsb\n        self.sample_rate = float(sample_rate)\n\
-      \        self.transfer_bytes = int(transfer_bytes)\n        self.scale = float(scale)\n\
-      \        self.lo_hz = int(lo_hz)\n        self.apply_lo_on_start = bool(apply_lo_on_start)\n\
+      \        gain_raw=0x00,\n        apply_gain_on_start=False,\n        module_root=\"\
+      \",  # optional absolute path to repo root\n    ):\n        gr.sync_block.__init__(\n\
+      \            self,\n            name=\"HFSDR Embedded Source\",\n          \
+      \  in_sig=None,\n            out_sig=[np.complex64],\n        )\n\n        repo_root\
+      \ = module_root if module_root else os.getcwd()\n        host_py = os.path.abspath(os.path.join(repo_root,\
+      \ \"client-sw\", \"host\", \"python\"))\n        if host_py not in sys.path:\n\
+      \            sys.path.insert(0, host_py)\n\n        from hfsdr_usb import HfSdrUsb\
+      \  # import after sys.path update\n\n        self._HfSdrUsb = HfSdrUsb\n   \
+      \     self.sample_rate = float(sample_rate)\n        self.transfer_bytes = int(transfer_bytes)\n\
+      \        self.scale = float(scale)\n        self.lo_hz = int(lo_hz)\n      \
+      \  self.apply_lo_on_start = bool(apply_lo_on_start)\n        self.gain_raw =\
+      \ int(gain_raw) & 0xFF\n        self.apply_gain_on_start = bool(apply_gain_on_start)\n\
       \n        self._max_iq_buffer = max(\n            int((self.sample_rate * float(buffer_ms))\
       \ / 1000.0),\n            self.transfer_bytes,\n        )\n\n        self._dev\
       \ = self._HfSdrUsb(\n            vid=int(vid),\n            pid=int(pid),\n\
@@ -137,6 +139,7 @@ blocks:
       \        self._reader = None\n        self._running = False\n\n    def start(self):\n\
       \        self._stop_evt.clear()\n        self._dev.open()\n        self._running\
       \ = True\n\n        if self.apply_lo_on_start:\n            self._set_lo_internal(self.lo_hz)\n\
+      \        if self.apply_gain_on_start:\n            self._set_gain_internal(self.gain_raw)\n\
       \n        self._reader = threading.Thread(target=self._reader_loop, daemon=True)\n\
       \        self._reader.start()\n        return super().start()\n\n    def stop(self):\n\
       \        self._stop_evt.set()\n        self._running = False\n        if self._reader\
@@ -164,27 +167,36 @@ blocks:
       \        return produced\n\n    def _set_lo_internal(self, hz):\n        try:\n\
       \            self._dev.set_clock_hz(int(hz))\n            self._last_control_error\
       \ = \"\"\n        except Exception as exc:  # pylint: disable=broad-except\n\
-      \            self._last_control_error = str(exc)\n\n    def set_lo_hz(self,\
-      \ lo_hz):\n        \"\"\"\n        GRC can call this setter when a connected\
-      \ variable changes.\n        \"\"\"\n        self.lo_hz = int(lo_hz)\n     \
-      \   if self._running:\n            self._set_lo_internal(self.lo_hz)\n\n   \
-      \ def get_stats(self):\n        with self._lock:\n            return {\n   \
-      \             \"queued_iq\": int(self._queued_iq),\n                \"queue_chunks\"\
+      \            self._last_control_error = str(exc)\n\n    def _set_gain_internal(self,\
+      \ gain_raw):\n        try:\n            self._dev.set_tlv320_gain_raw(int(gain_raw)\
+      \ & 0xFF)\n            self._last_control_error = \"\"\n        except Exception\
+      \ as exc:  # pylint: disable=broad-except\n            self._last_control_error\
+      \ = str(exc)\n\n    def set_lo_hz(self, lo_hz):\n        \"\"\"\n        GRC\
+      \ can call this setter when a connected variable changes.\n        \"\"\"\n\
+      \        self.lo_hz = int(lo_hz)\n        if self._running:\n            self._set_lo_internal(self.lo_hz)\n\
+      \n    def set_gain_raw(self, gain_raw):\n        \"\"\"\n        GRC can call\
+      \ this setter when a connected variable changes.\n        \"\"\"\n        self.gain_raw\
+      \ = int(gain_raw) & 0xFF\n        if self._running:\n            self._set_gain_internal(self.gain_raw)\n\
+      \n    def get_stats(self):\n        with self._lock:\n            return {\n\
+      \                \"queued_iq\": int(self._queued_iq),\n                \"queue_chunks\"\
       : len(self._queue),\n                \"dropped_iq\": int(self._dropped_iq),\n\
       \                \"read_errors\": int(self._read_errors),\n                \"\
-      lo_hz\": int(self.lo_hz),\n                \"last_control_error\": self._last_control_error,\n\
-      \            }"
+      lo_hz\": int(self.lo_hz),\n                \"gain_raw\": int(self.gain_raw),\n\
+      \                \"last_control_error\": self._last_control_error,\n       \
+      \     }\n"
     affinity: ''
     alias: ''
+    apply_gain_on_start: 'True'
     apply_lo_on_start: 'True'
     buffer_ms: '250'
     comment: ''
     endpoint_in: '0x85'
+    gain_raw: '0x00'
     interface: '4'
     lo_hz: freq
     maxoutbuf: '0'
     minoutbuf: '0'
-    module_root: '"C:\\Users\\zunmun\\Documents\\Stuff\\Github\\GROUP PROJECTS\\hfsdr\\"'
+    module_root: '"C:\\Users\\zunmun\\Documents\\Stuff\\Github\\GROUP PROJECTS\\hfsdr"'
     pid: '0x4031'
     sample_rate: samp_rate
     scale: (1.0 / 2147483648.0)
@@ -195,13 +207,13 @@ blocks:
     _io_cache: ('HFSDR Embedded Source', 'blk', [('sample_rate', '192000.0'), ('vid',
       '51966'), ('pid', '16433'), ('interface', '4'), ('endpoint_in', '133'), ('transfer_bytes',
       '4096'), ('usb_timeout_ms', '200'), ('buffer_ms', '250'), ('scale', '4.656612873077393e-10'),
-      ('lo_hz', '7067333'), ('apply_lo_on_start', 'True'), ('module_root', "''")],
-      [], [('0', 'complex', 1)], '', ['apply_lo_on_start', 'lo_hz', 'sample_rate',
-      'scale', 'transfer_bytes'])
+      ('lo_hz', '7067333'), ('apply_lo_on_start', 'True'), ('gain_raw', '0'), ('apply_gain_on_start',
+      'False'), ('module_root', "''")], [], [('0', 'complex', 1)], '', ['apply_gain_on_start',
+      'apply_lo_on_start', 'gain_raw', 'lo_hz', 'sample_rate', 'scale', 'transfer_bytes'])
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [300, 260.0]
+    coordinate: [192, 252.0]
     rotation: 0
     state: enabled
 - name: qtgui_freq_sink_x_0
@@ -442,7 +454,7 @@ blocks:
     bus_structure: null
     coordinate: [1104, 512.0]
     rotation: 0
-    state: disabled
+    state: enabled
 
 connections:
 - [blocks_multiply_const_vxx_0, '0', qtgui_freq_sink_x_0, '0']

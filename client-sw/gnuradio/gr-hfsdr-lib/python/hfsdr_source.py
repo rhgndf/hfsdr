@@ -32,6 +32,8 @@ class hfsdr_source(gr.sync_block):
         usb_timeout_ms=200,
         buffer_ms=200,
         scale=(1.0 / 2147483648.0),
+        gain_raw=0x00,
+        apply_gain_on_start=False,
     ):
         gr.sync_block.__init__(
             self,
@@ -44,6 +46,8 @@ class hfsdr_source(gr.sync_block):
         self.transfer_bytes = int(transfer_bytes)
         self.usb_timeout_ms = int(usb_timeout_ms)
         self.scale = float(scale)
+        self.gain_raw = int(gain_raw) & 0xFF
+        self.apply_gain_on_start = bool(apply_gain_on_start)
         self._max_iq_buffer = max(
             int((self.sample_rate * float(buffer_ms)) / 1000.0), self.transfer_bytes
         )
@@ -63,16 +67,22 @@ class hfsdr_source(gr.sync_block):
         self._queued_iq = 0
         self._read_errors = 0
         self._dropped_iq = 0
+        self._running = False
+        self._last_control_error = ""
 
     def start(self):
         self._stop_evt.clear()
         self._dev.open()
+        self._running = True
+        if self.apply_gain_on_start:
+            self._set_gain_raw_internal(self.gain_raw)
         self._reader = threading.Thread(target=self._reader_loop, daemon=True)
         self._reader.start()
         return super().start()
 
     def stop(self):
         self._stop_evt.set()
+        self._running = False
         if self._reader is not None:
             self._reader.join(timeout=1.0)
             self._reader = None
@@ -127,8 +137,17 @@ class hfsdr_source(gr.sync_block):
     def get_lo_hz(self):
         return int(self._dev.get_clock_hz().hz)
 
+    def _set_gain_raw_internal(self, gain_raw):
+        try:
+            self._dev.set_tlv320_gain_raw(int(gain_raw) & 0xFF)
+            self._last_control_error = ""
+        except Exception as exc:  # pylint: disable=broad-except
+            self._last_control_error = str(exc)
+
     def set_gain_raw(self, gain_raw):
-        self._dev.set_tlv320_gain_raw(int(gain_raw) & 0xFF)
+        self.gain_raw = int(gain_raw) & 0xFF
+        if self._running:
+            self._set_gain_raw_internal(self.gain_raw)
 
     def get_pll_locked(self):
         return int(self._dev.get_pll_lock().locked)
@@ -140,4 +159,6 @@ class hfsdr_source(gr.sync_block):
                 "queue_chunks": len(self._queue),
                 "dropped_iq": int(self._dropped_iq),
                 "read_errors": int(self._read_errors),
+                "gain_raw": int(self.gain_raw),
+                "last_control_error": self._last_control_error,
             }

@@ -40,6 +40,14 @@ parameters:
   label: Scale
   dtype: real
   default: 4.656612873077393e-10
+- id: gain_raw
+  label: ADC Gain Raw (0x00-0xFF)
+  dtype: int
+  default: 0x00
+- id: apply_gain_on_start
+  label: Apply Gain On Start
+  dtype: bool
+  default: 'False'
 
 inputs: []
 
@@ -66,6 +74,8 @@ templates:
       usb_timeout_ms=${usb_timeout_ms},
       buffer_ms=${buffer_ms},
       scale=${scale},
+      gain_raw=${gain_raw},
+      apply_gain_on_start=${apply_gain_on_start},
     )
 
 file_format: 1

@@ -28,6 +28,8 @@ class blk(gr.sync_block):
         scale=(1.0 / 2147483648.0),
         lo_hz=7067333,
         apply_lo_on_start=True,
+        gain_raw=0x00,
+        apply_gain_on_start=False,
         module_root="",  # optional absolute path to repo root
     ):
         gr.sync_block.__init__(
@@ -50,6 +52,8 @@ class blk(gr.sync_block):
         self.scale = float(scale)
         self.lo_hz = int(lo_hz)
         self.apply_lo_on_start = bool(apply_lo_on_start)
+        self.gain_raw = int(gain_raw) & 0xFF
+        self.apply_gain_on_start = bool(apply_gain_on_start)
 
         self._max_iq_buffer = max(
             int((self.sample_rate * float(buffer_ms)) / 1000.0),
@@ -82,6 +86,8 @@ class blk(gr.sync_block):
 
         if self.apply_lo_on_start:
             self._set_lo_internal(self.lo_hz)
+        if self.apply_gain_on_start:
+            self._set_gain_internal(self.gain_raw)
 
         self._reader = threading.Thread(target=self._reader_loop, daemon=True)
         self._reader.start()
@@ -144,6 +150,13 @@ class blk(gr.sync_block):
         except Exception as exc:  # pylint: disable=broad-except
             self._last_control_error = str(exc)
 
+    def _set_gain_internal(self, gain_raw):
+        try:
+            self._dev.set_tlv320_gain_raw(int(gain_raw) & 0xFF)
+            self._last_control_error = ""
+        except Exception as exc:  # pylint: disable=broad-except
+            self._last_control_error = str(exc)
+
     def set_lo_hz(self, lo_hz):
         """
         GRC can call this setter when a connected variable changes.
@@ -151,6 +164,14 @@ class blk(gr.sync_block):
         self.lo_hz = int(lo_hz)
         if self._running:
             self._set_lo_internal(self.lo_hz)
+
+    def set_gain_raw(self, gain_raw):
+        """
+        GRC can call this setter when a connected variable changes.
+        """
+        self.gain_raw = int(gain_raw) & 0xFF
+        if self._running:
+            self._set_gain_internal(self.gain_raw)
 
     def get_stats(self):
         with self._lock:
@@ -160,5 +181,6 @@ class blk(gr.sync_block):
                 "dropped_iq": int(self._dropped_iq),
                 "read_errors": int(self._read_errors),
                 "lo_hz": int(self.lo_hz),
+                "gain_raw": int(self.gain_raw),
                 "last_control_error": self._last_control_error,
             }

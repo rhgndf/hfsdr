@@ -40,6 +40,9 @@ src = hfsdr_source(sample_rate=192000, vid=0xCAFE, pid=0x4031, interface=4, endp
 - `get_pll_locked()`
 - `get_stats()`
 
+You can also set `gain_raw` in the GRC block parameters and enable
+`apply_gain_on_start` to program TLV320 gain when the flowgraph starts.
+
 ## Notes
 
 - The source claims only the vendor interface, so CDC and UAC interfaces remain available.
