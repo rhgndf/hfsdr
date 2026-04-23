@@ -2,6 +2,8 @@
 
 Python-first GNU Radio source scaffold for HFSDR over the USB vendor endpoint.
 
+Full host setup (drivers, probe, opening example `.grc` files, protocol): [docs/host-guide.md](../../../docs/host-guide.md).
+
 ## What this scaffold provides
 
 - `python/hfsdr_source.py`: GNU Radio `sync_block` source outputting `gr_complex`.
