@@ -15,7 +15,9 @@ from gnuradio.fft import window
 import sip
 
 _flowgraph_dir = os.path.dirname(os.path.abspath(__file__))
-_gr_python_dir = os.path.abspath(os.path.join(_flowgraph_dir, "..", "gr-hfsdr", "python"))
+_gr_python_dir = os.path.abspath(
+    os.path.join(_flowgraph_dir, "..", "gr-hfsdr-lib", "python")
+)
 if _gr_python_dir not in sys.path:
     sys.path.insert(0, _gr_python_dir)
 from hfsdr_source import hfsdr_source

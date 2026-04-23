@@ -21,7 +21,7 @@ Expected:
 Run:
 
 ```bash
-python3 client-sw/flowgraphs/hfsdr_webusb_demo.py
+python3 client-sw/gnuradio/examples/hfsdr_webusb_demo.py
 ```
 
 Expected:

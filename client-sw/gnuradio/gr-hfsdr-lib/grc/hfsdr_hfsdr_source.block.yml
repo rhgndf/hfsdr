@@ -51,7 +51,7 @@ templates:
   imports: |-
     import os
     import sys
-    _gr_hfsdr_root = os.path.abspath(os.path.join(os.getcwd(), "client-sw", "gr-hfsdr", "python"))
+    _gr_hfsdr_root = os.path.abspath(os.path.join(os.getcwd(), "client-sw", "gnuradio", "gr-hfsdr-lib", "python"))
     if _gr_hfsdr_root not in sys.path:
         sys.path.insert(0, _gr_hfsdr_root)
     from hfsdr_source import hfsdr_source

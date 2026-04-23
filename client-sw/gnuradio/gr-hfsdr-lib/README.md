@@ -1,4 +1,4 @@
-# gr-hfsdr
+# gr-hfsdr-lib
 
 Python-first GNU Radio source scaffold for HFSDR over the USB vendor endpoint.
 
@@ -26,7 +26,7 @@ py -3 -m pip install -r client-sw/host/python/requirements.txt
 ```python
 import os
 import sys
-sys.path.insert(0, os.path.abspath("client-sw/gr-hfsdr/python"))
+sys.path.insert(0, os.path.abspath("client-sw/gnuradio/gr-hfsdr-lib/python"))
 from hfsdr_source import hfsdr_source
 
 src = hfsdr_source(sample_rate=192000, vid=0xCAFE, pid=0x4031, interface=4, endpoint_in=0x85)

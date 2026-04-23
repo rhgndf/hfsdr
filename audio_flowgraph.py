@@ -175,11 +175,11 @@ class audio_flowgraph(gr.top_block, Qt.QWidget):
         # Connections
         ##################################################
         self.connect((self.analog_fm_demod_cf_0, 0), (self.blocks_multiply_const_vxx_0_1, 0))
-        self.connect((self.audio_source_0, 0), (self.blocks_float_to_complex_0, 0))
         self.connect((self.audio_source_0, 1), (self.blocks_float_to_complex_0, 1))
+        self.connect((self.audio_source_0, 0), (self.blocks_float_to_complex_0, 0))
         self.connect((self.blocks_float_to_complex_0, 0), (self.blocks_multiply_const_vxx_1, 0))
-        self.connect((self.blocks_multiply_const_vxx_0_1, 0), (self.audio_sink_0_0, 0))
         self.connect((self.blocks_multiply_const_vxx_0_1, 0), (self.audio_sink_0_0, 1))
+        self.connect((self.blocks_multiply_const_vxx_0_1, 0), (self.audio_sink_0_0, 0))
         self.connect((self.blocks_multiply_const_vxx_1, 0), (self.analog_fm_demod_cf_0, 0))
         self.connect((self.blocks_multiply_const_vxx_1, 0), (self.qtgui_time_sink_x_0, 0))
         self.connect((self.blocks_multiply_const_vxx_1, 0), (self.qtgui_waterfall_sink_x_0, 0))
