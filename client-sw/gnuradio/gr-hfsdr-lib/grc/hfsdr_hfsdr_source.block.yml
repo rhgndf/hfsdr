@@ -59,7 +59,26 @@ templates:
   imports: |-
     import os
     import sys
-    _gr_hfsdr_root = os.path.abspath(os.path.join(os.getcwd(), "client-sw", "gnuradio", "gr-hfsdr-lib", "python"))
+    def _find_repo_root():
+        candidates = []
+        try:
+            candidates.append(os.path.dirname(os.path.abspath(__file__)))
+        except NameError:
+            pass
+        candidates.append(os.getcwd())
+        for base in candidates:
+            cur = os.path.abspath(base)
+            while True:
+                probe = os.path.join(cur, "client-sw", "gnuradio", "gr-hfsdr-lib", "python", "hfsdr_source.py")
+                if os.path.isfile(probe):
+                    return cur
+                parent = os.path.dirname(cur)
+                if parent == cur:
+                    break
+                cur = parent
+        return os.getcwd()
+    _repo_root = _find_repo_root()
+    _gr_hfsdr_root = os.path.abspath(os.path.join(_repo_root, "client-sw", "gnuradio", "gr-hfsdr-lib", "python"))
     if _gr_hfsdr_root not in sys.path:
         sys.path.insert(0, _gr_hfsdr_root)
     from hfsdr_source import hfsdr_source
