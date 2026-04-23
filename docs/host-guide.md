@@ -78,7 +78,9 @@ In GNU Radio Companion: **File → Open** and choose one of:
 
 Use **Generate** then **Execute**. You should see live plots updating while the device streams.
 
-You can put `client-sw/gnuradio/examples/embedded_python_block_code.py` in the Embedded Python Block in GNU for GNURadio Usage
+**If you see `No module named 'hfsdr_usb'`:** the Embedded Python Block adds `client-sw/host/python` to `sys.path` after it finds the repo root. Either start GNU Radio Companion with **working directory = the hfsdr repository root** (so discovery finds `client-sw/host/python/hfsdr_usb.py`), or set the block’s **`module_root` parameter** to the absolute path of that repo root (no extra quotes). The packaged **HFSDR WebUSB Source** block (`gr-hfsdr-lib`) resolves `hfsdr_usb` via the library folder automatically.
+
+You can paste from `client-sw/gnuradio/examples/embedded_python_block_code.py` if you need a fresh Embedded Python Block body.
 
 ### 3. Suggested parameters (`basic_spectrum_iq`)
 

@@ -46,7 +46,10 @@ class blk(gr.sync_block):
         if host_py not in sys.path:
             sys.path.insert(0, host_py)
 
-        from hfsdr_usb import HfSdrUsb  # import after sys.path update
+        try:
+            from hfsdr_usb import HfSdrUsb  # import after sys.path update
+        except:
+            return
 
         self._HfSdrUsb = HfSdrUsb
         self.sample_rate = float(sample_rate)

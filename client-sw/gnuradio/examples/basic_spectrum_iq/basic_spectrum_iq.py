@@ -68,7 +68,7 @@ class basic_spectrum_iq(gr.top_block, Qt.QWidget):
         self.wf_db_min = wf_db_min = -110
         self.wf_db_max = wf_db_max = -55
         self.samp_rate = samp_rate = 96000
-        self.gain_const = gain_const = 0.5
+        self.gain_const = gain_const = 0.8
         self.freq = freq = 7080000
         self.fft_size = fft_size = 2048
         self.dc_block_len = dc_block_len = 64
@@ -256,7 +256,6 @@ class basic_spectrum_iq(gr.top_block, Qt.QWidget):
 
     def set_samp_rate(self, samp_rate):
         self.samp_rate = samp_rate
-        self.epy_block_0.sample_rate = self.samp_rate
         self.qtgui_freq_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
         self.qtgui_time_sink_x_0.set_samp_rate(self.samp_rate)
         self.qtgui_waterfall_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
@@ -273,7 +272,6 @@ class basic_spectrum_iq(gr.top_block, Qt.QWidget):
 
     def set_freq(self, freq):
         self.freq = freq
-        self.epy_block_0.lo_hz = self.freq
         self.qtgui_freq_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
         self.qtgui_waterfall_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
 

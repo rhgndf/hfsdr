@@ -73,7 +73,7 @@ blocks:
   id: variable
   parameters:
     comment: ''
-    value: '0.5'
+    value: '0.8'
   states:
     bus_sink: false
     bus_source: false
@@ -183,9 +183,10 @@ blocks:
       \         out_sig=[np.complex64],\n        )\n\n        repo_root = module_root\
       \ if module_root else os.getcwd()\n        host_py = os.path.abspath(os.path.join(repo_root,\
       \ \"client-sw\", \"host\", \"python\"))\n        if host_py not in sys.path:\n\
-      \            sys.path.insert(0, host_py)\n\n        from hfsdr_usb import HfSdrUsb\
-      \  # import after sys.path update\n\n        self._HfSdrUsb = HfSdrUsb\n   \
-      \     self.sample_rate = float(sample_rate)\n        self.transfer_bytes = int(transfer_bytes)\n\
+      \            sys.path.insert(0, host_py)\n\n        try:\n            from hfsdr_usb\
+      \ import HfSdrUsb  # import after sys.path update\n        except:\n       \
+      \     return\n\n        self._HfSdrUsb = HfSdrUsb\n        self.sample_rate\
+      \ = float(sample_rate)\n        self.transfer_bytes = int(transfer_bytes)\n\
       \        self.scale = float(scale)\n        self.lo_hz = int(lo_hz)\n      \
       \  self.apply_lo_on_start = bool(apply_lo_on_start)\n        self.gain_raw =\
       \ int(gain_raw) & 0xFF\n        self.apply_gain_on_start = bool(apply_gain_on_start)\n\
@@ -309,9 +310,7 @@ blocks:
       '65536'), ('usb_timeout_ms', '200'), ('buffer_ms', '1000'), ('scale', '4.656612873077393e-10'),
       ('lo_hz', '7067333'), ('apply_lo_on_start', 'True'), ('gain_raw', '0'), ('apply_gain_on_start',
       'False'), ('stats_report_s', '1.0'), ('stats_to_console', 'True'), ('module_root',
-      "''")], [], [('0', 'complex', 1)], '', ['apply_gain_on_start', 'apply_lo_on_start',
-      'gain_raw', 'lo_hz', 'sample_rate', 'scale', 'stats_report_s', 'stats_to_console',
-      'transfer_bytes'])
+      "''")], [], [('0', 'complex', 1)], '', [])
     bus_sink: false
     bus_source: false
     bus_structure: null

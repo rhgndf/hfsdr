@@ -1,8 +1,15 @@
 """GNU Radio source block for HFSDR over USB vendor interface."""
 
+import os
+import sys
 import threading
 import time
 from collections import deque
+
+# Sibling module (hfsdr_usb.py) must resolve regardless of CWD / GRC temp dir.
+_pkg_dir = os.path.dirname(os.path.abspath(__file__))
+if _pkg_dir not in sys.path:
+    sys.path.insert(0, _pkg_dir)
 
 import numpy as np
 from gnuradio import gr

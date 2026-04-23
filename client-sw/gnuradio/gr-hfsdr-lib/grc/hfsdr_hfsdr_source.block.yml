@@ -61,11 +61,11 @@ templates:
     import sys
     def _find_repo_root():
         candidates = []
+        candidates.append(os.getcwd())
         try:
             candidates.append(os.path.dirname(os.path.abspath(__file__)))
         except NameError:
             pass
-        candidates.append(os.getcwd())
         for base in candidates:
             cur = os.path.abspath(base)
             while True:
