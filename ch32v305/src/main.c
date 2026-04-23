@@ -274,6 +274,69 @@ static void DAC_Poll(void)
     last_report_tick = now_tick;
 }
 
+static uint64_t ticks_from_ms(uint32_t ms)
+{
+    uint64_t ticks = ((uint64_t)SystemCoreClock * (uint64_t)ms) / 1000ULL;
+    if(ticks == 0U)
+    {
+        ticks = 1U;
+    }
+    return ticks;
+}
+
+/*
+ * Toggle FM audio mode on each debounced encoder button press.
+ * Encoder button is configured as GPIO_Mode_IPD in blinky_gpio_init(), so
+ * pressed == logic 1.
+ */
+static void FmAudioOut_PollEncoderPress(void)
+{
+    static uint8_t initialized = 0U;
+    static uint8_t raw_state = 0U;
+    static uint8_t stable_state = 0U;
+    static uint64_t last_change_tick = 0U;
+    uint8_t new_raw;
+    uint64_t now_tick;
+    uint64_t debounce_ticks;
+
+    now_tick = SysTick->CNT;
+    debounce_ticks = ticks_from_ms(30U);
+    new_raw = (uint8_t)GPIO_ReadInputDataBit(ENC_BTN_GPIO_PORT, ENC_BTN_GPIO_PIN);
+
+    if(initialized == 0U)
+    {
+        raw_state = new_raw;
+        stable_state = new_raw;
+        last_change_tick = now_tick;
+        initialized = 1U;
+        return;
+    }
+
+    if(new_raw != raw_state)
+    {
+        raw_state = new_raw;
+        last_change_tick = now_tick;
+    }
+
+    if((now_tick - last_change_tick) < debounce_ticks)
+    {
+        return;
+    }
+
+    if(stable_state == raw_state)
+    {
+        return;
+    }
+
+    stable_state = raw_state;
+    if(stable_state != 0U)
+    {
+        bool new_state = !enable_fm_audio_out;
+        fm_audio_out_set_enabled(new_state);
+        printf("FM audio out: %s by encoder press\r\n", new_state ? "enabled" : "disabled");
+    }
+}
+
 /*********************************************************************
  * @fn      main
  *
@@ -324,7 +387,8 @@ int main(void)
         printf("TLV320ADC6120: I2C init failed (check wiring / AVDD AREG define / 24 MHz MCLK)\r\n");
     }
 
-    if(usb_hw_set_clk_freq_hz(7067333ULL) == READY)
+    // if(usb_hw_set_clk_freq_hz(7067333ULL) == READY)
+    if(usb_hw_set_clk_freq_hz(94400000ULL) == READY)
     {
         printf("Si5351: LO CLK0/CLK1 = 12000000 Hz, CLK1 = +90 deg\r\n");
     }
@@ -357,6 +421,7 @@ int main(void)
     {
         TLV320_I2S_Poll();
         DAC_Poll();
+        FmAudioOut_PollEncoderPress();
         tud_task();
         //Scan_I2CBus_EverySecond();
         //SysTick_Report_USB_EverySecond();
