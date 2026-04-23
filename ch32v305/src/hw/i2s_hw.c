@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "debug.h"
+#include "feature/fm_audio_out/fm_audio_out.h"
 #include "pinout.h"
 #include "usb_hw.h"
 
@@ -106,8 +107,11 @@ static void i2s_process_buf(volatile uint16_t const *src_words)
     s_i2s_coincidences_samples += I2S_RX_DMA_CHUNK_WORDS / 2 - 2;
 
     s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
-    //audio_usb_mic_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
-    usb_hw_vendor_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
+    if(!fm_audio_out_process_i2s_words_isr(src_words, I2S_RX_DMA_CHUNK_WORDS))
+    {
+        /* Baseline/raw path remains unchanged when FM feature is disabled. */
+        usb_hw_vendor_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
+    }
 }
 
 static void i2s_dma_rx_start(void)

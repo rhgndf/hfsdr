@@ -33,6 +33,7 @@
 #include "hw/usb_hw.h"
 #include "hw/watchdog.h"
 #include "feature/blinky/blinky.h"
+#include "feature/fm_audio_out/fm_audio_out.h"
 #include "tusb.h"
 
 /*********************************************************************
@@ -336,8 +337,16 @@ int main(void)
     i2s_hw_enable(ENABLE);
 
     dac_hw_init();
-    dac_hw_static_noise_start(192000U);
-    printf("DAC: static noise PA4+PA5 @ 192 ksps (TIM7 TRGO + DMA2 Ch3 refill IRQ)\r\n");
+    fm_audio_out_init();
+    fm_audio_out_set_enabled(enable_fm_audio_out);
+    if(enable_fm_audio_out)
+    {
+        printf("FM audio out: enabled (fixed-point FM demod to DAC)\r\n");
+    }
+    else
+    {
+        printf("DAC: static noise PA4+PA5 @ 192 ksps (TIM7 TRGO + DMA2 Ch3 refill IRQ)\r\n");
+    }
 
     blinky_init();
 
