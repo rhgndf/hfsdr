@@ -64,25 +64,30 @@ class basic_spectrum_iq(gr.top_block, Qt.QWidget):
         ##################################################
         # Variables
         ##################################################
-        self.samp_rate = samp_rate = 192000
-        self.gain_const = gain_const = 8.0
+        self.wf_update_s = wf_update_s = 0.10
+        self.wf_db_min = wf_db_min = -110
+        self.wf_db_max = wf_db_max = -55
+        self.samp_rate = samp_rate = 96000
+        self.gain_const = gain_const = 1.0
         self.freq = freq = 7080000
+        self.fft_size = fft_size = 2048
+        self.dc_block_len = dc_block_len = 64
 
         ##################################################
         # Blocks
         ##################################################
 
         self.qtgui_waterfall_sink_x_0 = qtgui.waterfall_sink_c(
-            4096, #size
-            window.WIN_BLACKMAN_hARRIS, #wintype
+            fft_size, #size
+            window.WIN_HANN, #wintype
             freq, #fc
             samp_rate, #bw
             "HFSDR Waterfall", #name
             1, #number of inputs
             None # parent
         )
-        self.qtgui_waterfall_sink_x_0.set_update_time(0.10)
-        self.qtgui_waterfall_sink_x_0.enable_grid(True)
+        self.qtgui_waterfall_sink_x_0.set_update_time(wf_update_s)
+        self.qtgui_waterfall_sink_x_0.enable_grid(False)
         self.qtgui_waterfall_sink_x_0.enable_axis_labels(True)
 
 
@@ -102,7 +107,7 @@ class basic_spectrum_iq(gr.top_block, Qt.QWidget):
             self.qtgui_waterfall_sink_x_0.set_color_map(i, colors[i])
             self.qtgui_waterfall_sink_x_0.set_line_alpha(i, alphas[i])
 
-        self.qtgui_waterfall_sink_x_0.set_intensity_range(-140, 10)
+        self.qtgui_waterfall_sink_x_0.set_intensity_range(wf_db_min, wf_db_max)
 
         self._qtgui_waterfall_sink_x_0_win = sip.wrapinstance(self.qtgui_waterfall_sink_x_0.qwidget(), Qt.QWidget)
 
@@ -114,7 +119,7 @@ class basic_spectrum_iq(gr.top_block, Qt.QWidget):
             1, #number of inputs
             None # parent
         )
-        self.qtgui_time_sink_x_0.set_update_time(0.10)
+        self.qtgui_time_sink_x_0.set_update_time(wf_update_s)
         self.qtgui_time_sink_x_0.set_y_axis(-1, 1)
 
         self.qtgui_time_sink_x_0.set_y_label('Amplitude', "")
@@ -159,15 +164,15 @@ class basic_spectrum_iq(gr.top_block, Qt.QWidget):
         self._qtgui_time_sink_x_0_win = sip.wrapinstance(self.qtgui_time_sink_x_0.qwidget(), Qt.QWidget)
         self.top_layout.addWidget(self._qtgui_time_sink_x_0_win)
         self.qtgui_freq_sink_x_0 = qtgui.freq_sink_c(
-            4096, #size
+            fft_size, #size
             window.WIN_BLACKMAN_hARRIS, #wintype
-            0, #fc
+            freq, #fc
             samp_rate, #bw
             "HFSDR Spectrum", #name
             1,
             None # parent
         )
-        self.qtgui_freq_sink_x_0.set_update_time(0.10)
+        self.qtgui_freq_sink_x_0.set_update_time(wf_update_s)
         self.qtgui_freq_sink_x_0.set_y_axis((-140), 10)
         self.qtgui_freq_sink_x_0.set_y_label('Relative Gain', 'dB')
         self.qtgui_freq_sink_x_0.set_trigger_mode(qtgui.TRIG_MODE_FREE, 0.0, 0, "")
@@ -200,8 +205,8 @@ class basic_spectrum_iq(gr.top_block, Qt.QWidget):
 
         self._qtgui_freq_sink_x_0_win = sip.wrapinstance(self.qtgui_freq_sink_x_0.qwidget(), Qt.QWidget)
         self.top_layout.addWidget(self._qtgui_freq_sink_x_0_win)
-        self.epy_block_0 = epy_block_0.blk(sample_rate=samp_rate, vid=0xCAFE, pid=0x4031, interface=4, endpoint_in=0x85, transfer_bytes=4096, usb_timeout_ms=200, buffer_ms=250, scale=(1.0 / 2147483648.0), lo_hz=freq, apply_lo_on_start=True, gain_raw=0x00, apply_gain_on_start=True, module_root="C:\\Users\\zunmun\\Documents\\Stuff\\Github\\GROUP PROJECTS\\hfsdr")
-        self.dc_blocker_xx_0 = filter.dc_blocker_cc(32, True)
+        self.epy_block_0 = epy_block_0.blk(sample_rate=samp_rate, vid=0xCAFE, pid=0x4031, interface=4, endpoint_in=0x85, transfer_bytes=65536, usb_timeout_ms=200, buffer_ms=1000, scale=(1.0 / 2147483648.0), lo_hz=freq, apply_lo_on_start=True, gain_raw=0x2D, apply_gain_on_start=False, stats_report_s=1.0, stats_to_console=True, module_root="C:\\Users\\zunmun\\Documents\\Stuff\\Github\\GROUP PROJECTS\\hfsdr")
+        self.dc_blocker_xx_0 = filter.dc_blocker_cc(dc_block_len, True)
         self.blocks_multiply_const_vxx_0 = blocks.multiply_const_cc(gain_const)
 
 
@@ -223,13 +228,36 @@ class basic_spectrum_iq(gr.top_block, Qt.QWidget):
 
         event.accept()
 
+    def get_wf_update_s(self):
+        return self.wf_update_s
+
+    def set_wf_update_s(self, wf_update_s):
+        self.wf_update_s = wf_update_s
+        self.qtgui_freq_sink_x_0.set_update_time(self.wf_update_s)
+        self.qtgui_time_sink_x_0.set_update_time(self.wf_update_s)
+        self.qtgui_waterfall_sink_x_0.set_update_time(self.wf_update_s)
+
+    def get_wf_db_min(self):
+        return self.wf_db_min
+
+    def set_wf_db_min(self, wf_db_min):
+        self.wf_db_min = wf_db_min
+        self.qtgui_waterfall_sink_x_0.set_intensity_range(self.wf_db_min, self.wf_db_max)
+
+    def get_wf_db_max(self):
+        return self.wf_db_max
+
+    def set_wf_db_max(self, wf_db_max):
+        self.wf_db_max = wf_db_max
+        self.qtgui_waterfall_sink_x_0.set_intensity_range(self.wf_db_min, self.wf_db_max)
+
     def get_samp_rate(self):
         return self.samp_rate
 
     def set_samp_rate(self, samp_rate):
         self.samp_rate = samp_rate
         self.epy_block_0.sample_rate = self.samp_rate
-        self.qtgui_freq_sink_x_0.set_frequency_range(0, self.samp_rate)
+        self.qtgui_freq_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
         self.qtgui_time_sink_x_0.set_samp_rate(self.samp_rate)
         self.qtgui_waterfall_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
 
@@ -246,7 +274,20 @@ class basic_spectrum_iq(gr.top_block, Qt.QWidget):
     def set_freq(self, freq):
         self.freq = freq
         self.epy_block_0.lo_hz = self.freq
+        self.qtgui_freq_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
         self.qtgui_waterfall_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
+
+    def get_fft_size(self):
+        return self.fft_size
+
+    def set_fft_size(self, fft_size):
+        self.fft_size = fft_size
+
+    def get_dc_block_len(self):
+        return self.dc_block_len
+
+    def set_dc_block_len(self, dc_block_len):
+        self.dc_block_len = dc_block_len
 
 
 

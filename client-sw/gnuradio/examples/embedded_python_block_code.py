@@ -22,14 +22,16 @@ class blk(gr.sync_block):
         pid=0x4031,
         interface=4,
         endpoint_in=0x85,
-        transfer_bytes=4096,
+        transfer_bytes=65536,
         usb_timeout_ms=200,
-        buffer_ms=250,
+        buffer_ms=1000,
         scale=(1.0 / 2147483648.0),
         lo_hz=7067333,
         apply_lo_on_start=True,
         gain_raw=0x00,
         apply_gain_on_start=False,
+        stats_report_s=1.0,
+        stats_to_console=True,
         module_root="",  # optional absolute path to repo root
     ):
         gr.sync_block.__init__(
@@ -54,6 +56,8 @@ class blk(gr.sync_block):
         self.apply_lo_on_start = bool(apply_lo_on_start)
         self.gain_raw = int(gain_raw) & 0xFF
         self.apply_gain_on_start = bool(apply_gain_on_start)
+        self.stats_report_s = max(float(stats_report_s), 0.1)
+        self.stats_to_console = bool(stats_to_console)
 
         self._max_iq_buffer = max(
             int((self.sample_rate * float(buffer_ms)) / 1000.0),
@@ -69,20 +73,34 @@ class blk(gr.sync_block):
         )
 
         self._lock = threading.Lock()
+        self._queue_cv = threading.Condition(self._lock)
         self._queue = deque()
         self._queued_iq = 0
         self._dropped_iq = 0
         self._read_errors = 0
+        self._work_underruns = 0
         self._last_control_error = ""
 
         self._stop_evt = threading.Event()
         self._reader = None
         self._running = False
+        self._started_at = 0.0
+        self._last_stats_at = 0.0
+        self._bytes_total = 0
+        self._bytes_since_report = 0
+        self._iq_total = 0
+        self._iq_since_report = 0
+        self._xfers_total = 0
+        self._xfers_since_report = 0
+        self._last_report = {}
 
     def start(self):
         self._stop_evt.clear()
         self._dev.open()
         self._running = True
+        now = time.monotonic()
+        self._started_at = now
+        self._last_stats_at = now
 
         if self.apply_lo_on_start:
             self._set_lo_internal(self.lo_hz)
@@ -112,19 +130,75 @@ class blk(gr.sync_block):
                 with self._lock:
                     self._queue.append(iq)
                     self._queued_iq += int(iq.size)
+                    self._bytes_total += len(payload)
+                    self._bytes_since_report += len(payload)
+                    self._iq_total += int(iq.size)
+                    self._iq_since_report += int(iq.size)
+                    self._xfers_total += 1
+                    self._xfers_since_report += 1
                     while self._queued_iq > self._max_iq_buffer and self._queue:
                         old = self._queue.popleft()
                         self._queued_iq -= int(old.size)
                         self._dropped_iq += int(old.size)
+                    self._queue_cv.notify()
+                self._maybe_report_stats()
             except Exception:
                 self._read_errors += 1
                 time.sleep(0.02)
+
+    def _maybe_report_stats(self):
+        now = time.monotonic()
+        elapsed = now - self._last_stats_at
+        if elapsed < self.stats_report_s:
+            return
+
+        with self._lock:
+            bytes_since = self._bytes_since_report
+            iq_since = self._iq_since_report
+            xfers_since = self._xfers_since_report
+            queued_iq = int(self._queued_iq)
+            dropped_iq = int(self._dropped_iq)
+            read_errors = int(self._read_errors)
+            total_bytes = int(self._bytes_total)
+            total_iq = int(self._iq_total)
+            total_xfers = int(self._xfers_total)
+            self._bytes_since_report = 0
+            self._iq_since_report = 0
+            self._xfers_since_report = 0
+
+        mbps = (bytes_since / max(elapsed, 1e-9)) / (1024.0 * 1024.0)
+        iqps = iq_since / max(elapsed, 1e-9)
+        xfersps = xfers_since / max(elapsed, 1e-9)
+
+        self._last_report = {
+            "mbps": mbps,
+            "iqps": iqps,
+            "xfersps": xfersps,
+            "queued_iq": queued_iq,
+            "dropped_iq": dropped_iq,
+            "read_errors": read_errors,
+            "total_bytes": total_bytes,
+            "total_iq": total_iq,
+            "total_xfers": total_xfers,
+            "uptime_s": now - self._started_at,
+        }
+        self._last_stats_at = now
+
+        if self.stats_to_console:
+            print(
+                "[HFSDR] {mbps:.3f} MiB/s | {iqps:.0f} iq/s | "
+                "{xfersps:.1f} xfer/s | q={queued_iq} drop={dropped_iq} err={read_errors}".format(
+                    **self._last_report
+                )
+            )
 
     def work(self, input_items, output_items):
         out = output_items[0]
         produced = 0
 
-        with self._lock:
+        with self._queue_cv:
+            if not self._queue:
+                self._queue_cv.wait(timeout=0.003)
             while produced < len(out) and self._queue:
                 chunk = self._queue[0]
                 take = min(len(out) - produced, len(chunk))
@@ -138,9 +212,8 @@ class blk(gr.sync_block):
 
                 self._queued_iq -= take
 
-        if produced < len(out):
-            out[produced:] = 0.0 + 0.0j
-            produced = len(out)
+        if produced == 0:
+            self._work_underruns += 1
         return produced
 
     def _set_lo_internal(self, hz):
@@ -180,7 +253,13 @@ class blk(gr.sync_block):
                 "queue_chunks": len(self._queue),
                 "dropped_iq": int(self._dropped_iq),
                 "read_errors": int(self._read_errors),
+                "work_underruns": int(self._work_underruns),
                 "lo_hz": int(self.lo_hz),
                 "gain_raw": int(self.gain_raw),
                 "last_control_error": self._last_control_error,
+                "bytes_total": int(self._bytes_total),
+                "iq_total": int(self._iq_total),
+                "xfers_total": int(self._xfers_total),
+                "stats_report_s": float(self.stats_report_s),
+                "last_report": dict(self._last_report),
             }

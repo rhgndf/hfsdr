@@ -58,3 +58,33 @@ Record any differences in:
 - average stream throughput,
 - USB timeout frequency,
 - startup reliability.
+
+## 6) UI-like spectrogram parity (GNU Radio example)
+
+Use:
+
+- `client-sw/gnuradio/examples/basic_spectrum_iq/basic_spectrum_iq.grc`
+
+Recommended baseline parameters (matched to web UI intent):
+
+- `samp_rate = 192000`
+- `fft_size = 2048`
+- `wf_update_s = 0.06`
+- `wf_db_min = -110`
+- `wf_db_max = -55`
+- `dc_block_len = 64`
+- `i_gain = 1.0`
+- `q_gain = 1.0`
+- `gain_const = 1.0`
+
+Graph path used for display:
+
+- embedded source -> complex-to-float (I/Q split) -> per-branch gain -> float-to-complex -> DC blocker -> GUI sinks
+
+Side-by-side checklist against browser UI:
+
+1. Set same LO frequency and ADC gain in both interfaces.
+2. Verify DC-centered spectrum shape (carrier at expected offset from center).
+3. Compare noise floor stability over 10-20 seconds.
+4. Compare peak prominence for the same RF signal.
+5. Verify retune response latency feels similar when changing LO.

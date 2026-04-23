@@ -33,6 +33,30 @@ options:
     state: enabled
 
 blocks:
+- name: dc_block_len
+  id: variable
+  parameters:
+    comment: ''
+    value: '64'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1224, 12]
+    rotation: 0
+    state: enabled
+- name: fft_size
+  id: variable
+  parameters:
+    comment: ''
+    value: '2048'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [744, 12]
+    rotation: 0
+    state: enabled
 - name: freq
   id: variable
   parameters:
@@ -49,7 +73,7 @@ blocks:
   id: variable
   parameters:
     comment: ''
-    value: '8.0'
+    value: '1.0'
   states:
     bus_sink: false
     bus_source: false
@@ -61,12 +85,48 @@ blocks:
   id: variable
   parameters:
     comment: ''
-    value: '192000'
+    value: '96000 '
   states:
     bus_sink: false
     bus_source: false
     bus_structure: null
     coordinate: [432, 144.0]
+    rotation: 0
+    state: enabled
+- name: wf_db_max
+  id: variable
+  parameters:
+    comment: ''
+    value: '-55'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [1104, 12]
+    rotation: 0
+    state: enabled
+- name: wf_db_min
+  id: variable
+  parameters:
+    comment: ''
+    value: '-110'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [984, 12]
+    rotation: 0
+    state: enabled
+- name: wf_update_s
+  id: variable
+  parameters:
+    comment: ''
+    value: '0.10'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [864, 12]
     rotation: 0
     state: enabled
 - name: blocks_multiply_const_vxx_0
@@ -84,7 +144,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [820, 260.0]
+    coordinate: [736, 420.0]
     rotation: 0
     state: enabled
 - name: dc_blocker_xx_0
@@ -93,7 +153,7 @@ blocks:
     affinity: ''
     alias: ''
     comment: ''
-    length: '32'
+    length: dc_block_len
     long_form: 'True'
     maxoutbuf: '0'
     minoutbuf: '0'
@@ -102,7 +162,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [560, 260.0]
+    coordinate: [472, 424.0]
     rotation: 0
     state: enabled
 - name: epy_block_0
@@ -114,13 +174,14 @@ blocks:
       \ import deque\n\nimport numpy as np\nfrom gnuradio import gr\n\n\nclass blk(gr.sync_block):\n\
       \    def __init__(\n        self,\n        sample_rate=192000.0,\n        vid=0xCAFE,\n\
       \        pid=0x4031,\n        interface=4,\n        endpoint_in=0x85,\n    \
-      \    transfer_bytes=4096,\n        usb_timeout_ms=200,\n        buffer_ms=250,\n\
+      \    transfer_bytes=65536,\n        usb_timeout_ms=200,\n        buffer_ms=1000,\n\
       \        scale=(1.0 / 2147483648.0),\n        lo_hz=7067333,\n        apply_lo_on_start=True,\n\
-      \        gain_raw=0x00,\n        apply_gain_on_start=False,\n        module_root=\"\
-      \",  # optional absolute path to repo root\n    ):\n        gr.sync_block.__init__(\n\
-      \            self,\n            name=\"HFSDR Embedded Source\",\n          \
-      \  in_sig=None,\n            out_sig=[np.complex64],\n        )\n\n        repo_root\
-      \ = module_root if module_root else os.getcwd()\n        host_py = os.path.abspath(os.path.join(repo_root,\
+      \        gain_raw=0x00,\n        apply_gain_on_start=False,\n        stats_report_s=1.0,\n\
+      \        stats_to_console=True,\n        module_root=\"\",  # optional absolute\
+      \ path to repo root\n    ):\n        gr.sync_block.__init__(\n            self,\n\
+      \            name=\"HFSDR Embedded Source\",\n            in_sig=None,\n   \
+      \         out_sig=[np.complex64],\n        )\n\n        repo_root = module_root\
+      \ if module_root else os.getcwd()\n        host_py = os.path.abspath(os.path.join(repo_root,\
       \ \"client-sw\", \"host\", \"python\"))\n        if host_py not in sys.path:\n\
       \            sys.path.insert(0, host_py)\n\n        from hfsdr_usb import HfSdrUsb\
       \  # import after sys.path update\n\n        self._HfSdrUsb = HfSdrUsb\n   \
@@ -128,47 +189,81 @@ blocks:
       \        self.scale = float(scale)\n        self.lo_hz = int(lo_hz)\n      \
       \  self.apply_lo_on_start = bool(apply_lo_on_start)\n        self.gain_raw =\
       \ int(gain_raw) & 0xFF\n        self.apply_gain_on_start = bool(apply_gain_on_start)\n\
-      \n        self._max_iq_buffer = max(\n            int((self.sample_rate * float(buffer_ms))\
-      \ / 1000.0),\n            self.transfer_bytes,\n        )\n\n        self._dev\
-      \ = self._HfSdrUsb(\n            vid=int(vid),\n            pid=int(pid),\n\
-      \            interface_number=int(interface),\n            endpoint_in=int(endpoint_in),\n\
-      \            timeout_ms=int(usb_timeout_ms),\n        )\n\n        self._lock\
-      \ = threading.Lock()\n        self._queue = deque()\n        self._queued_iq\
-      \ = 0\n        self._dropped_iq = 0\n        self._read_errors = 0\n       \
-      \ self._last_control_error = \"\"\n\n        self._stop_evt = threading.Event()\n\
-      \        self._reader = None\n        self._running = False\n\n    def start(self):\n\
-      \        self._stop_evt.clear()\n        self._dev.open()\n        self._running\
-      \ = True\n\n        if self.apply_lo_on_start:\n            self._set_lo_internal(self.lo_hz)\n\
-      \        if self.apply_gain_on_start:\n            self._set_gain_internal(self.gain_raw)\n\
-      \n        self._reader = threading.Thread(target=self._reader_loop, daemon=True)\n\
-      \        self._reader.start()\n        return super().start()\n\n    def stop(self):\n\
-      \        self._stop_evt.set()\n        self._running = False\n        if self._reader\
-      \ is not None:\n            self._reader.join(timeout=1.0)\n            self._reader\
-      \ = None\n        self._dev.close()\n        return super().stop()\n\n    def\
-      \ _reader_loop(self):\n        while not self._stop_evt.is_set():\n        \
-      \    try:\n                payload = self._dev.read_stream(self.transfer_bytes)\n\
-      \                iq = self._dev.words_to_iq(payload, scale=self.scale)\n   \
-      \             if iq.size == 0:\n                    continue\n             \
-      \   with self._lock:\n                    self._queue.append(iq)\n         \
-      \           self._queued_iq += int(iq.size)\n                    while self._queued_iq\
+      \        self.stats_report_s = max(float(stats_report_s), 0.1)\n        self.stats_to_console\
+      \ = bool(stats_to_console)\n\n        self._max_iq_buffer = max(\n         \
+      \   int((self.sample_rate * float(buffer_ms)) / 1000.0),\n            self.transfer_bytes,\n\
+      \        )\n\n        self._dev = self._HfSdrUsb(\n            vid=int(vid),\n\
+      \            pid=int(pid),\n            interface_number=int(interface),\n \
+      \           endpoint_in=int(endpoint_in),\n            timeout_ms=int(usb_timeout_ms),\n\
+      \        )\n\n        self._lock = threading.Lock()\n        self._queue_cv\
+      \ = threading.Condition(self._lock)\n        self._queue = deque()\n       \
+      \ self._queued_iq = 0\n        self._dropped_iq = 0\n        self._read_errors\
+      \ = 0\n        self._work_underruns = 0\n        self._last_control_error =\
+      \ \"\"\n\n        self._stop_evt = threading.Event()\n        self._reader =\
+      \ None\n        self._running = False\n        self._started_at = 0.0\n    \
+      \    self._last_stats_at = 0.0\n        self._bytes_total = 0\n        self._bytes_since_report\
+      \ = 0\n        self._iq_total = 0\n        self._iq_since_report = 0\n     \
+      \   self._xfers_total = 0\n        self._xfers_since_report = 0\n        self._last_report\
+      \ = {}\n\n    def start(self):\n        self._stop_evt.clear()\n        self._dev.open()\n\
+      \        self._running = True\n        now = time.monotonic()\n        self._started_at\
+      \ = now\n        self._last_stats_at = now\n\n        if self.apply_lo_on_start:\n\
+      \            self._set_lo_internal(self.lo_hz)\n        if self.apply_gain_on_start:\n\
+      \            self._set_gain_internal(self.gain_raw)\n\n        self._reader\
+      \ = threading.Thread(target=self._reader_loop, daemon=True)\n        self._reader.start()\n\
+      \        return super().start()\n\n    def stop(self):\n        self._stop_evt.set()\n\
+      \        self._running = False\n        if self._reader is not None:\n     \
+      \       self._reader.join(timeout=1.0)\n            self._reader = None\n  \
+      \      self._dev.close()\n        return super().stop()\n\n    def _reader_loop(self):\n\
+      \        while not self._stop_evt.is_set():\n            try:\n            \
+      \    payload = self._dev.read_stream(self.transfer_bytes)\n                iq\
+      \ = self._dev.words_to_iq(payload, scale=self.scale)\n                if iq.size\
+      \ == 0:\n                    continue\n                with self._lock:\n  \
+      \                  self._queue.append(iq)\n                    self._queued_iq\
+      \ += int(iq.size)\n                    self._bytes_total += len(payload)\n \
+      \                   self._bytes_since_report += len(payload)\n             \
+      \       self._iq_total += int(iq.size)\n                    self._iq_since_report\
+      \ += int(iq.size)\n                    self._xfers_total += 1\n            \
+      \        self._xfers_since_report += 1\n                    while self._queued_iq\
       \ > self._max_iq_buffer and self._queue:\n                        old = self._queue.popleft()\n\
       \                        self._queued_iq -= int(old.size)\n                \
-      \        self._dropped_iq += int(old.size)\n            except Exception:\n\
+      \        self._dropped_iq += int(old.size)\n                    self._queue_cv.notify()\n\
+      \                self._maybe_report_stats()\n            except Exception:\n\
       \                self._read_errors += 1\n                time.sleep(0.02)\n\n\
-      \    def work(self, input_items, output_items):\n        out = output_items[0]\n\
-      \        produced = 0\n\n        with self._lock:\n            while produced\
+      \    def _maybe_report_stats(self):\n        now = time.monotonic()\n      \
+      \  elapsed = now - self._last_stats_at\n        if elapsed < self.stats_report_s:\n\
+      \            return\n\n        with self._lock:\n            bytes_since = self._bytes_since_report\n\
+      \            iq_since = self._iq_since_report\n            xfers_since = self._xfers_since_report\n\
+      \            queued_iq = int(self._queued_iq)\n            dropped_iq = int(self._dropped_iq)\n\
+      \            read_errors = int(self._read_errors)\n            total_bytes =\
+      \ int(self._bytes_total)\n            total_iq = int(self._iq_total)\n     \
+      \       total_xfers = int(self._xfers_total)\n            self._bytes_since_report\
+      \ = 0\n            self._iq_since_report = 0\n            self._xfers_since_report\
+      \ = 0\n\n        mbps = (bytes_since / max(elapsed, 1e-9)) / (1024.0 * 1024.0)\n\
+      \        iqps = iq_since / max(elapsed, 1e-9)\n        xfersps = xfers_since\
+      \ / max(elapsed, 1e-9)\n\n        self._last_report = {\n            \"mbps\"\
+      : mbps,\n            \"iqps\": iqps,\n            \"xfersps\": xfersps,\n  \
+      \          \"queued_iq\": queued_iq,\n            \"dropped_iq\": dropped_iq,\n\
+      \            \"read_errors\": read_errors,\n            \"total_bytes\": total_bytes,\n\
+      \            \"total_iq\": total_iq,\n            \"total_xfers\": total_xfers,\n\
+      \            \"uptime_s\": now - self._started_at,\n        }\n        self._last_stats_at\
+      \ = now\n\n        if self.stats_to_console:\n            print(\n         \
+      \       \"[HFSDR] {mbps:.3f} MiB/s | {iqps:.0f} iq/s | \"\n                \"\
+      {xfersps:.1f} xfer/s | q={queued_iq} drop={dropped_iq} err={read_errors}\".format(\n\
+      \                    **self._last_report\n                )\n            )\n\
+      \n    def work(self, input_items, output_items):\n        out = output_items[0]\n\
+      \        produced = 0\n\n        with self._queue_cv:\n            if not self._queue:\n\
+      \                self._queue_cv.wait(timeout=0.003)\n            while produced\
       \ < len(out) and self._queue:\n                chunk = self._queue[0]\n    \
       \            take = min(len(out) - produced, len(chunk))\n                out[produced\
       \ : produced + take] = chunk[:take]\n                produced += take\n\n  \
       \              if take == len(chunk):\n                    self._queue.popleft()\n\
       \                else:\n                    self._queue[0] = chunk[take:]\n\n\
-      \                self._queued_iq -= take\n\n        if produced < len(out):\n\
-      \            out[produced:] = 0.0 + 0.0j\n            produced = len(out)\n\
-      \        return produced\n\n    def _set_lo_internal(self, hz):\n        try:\n\
-      \            self._dev.set_clock_hz(int(hz))\n            self._last_control_error\
-      \ = \"\"\n        except Exception as exc:  # pylint: disable=broad-except\n\
-      \            self._last_control_error = str(exc)\n\n    def _set_gain_internal(self,\
-      \ gain_raw):\n        try:\n            self._dev.set_tlv320_gain_raw(int(gain_raw)\
+      \                self._queued_iq -= take\n\n        if produced == 0:\n    \
+      \        self._work_underruns += 1\n        return produced\n\n    def _set_lo_internal(self,\
+      \ hz):\n        try:\n            self._dev.set_clock_hz(int(hz))\n        \
+      \    self._last_control_error = \"\"\n        except Exception as exc:  # pylint:\
+      \ disable=broad-except\n            self._last_control_error = str(exc)\n\n\
+      \    def _set_gain_internal(self, gain_raw):\n        try:\n            self._dev.set_tlv320_gain_raw(int(gain_raw)\
       \ & 0xFF)\n            self._last_control_error = \"\"\n        except Exception\
       \ as exc:  # pylint: disable=broad-except\n            self._last_control_error\
       \ = str(exc)\n\n    def set_lo_hz(self, lo_hz):\n        \"\"\"\n        GRC\
@@ -181,17 +276,20 @@ blocks:
       \                \"queued_iq\": int(self._queued_iq),\n                \"queue_chunks\"\
       : len(self._queue),\n                \"dropped_iq\": int(self._dropped_iq),\n\
       \                \"read_errors\": int(self._read_errors),\n                \"\
-      lo_hz\": int(self.lo_hz),\n                \"gain_raw\": int(self.gain_raw),\n\
-      \                \"last_control_error\": self._last_control_error,\n       \
-      \     }\n"
+      work_underruns\": int(self._work_underruns),\n                \"lo_hz\": int(self.lo_hz),\n\
+      \                \"gain_raw\": int(self.gain_raw),\n                \"last_control_error\"\
+      : self._last_control_error,\n                \"bytes_total\": int(self._bytes_total),\n\
+      \                \"iq_total\": int(self._iq_total),\n                \"xfers_total\"\
+      : int(self._xfers_total),\n                \"stats_report_s\": float(self.stats_report_s),\n\
+      \                \"last_report\": dict(self._last_report),\n            }\n"
     affinity: ''
     alias: ''
-    apply_gain_on_start: 'True'
+    apply_gain_on_start: 'False'
     apply_lo_on_start: 'True'
-    buffer_ms: '250'
+    buffer_ms: '1000'
     comment: ''
     endpoint_in: '0x85'
-    gain_raw: '0x00'
+    gain_raw: '0x2D'
     interface: '4'
     lo_hz: freq
     maxoutbuf: '0'
@@ -200,20 +298,24 @@ blocks:
     pid: '0x4031'
     sample_rate: samp_rate
     scale: (1.0 / 2147483648.0)
-    transfer_bytes: '4096'
+    stats_report_s: '1.0'
+    stats_to_console: 'True'
+    transfer_bytes: '65536'
     usb_timeout_ms: '200'
     vid: '0xCAFE'
   states:
     _io_cache: ('HFSDR Embedded Source', 'blk', [('sample_rate', '192000.0'), ('vid',
       '51966'), ('pid', '16433'), ('interface', '4'), ('endpoint_in', '133'), ('transfer_bytes',
-      '4096'), ('usb_timeout_ms', '200'), ('buffer_ms', '250'), ('scale', '4.656612873077393e-10'),
+      '65536'), ('usb_timeout_ms', '200'), ('buffer_ms', '1000'), ('scale', '4.656612873077393e-10'),
       ('lo_hz', '7067333'), ('apply_lo_on_start', 'True'), ('gain_raw', '0'), ('apply_gain_on_start',
-      'False'), ('module_root', "''")], [], [('0', 'complex', 1)], '', ['apply_gain_on_start',
-      'apply_lo_on_start', 'gain_raw', 'lo_hz', 'sample_rate', 'scale', 'transfer_bytes'])
+      'False'), ('stats_report_s', '1.0'), ('stats_to_console', 'True'), ('module_root',
+      "''")], [], [('0', 'complex', 1)], '', ['apply_gain_on_start', 'apply_lo_on_start',
+      'gain_raw', 'lo_hz', 'sample_rate', 'scale', 'stats_report_s', 'stats_to_console',
+      'transfer_bytes'])
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [192, 252.0]
+    coordinate: [104, 268.0]
     rotation: 0
     state: enabled
 - name: qtgui_freq_sink_x_0
@@ -247,8 +349,8 @@ blocks:
     color9: '"dark green"'
     comment: ''
     ctrlpanel: 'False'
-    fc: '0'
-    fftsize: '4096'
+    fc: freq
+    fftsize: fft_size
     freqhalf: 'True'
     grid: 'False'
     gui_hint: ''
@@ -276,7 +378,7 @@ blocks:
     tr_tag: '""'
     type: complex
     units: dB
-    update_time: '0.10'
+    update_time: wf_update_s
     width1: '1'
     width10: '1'
     width2: '1'
@@ -294,7 +396,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1100, 170.0]
+    coordinate: [1000, 200.0]
     rotation: 0
     state: enabled
 - name: qtgui_time_sink_x_0
@@ -372,7 +474,7 @@ blocks:
     tr_slope: qtgui.TRIG_SLOPE_POS
     tr_tag: '""'
     type: complex
-    update_time: '0.10'
+    update_time: wf_update_s
     width1: '1'
     width10: '1'
     width2: '1'
@@ -391,7 +493,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1100, 360.0]
+    coordinate: [1088, 376.0]
     rotation: 0
     state: enabled
 - name: qtgui_waterfall_sink_x_0
@@ -423,12 +525,12 @@ blocks:
     color9: '0'
     comment: ''
     fc: freq
-    fftsize: '4096'
+    fftsize: fft_size
     freqhalf: 'True'
-    grid: 'True'
+    grid: 'False'
     gui_hint: ''
-    int_max: '10'
-    int_min: '-140'
+    int_max: wf_db_max
+    int_min: wf_db_min
     label1: ''
     label10: ''
     label2: ''
@@ -446,13 +548,13 @@ blocks:
     nconnections: '1'
     showports: 'False'
     type: complex
-    update_time: '0.10'
-    wintype: window.WIN_BLACKMAN_hARRIS
+    update_time: wf_update_s
+    wintype: window.WIN_HANN
   states:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1104, 512.0]
+    coordinate: [1000, 584.0]
     rotation: 0
     state: enabled
 
