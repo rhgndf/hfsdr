@@ -1,0 +1,71 @@
+id: hfsdr_hfsdr_source
+label: HFSDR WebUSB Source
+category: '[HFSDR]'
+flags: [ python ]
+
+parameters:
+- id: sample_rate
+  label: Sample Rate
+  dtype: real
+  default: 192000
+- id: vid
+  label: VID
+  dtype: int
+  default: 0xCAFE
+- id: pid
+  label: PID
+  dtype: int
+  default: 0x4031
+- id: interface
+  label: Interface Number
+  dtype: int
+  default: 4
+- id: endpoint_in
+  label: Endpoint IN
+  dtype: int
+  default: 0x85
+- id: transfer_bytes
+  label: Transfer Bytes
+  dtype: int
+  default: 4096
+- id: usb_timeout_ms
+  label: USB Timeout (ms)
+  dtype: int
+  default: 200
+- id: buffer_ms
+  label: Buffer (ms)
+  dtype: int
+  default: 200
+- id: scale
+  label: Scale
+  dtype: real
+  default: 4.656612873077393e-10
+
+inputs: []
+
+outputs:
+- domain: stream
+  dtype: complex
+
+templates:
+  imports: |-
+    import os
+    import sys
+    _gr_hfsdr_root = os.path.abspath(os.path.join(os.getcwd(), "client-sw", "gr-hfsdr", "python"))
+    if _gr_hfsdr_root not in sys.path:
+        sys.path.insert(0, _gr_hfsdr_root)
+    from hfsdr_source import hfsdr_source
+  make: |-
+    hfsdr_source(
+      sample_rate=${sample_rate},
+      vid=${vid},
+      pid=${pid},
+      interface=${interface},
+      endpoint_in=${endpoint_in},
+      transfer_bytes=${transfer_bytes},
+      usb_timeout_ms=${usb_timeout_ms},
+      buffer_ms=${buffer_ms},
+      scale=${scale},
+    )
+
+file_format: 1
