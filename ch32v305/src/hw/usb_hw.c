@@ -10,7 +10,7 @@
 
 #define USB_ECHO_BUF_SIZE  512
 #define USB_ROOT_HUB_PORT  0
-#define USB_WEB_URL        "example.tinyusb.org/webusb-serial/index.html"
+#define USB_WEB_URL        "rhgndf.github.io/hfsdr/"
 #define USB_HW_CLK_FREQ_PAYLOAD_SIZE 8U
 #define USB_HW_CLK_FREQ_STATE_SIZE   (1U + USB_HW_CLK_FREQ_PAYLOAD_SIZE)
 #define USB_HW_TLV320_GAIN_REQ_SIZE  1U
