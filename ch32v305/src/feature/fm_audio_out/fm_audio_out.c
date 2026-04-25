@@ -4,22 +4,23 @@
 
 bool enable_fm_audio_out = false;
 
-/* State mirrors the fixed-point prototype: discriminator -> LPF -> decim -> deemph. */
+/* State mirrors the fixed-point path: discriminator -> 4-sample CIC -> deemph -> DAC DMA. */
 static int32_t s_i_prev = 0;
 static int32_t s_q_prev = 0;
-static int32_t s_audio_lp = 0;
 static int32_t s_deemph_state = 0;
 static int32_t s_dac_sd_error_q19 = 0;
+static int32_t s_cic_hist_q31[4] = {0};
+static int64_t s_cic_sum_q31 = 0;
+static uint8_t s_cic_idx = 0U;
 static uint8_t s_has_prev = 0U;
-static uint8_t s_decim_ctr = 0U;
 
 /* pi-domain constants in Q29 so small-angle gain matches the prior num/den path. */
 static const int32_t s_pi_q29 = 1686629713;
 static const int32_t s_pi_over_2_q29 = 843314857;
 
-/* alpha = exp(-1/(48000*50e-6)) in Q31 */
-static const int32_t s_deemph_alpha_q31 = 1412758477;
-static const int32_t s_one_minus_alpha_q31 = (int32_t)(0x7FFFFFFF - 1412758477);
+/* alpha = exp(-1/(192000*50e-6)) in Q31 */
+static const int32_t s_deemph_alpha_q31 = 1935044054;
+static const int32_t s_one_minus_alpha_q31 = (int32_t)(0x7FFFFFFF - 1935044054);
 
 /*
  * Odd 5th-degree least-squares fit of atan(x) on [0, 1]:
@@ -46,6 +47,17 @@ static int64_t clamp_i64(int64_t x, int64_t lo, int64_t hi)
 static int32_t sat_i32(int64_t x)
 {
     return (int32_t)clamp_i64(x, INT32_MIN, INT32_MAX);
+}
+
+static int32_t cic4_q31(int32_t x_q31)
+{
+    int32_t old_q31 = s_cic_hist_q31[s_cic_idx];
+
+    s_cic_hist_q31[s_cic_idx] = x_q31;
+    s_cic_idx = (s_cic_idx + 1U) & 3U;
+    s_cic_sum_q31 += (int64_t)x_q31 - (int64_t)old_q31;
+
+    return sat_i32(s_cic_sum_q31 >> 2);
 }
 
 static uint64_t abs_i64(int64_t x)
@@ -118,11 +130,15 @@ void fm_audio_out_init(void)
 {
     s_i_prev = 0;
     s_q_prev = 0;
-    s_audio_lp = 0;
     s_deemph_state = 0;
     s_dac_sd_error_q19 = 0;
+    s_cic_hist_q31[0] = 0;
+    s_cic_hist_q31[1] = 0;
+    s_cic_hist_q31[2] = 0;
+    s_cic_hist_q31[3] = 0;
+    s_cic_sum_q31 = 0;
+    s_cic_idx = 0U;
     s_has_prev = 0U;
-    s_decim_ctr = 0U;
 }
 
 void fm_audio_out_set_enabled(bool enabled)
@@ -132,8 +148,7 @@ void fm_audio_out_set_enabled(bool enabled)
 
     if(enabled)
     {
-        /* FM audio path writes direct DAC samples; stop background noise streamer. */
-        dac_hw_stream_stop();
+        dac_hw_stream_fm_start(192000U);
     }
     else
     {
@@ -172,19 +187,15 @@ bool fm_audio_out_process_i2s_words_isr(volatile uint16_t const *src_words, size
             int64_t num = (((int64_t)i_now * (int64_t)s_q_prev) - ((int64_t)q_now * (int64_t)s_i_prev)) >> 31;
             int64_t den = (((int64_t)i_now * (int64_t)s_i_prev) + ((int64_t)q_now * (int64_t)s_q_prev)) >> 31;
             int32_t fm_q31;
+            int32_t cic_q31;
+            int64_t mixed;
 
             fm_q31 = -atan2_q29(num, den);
-            s_audio_lp = sat_i32((((int64_t)s_audio_lp * 7) + fm_q31) / 8);
-
-            s_decim_ctr++;
-            if(s_decim_ctr >= 4U)
-            {
-                int64_t mixed = ((int64_t)s_one_minus_alpha_q31 * (int64_t)s_audio_lp) +
-                                ((int64_t)s_deemph_alpha_q31 * (int64_t)s_deemph_state);
-                s_deemph_state = sat_i32(mixed >> 31);
-                dac_hw_set_both_12(fm_q31_to_dac12(s_deemph_state));
-                s_decim_ctr = 0U;
-            }
+            cic_q31 = cic4_q31(fm_q31);
+            mixed = ((int64_t)s_one_minus_alpha_q31 * (int64_t)cic_q31) +
+                    ((int64_t)s_deemph_alpha_q31 * (int64_t)s_deemph_state);
+            s_deemph_state = sat_i32(mixed >> 31);
+            dac_hw_stream_fm_push_sample_isr(fm_q31_to_dac12(s_deemph_state));
         }
         else
         {

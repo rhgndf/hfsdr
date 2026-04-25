@@ -15,6 +15,7 @@
 #define DAC_STREAM_MODE_IDLE   0U
 #define DAC_STREAM_MODE_SINE   1U
 #define DAC_STREAM_MODE_NOISE  2U
+#define DAC_STREAM_MODE_FM     3U
 
 #define DAC_DMA_CHANNEL        DMA2_Channel3
 #define DAC_DMA_IRQn           DMA2_Channel3_IRQn
@@ -24,9 +25,12 @@
 #define DAC_DMA_GL_IT          DMA2_IT_GL3
 #define DAC_STREAM_BUF_SAMPLES 512U
 #define DAC_STREAM_CHUNK_SAMPLES (DAC_STREAM_BUF_SAMPLES / 2U)
+#define DAC_FM_RING_SAMPLES    2048U
 
 static_assert((DAC_STREAM_BUF_SAMPLES % 2U) == 0U,
               "DAC stream buffer must split evenly for DMA HT/TC refills");
+static_assert((DAC_FM_RING_SAMPLES & (DAC_FM_RING_SAMPLES - 1U)) == 0U,
+              "FM DAC ring size must be a power of two");
 
 /* 256 samples, centered at 2048, amplitude ~1900 (fits 0..4095). */
 static const uint16_t s_sine_lut[256] = {
@@ -58,6 +62,10 @@ static uint32_t s_phase_inc;
 static uint32_t s_rng32;
 static volatile uint32_t s_tx_frame_count;
 static uint32_t s_dac_stream_buf[DAC_STREAM_BUF_SAMPLES];
+static volatile uint16_t s_fm_ring[DAC_FM_RING_SAMPLES];
+static volatile uint32_t s_fm_write_idx;
+static volatile uint32_t s_fm_read_idx;
+static uint16_t s_fm_hold_sample = 2048U;
 
 void DMA2_Channel3_IRQHandler(void) __attribute__((interrupt));
 
@@ -73,10 +81,18 @@ static uint32_t dac_pack_dual_12(uint16_t sample)
     return (clamped << 16) | clamped;
 }
 
+static void dac_fm_ring_reset(void)
+{
+    s_fm_write_idx = 0U;
+    s_fm_read_idx = 0U;
+    s_fm_hold_sample = 2048U;
+}
+
 static uint16_t dac_stream_next_sample(void)
 {
     uint32_t idx;
     uint32_t x;
+    uint32_t read_idx;
 
     if(s_stream_mode == DAC_STREAM_MODE_NOISE)
     {
@@ -93,6 +109,18 @@ static uint16_t dac_stream_next_sample(void)
         s_phase_acc += s_phase_inc;
         idx = s_phase_acc >> 24;
         return s_sine_lut[idx];
+    }
+
+    if(s_stream_mode == DAC_STREAM_MODE_FM)
+    {
+        read_idx = s_fm_read_idx;
+        if(read_idx != s_fm_write_idx)
+        {
+            uint16_t sample = s_fm_ring[read_idx & (DAC_FM_RING_SAMPLES - 1U)];
+            s_fm_read_idx = read_idx + 1U;
+            s_fm_hold_sample = sample;
+        }
+        return s_fm_hold_sample;
     }
 
     return 2048U;
@@ -292,9 +320,44 @@ void dac_hw_set_both_12(uint16_t value)
     DAC_SetDualChannelData(DAC_Align_12b_R, value, value);
 }
 
+void dac_hw_stream_fm_start(uint32_t sample_rate_hz)
+{
+    if(sample_rate_hz == 0U)
+    {
+        dac_hw_stream_stop();
+        return;
+    }
+
+    dac_hw_square_wave_stop();
+    dac_hw_stream_stop();
+
+    dac_fm_ring_reset();
+    s_stream_mode = DAC_STREAM_MODE_FM;
+    dac_stream_dma_start(sample_rate_hz);
+}
+
+void dac_hw_stream_fm_push_sample_isr(uint16_t sample)
+{
+    uint32_t write_idx = s_fm_write_idx;
+
+    if(sample > 4095U)
+    {
+        sample = 4095U;
+    }
+
+    if((write_idx - s_fm_read_idx) >= DAC_FM_RING_SAMPLES)
+    {
+        return;
+    }
+
+    s_fm_ring[write_idx & (DAC_FM_RING_SAMPLES - 1U)] = sample;
+    s_fm_write_idx = write_idx + 1U;
+}
+
 void dac_hw_stream_stop(void)
 {
     s_stream_mode = DAC_STREAM_MODE_IDLE;
+    dac_fm_ring_reset();
     dac_stream_dma_stop();
     dac_hw_configure_direct_mode();
     DAC_SetDualChannelData(DAC_Align_12b_R, 2048U, 2048U);

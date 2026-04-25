@@ -14,6 +14,8 @@ void dac_hw_set_channel2_12(uint16_t value);
 void dac_hw_set_both_12(uint16_t value);
 
 /* TIM7-triggered dual-DAC stream via DMA2 Channel3, same sample on both channels. */
+void dac_hw_stream_fm_start(uint32_t sample_rate_hz);
+void dac_hw_stream_fm_push_sample_isr(uint16_t sample);
 void dac_hw_stream_noise_start(uint32_t sample_rate_hz);
 void dac_hw_stream_sine_start(uint32_t sine_freq_hz, uint32_t sample_rate_hz);
 void dac_hw_stream_stop(void);
