@@ -15,3 +15,16 @@ npm run dev
 npm run build
 npm run preview
 ```
+
+## Deploy to GitHub Pages
+
+This repository includes a GitHub Actions workflow at
+`.github/workflows/deploy-ui-gh-pages.yml` that builds `ui/` and publishes the
+`ui/dist` output to GitHub Pages.
+
+### Deploy flow
+
+- Automatic deploy: push changes to `main` that touch files under `ui/`.
+- Manual deploy: run **Deploy UI to GitHub Pages** from the Actions tab.
+
+The Vite base path is already set to `/hfsdr/` in `ui/vite.config.js`.
