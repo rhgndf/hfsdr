@@ -116,7 +116,6 @@ static void i2s_process_buf(volatile uint16_t const *src_words)
 
 static void i2s_dma_rx_start(void)
 {
-    DMA_InitTypeDef dma_init = {0};
 
     RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE);
 
@@ -125,6 +124,7 @@ static void i2s_dma_rx_start(void)
     DMA_DeInit(I2S_RX_DMA_CHANNEL);
     i2s_hw_rx_flush();
 
+    DMA_InitTypeDef dma_init = {0};
     dma_init.DMA_PeripheralBaseAddr = (uint32_t)&SPI2->DATAR;
     dma_init.DMA_MemoryBaseAddr = (uint32_t)s_rx_dma_buf;
     dma_init.DMA_DIR = DMA_DIR_PeripheralSRC;
@@ -156,7 +156,29 @@ static void i2s_dma_rx_stop(void)
     i2s_hw_rx_flush();
 }
 
-/* Unfortunately we wired the clock wrong, so we have to use TIM8 as a clock out instead */
+static ErrorStatus i2s_hw_clock_init_24mhz(void)
+{
+    GPIO_InitTypeDef gpio = {0};
+
+    if(RCC_GetFlagStatus(RCC_FLAG_HSERDY) == RESET)
+    {
+        return NoREADY;
+    }
+
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_AFIO, ENABLE);
+
+    gpio.GPIO_Pin = GPIO_Pin_8;
+    gpio.GPIO_Mode = GPIO_Mode_AF_PP;
+    gpio.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(GPIOA, &gpio);
+
+    RCC_MCOConfig(RCC_MCO_HSE);
+
+    return READY;
+}
+
+/* Unfortunately we wired the clock wrong on the prototype,
+   so we have to use TIM8 as a clock out instead */
 static ErrorStatus i2s_hw_alt_clock_init_24mhz(void)
 {
     GPIO_InitTypeDef gpio = {0};
@@ -239,7 +261,7 @@ void i2s_hw_init(void)
     I2S_InitTypeDef i2s_init = {0};
     
     s_rx_word_count = 0U;
-    s_i2s_reset_coincidences = 64U;
+    s_i2s_reset_coincidences = 0U;
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC, ENABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI2, ENABLE);
@@ -267,6 +289,7 @@ void i2s_hw_init(void)
     i2s_hw_dma_irq_init();
 
     (void)i2s_hw_alt_clock_init_24mhz();
+    i2s_hw_clock_init_24mhz();
 }
 
 void i2s_hw_deinit(void)
