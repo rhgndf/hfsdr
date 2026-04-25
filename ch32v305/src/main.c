@@ -162,25 +162,30 @@ void GPIO_Toggle_INIT(void)
  * SPI2 RX DMA runs in circular mode; DMA HT/TC interrupts count those words.
  * Report the incoming data rate once per second.
  *********************************************************************/
+static uint8_t s_tlv320_i2s_report_initialized = 0U;
+static uint64_t ticks_from_ms(uint32_t ms);
+
 static void TLV320_I2S_Poll(void)
 {
     static uint64_t last_report_tick = 0U;
     static uint32_t last_word_count = 0U;
     static uint32_t last_vendor_total_word_count = 0U;
     static uint32_t last_vendor_dropped_word_count = 0U;
-    static uint8_t initialized = 0U;
     uint64_t now_tick = SysTick->CNT;
     uint32_t words_now = i2s_hw_rx_word_count();
     uint32_t vendor_words_now = usb_hw_vendor_total_words();
     uint32_t vendor_dropped_words_now = usb_hw_vendor_dropped_words();
 
-    if(initialized == 0U)
+    if((s_tlv320_i2s_report_initialized == 0U) ||
+       (words_now < last_word_count) ||
+       (vendor_words_now < last_vendor_total_word_count) ||
+       (vendor_dropped_words_now < last_vendor_dropped_word_count))
     {
         last_report_tick = now_tick;
         last_word_count = words_now;
         last_vendor_total_word_count = vendor_words_now;
         last_vendor_dropped_word_count = vendor_dropped_words_now;
-        initialized = 1U;
+        s_tlv320_i2s_report_initialized = 1U;
     }
     else
     {
@@ -205,17 +210,40 @@ static void TLV320_I2S_Poll(void)
             last_vendor_total_word_count = vendor_words_now;
             last_vendor_dropped_word_count = vendor_dropped_words_now;
             last_report_tick = now_tick;
-
-            if(i2s_needs_reset())
-            {
-                printf("bitslipped, resetting\n");
-                i2s_hw_deinit();
-                Delay_Ms(1);
-                i2s_hw_init();
-                i2s_hw_enable(ENABLE);
-                initialized = 0U;
-            }
         }
+    }
+}
+
+static void TLV320_I2S_CheckBitslip(void)
+{
+    static uint64_t last_check_tick = 0U;
+    static uint8_t initialized = 0U;
+    uint64_t now_tick = SysTick->CNT;
+    uint64_t check_period_ticks = ticks_from_ms(100U);
+
+    if(initialized == 0U)
+    {
+        last_check_tick = now_tick;
+        initialized = 1U;
+        return;
+    }
+
+    if((now_tick - last_check_tick) < check_period_ticks)
+    {
+        return;
+    }
+
+    last_check_tick = now_tick;
+
+    if(i2s_needs_reset())
+    {
+        printf("bitslipped, resetting\n");
+        i2s_hw_deinit();
+        Delay_Ms(1);
+        i2s_hw_init();
+        i2s_hw_enable(ENABLE);
+        s_tlv320_i2s_report_initialized = 0U;
+        initialized = 0U;
     }
 }
 
@@ -360,6 +388,7 @@ int main(void)
 
     while(1)
     {
+        TLV320_I2S_CheckBitslip();
         TLV320_I2S_Poll();
         FmAudioOut_PollEncoderPress();
         tud_task();

@@ -316,13 +316,14 @@ uint32_t i2s_hw_rx_word_count(void)
 
 bool i2s_needs_reset(void)
 {
-    uint32_t sample_32 = ((uint32_t)s_rx_dma_buf[0] << 16) | s_rx_dma_buf[1];
-    printf("coincidences: %ld/%ld, sample: %08lX\n", s_i2s_reset_coincidences, s_i2s_coincidences_samples, sample_32);
     // If i2s is not bitslipped, we expect coincidences to be random with 50% probability
     // We do a two sided Z-test here
     bool ret = false;
-    if (s_i2s_reset_coincidences < s_i2s_coincidences_samples / 2 - 1000) {
+    if ((s_i2s_reset_coincidences < s_i2s_coincidences_samples / 2 - 1000) ||
+        (s_i2s_reset_coincidences > s_i2s_coincidences_samples / 2 + 1000)) {
         // Is bitslipped, request reset outside the ISR.
+        uint32_t sample_32 = ((uint32_t)s_rx_dma_buf[0] << 16) | s_rx_dma_buf[1];
+        printf("coincidences: %ld/%ld, sample: %08lX\n", s_i2s_reset_coincidences, s_i2s_coincidences_samples, sample_32);
         ret = true;
     }
     s_i2s_coincidences_samples = 0;
