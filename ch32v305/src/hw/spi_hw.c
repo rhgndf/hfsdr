@@ -10,7 +10,8 @@ void spi_hw_init(void)
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_AFIO, ENABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI3, ENABLE);
 
-    //GPIO_PinRemapConfig(GPIO_Remap_SPI3, ENABLE);
+    SPI_Cmd(SPI3, DISABLE);
+    SPI_I2S_DeInit(SPI3);
 
     GPIO_InitTypeDef gpio_init = {0};
     gpio_init.GPIO_Pin = SPI3_SCL_SCK_GPIO_PIN | SPI3_SDA_MOSI_GPIO_PIN;
@@ -20,7 +21,7 @@ void spi_hw_init(void)
 
     SPI_InitTypeDef spi_init = {0};
     SPI_StructInit(&spi_init);
-    spi_init.SPI_Direction = SPI_Direction_2Lines_FullDuplex;
+    spi_init.SPI_Direction = SPI_Direction_1Line_Tx;
     spi_init.SPI_Mode = SPI_Mode_Master;
     /* Panel (ST7789): one byte per SPI transfer, high bit of each byte first. */
     spi_init.SPI_DataSize = SPI_DataSize_8b;
@@ -42,9 +43,9 @@ uint8_t spi_hw_transfer_u8(uint8_t tx_byte)
     }
     SPI_I2S_SendData(SPI3, tx_byte);
 
-    while(SPI_I2S_GetFlagStatus(SPI3, SPI_I2S_FLAG_RXNE) == RESET)
+    while(SPI_I2S_GetFlagStatus(SPI3, SPI_I2S_FLAG_BSY) != RESET)
     {
     }
 
-    return (uint8_t)SPI_I2S_ReceiveData(SPI3);
+    return 0U;
 }
