@@ -218,8 +218,15 @@ static void TLV320_I2S_CheckBitslip(void)
 {
     static uint64_t last_check_tick = 0U;
     static uint8_t initialized = 0U;
+    static uint8_t enabled = 1U;
+    static uint8_t false_checks_in_a_row = 0U;
     uint64_t now_tick = SysTick->CNT;
     uint64_t check_period_ticks = ticks_from_ms(100U);
+
+    if(enabled == 0U)
+    {
+        return;
+    }
 
     if(initialized == 0U)
     {
@@ -237,13 +244,22 @@ static void TLV320_I2S_CheckBitslip(void)
 
     if(i2s_needs_reset())
     {
+        false_checks_in_a_row = 0U;
         printf("bitslipped, resetting\n");
         i2s_hw_deinit();
         Delay_Ms(1);
         i2s_hw_init();
         i2s_hw_enable(ENABLE);
         s_tlv320_i2s_report_initialized = 0U;
+        enabled = 1U;
         initialized = 0U;
+        return;
+    }
+
+    ++false_checks_in_a_row;
+    if(false_checks_in_a_row >= 20U)
+    {
+        enabled = 0U;
     }
 }
 

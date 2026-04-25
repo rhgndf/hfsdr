@@ -1,6 +1,7 @@
 #include "i2s_hw.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stddef.h>
 
 #include "debug.h"
@@ -319,11 +320,13 @@ bool i2s_needs_reset(void)
     // If i2s is not bitslipped, we expect coincidences to be random with 50% probability
     // We do a two sided Z-test here
     bool ret = false;
-    if ((s_i2s_reset_coincidences < s_i2s_coincidences_samples / 2 - 1000) ||
-        (s_i2s_reset_coincidences > s_i2s_coincidences_samples / 2 + 1000)) {
+    double n = (double)s_i2s_coincidences_samples;
+    uint32_t thres = 1.2879 * sqrt(n);
+    if ((s_i2s_reset_coincidences < s_i2s_coincidences_samples / 2 - thres) ||
+        (s_i2s_reset_coincidences > s_i2s_coincidences_samples / 2 + thres)) {
         // Is bitslipped, request reset outside the ISR.
         uint32_t sample_32 = ((uint32_t)s_rx_dma_buf[0] << 16) | s_rx_dma_buf[1];
-        printf("coincidences: %ld/%ld, sample: %08lX\n", s_i2s_reset_coincidences, s_i2s_coincidences_samples, sample_32);
+        printf("coincidences: %ld/%ld, thres: %ld, sample: %08lX\n", s_i2s_reset_coincidences, s_i2s_coincidences_samples, thres, sample_32);
         ret = true;
     }
     s_i2s_coincidences_samples = 0;
