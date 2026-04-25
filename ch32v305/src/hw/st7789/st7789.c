@@ -5,6 +5,8 @@
 
 #include <stddef.h>
 
+#define ST7789_DMA_COLOR_LINE_CHUNK_PIXELS 32U
+
 static void ST7789_SPI_TxU8(uint8_t v)
 {
 	(void)spi_hw_transfer_u8(v);
@@ -244,6 +246,39 @@ void ST7789_DrawPixel(uint16_t x, uint16_t y, uint16_t color)
 	uint8_t data[] = {color >> 8, color & 0xFF};
 	ST7789_Select();
 	ST7789_WriteData(data, sizeof(data));
+	ST7789_UnSelect();
+}
+
+void ST7789_DrawColorLine(uint16_t x, uint16_t y, const uint16_t *colors, uint16_t width)
+{
+	if ((colors == NULL) || (width == 0U) || (x >= ST7789_WIDTH) || (y >= ST7789_HEIGHT)) {
+		return;
+	}
+
+	uint16_t visible_width = width;
+	if(((uint32_t)x + (uint32_t)visible_width) > ST7789_WIDTH) {
+		visible_width = ST7789_WIDTH - x;
+	}
+
+	ST7789_SetAddressWindow(x, y, x + visible_width - 1U, y);
+	ST7789_Select();
+	ST7789_DC_Set();
+	for(uint16_t offset = 0U; offset < visible_width;) {
+		uint16_t chunk_pixels = visible_width - offset;
+		if(chunk_pixels > ST7789_DMA_COLOR_LINE_CHUNK_PIXELS) {
+			chunk_pixels = ST7789_DMA_COLOR_LINE_CHUNK_PIXELS;
+		}
+
+		uint8_t tx_buf[ST7789_DMA_COLOR_LINE_CHUNK_PIXELS * 2U];
+		for(uint16_t i = 0U; i < chunk_pixels; ++i) {
+			uint16_t color = colors[offset + i];
+			tx_buf[2U * i] = (uint8_t)(color >> 8);
+			tx_buf[(2U * i) + 1U] = (uint8_t)(color & 0xFFU);
+		}
+
+		spi_hw_transfer_dma(tx_buf, (size_t)chunk_pixels * 2U);
+		offset += chunk_pixels;
+	}
 	ST7789_UnSelect();
 }
 

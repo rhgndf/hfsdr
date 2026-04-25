@@ -17,11 +17,13 @@
  * increment a cumulative word counter and hand each completed half-buffer
  * chunk straight into the TinyUSB microphone FIFO.
  */
+#define I2S_HW_COMPLEX_SAMPLE_COUNT 128U
 
 void i2s_hw_init(void);
 void i2s_hw_deinit(void);
 void i2s_hw_enable(FunctionalState state);
 [[nodiscard]] bool i2s_needs_reset(void);
 [[nodiscard]] uint32_t i2s_hw_rx_word_count(void);
+void i2s_hw_obtain_buffer_and_window(float* output_complex_arr, float* window);
 
 #endif

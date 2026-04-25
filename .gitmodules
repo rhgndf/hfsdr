@@ -4,3 +4,6 @@
 [submodule "ch32v305/lib/tinyusb"]
 	path = ch32v305/lib/tinyusb
 	url = https://github.com/hathach/tinyusb.git
+[submodule "ch32v305/lib/NMSIS"]
+	path = ch32v305/lib/NMSIS
+	url = https://github.com/Nuclei-Software/NMSIS.git

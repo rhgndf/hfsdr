@@ -35,6 +35,7 @@
 #include "hw/watchdog.h"
 #include "feature/blinky/blinky.h"
 #include "feature/fm_audio_out/fm_audio_out.h"
+#include "ui/fft.h"
 #include "tusb.h"
 
 /*********************************************************************
@@ -358,7 +359,7 @@ int main(void)
     
     printf("ST7789 init + built-in screen test\r\n");
     ST7789_Init();
-    ST7789_Test();
+    //ST7789_Test();
 
     i2c_hw_init();
 
@@ -373,7 +374,7 @@ int main(void)
     }
 
     // if(usb_hw_set_clk_freq_hz(7067333ULL) == READY)
-    if(usb_hw_set_clk_freq_hz(94400000ULL) == READY)
+    if(usb_hw_set_clk_freq_hz(93300000ULL) == READY)
     {
         printf("Si5351: LO CLK0/CLK1 = 12000000 Hz, CLK1 = +90 deg\r\n");
     }
@@ -399,6 +400,7 @@ int main(void)
     }
 
     blinky_init();
+    UI_FFT_Init();
 
     /* display_spi_test_run(); */
     //watchdog_init();
@@ -410,6 +412,7 @@ int main(void)
         Encoder_ReportRotation();
         FmAudioOut_PollEncoderPress();
         tud_task();
+        UI_FFT_Draw();
         //Scan_I2CBus_EverySecond();
         //SysTick_Report_USB_EverySecond();
         blinky_task();
