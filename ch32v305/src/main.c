@@ -370,7 +370,7 @@ int main(void)
     // spi_manual_cs_end();
     printf("ST7789 init + built-in screen test\r\n");
     ST7789_Init();
-    //ST7789_Test();
+    ST7789_Test();
 
     i2c_hw_init();
 

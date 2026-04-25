@@ -47,7 +47,7 @@
 #define I2S_MCK_GPIO_PORT  GPIOC
 #define I2S_MCK_GPIO_PIN   GPIO_Pin_6
 
-/* SPI3 - Screen (remapped: SCK/MOSI on PB3/PB5; default SPI3 pins are PC10/PC11/PC12) */
+/* SPI3 - Screen SCK/MOSI on PB3/PB5 */
 #define SPI3_SCL_SCK_GPIO_PORT  GPIOB
 #define SPI3_SCL_SCK_GPIO_PIN   GPIO_Pin_3
 #define SPI3_SDA_MOSI_GPIO_PORT GPIOB
@@ -56,7 +56,7 @@
 /* ST7789 + touch: command vs SPI data is RS (register select), not a separate DC pin. */
 /* ST7789 reset: active-low (drive low to reset, high for normal run). */
 #define ST7789_RST_GPIO_PORT  GPIOC
-#define ST7789_RST_GPIO_PIN   GPIO_Pin_11
+#define ST7789_RST_GPIO_PIN   GPIO_Pin_14
 /* Touch panel reset (active-low): PC10 */
 #define TP_RST_GPIO_PORT      GPIOC
 #define TP_RST_GPIO_PIN       GPIO_Pin_10
@@ -66,10 +66,12 @@
  * #define ST7789_RS_GPIO_PORT   GPIOC
  * #define ST7789_RS_GPIO_PIN    GPIO_Pin_12
  */
-#define ST7789_CS_GPIO_PORT   GPIOA
-#define ST7789_CS_GPIO_PIN    GPIO_Pin_10
+#define ST7789_CS_GPIO_PORT   GPIOC
+#define ST7789_CS_GPIO_PIN    GPIO_Pin_7
 #define ST7789_RS_GPIO_PORT   GPIOA
-#define ST7789_RS_GPIO_PIN    GPIO_Pin_9
+#define ST7789_RS_GPIO_PIN    GPIO_Pin_15
+#define ST7789_LEDK_GPIO_PORT GPIOB
+#define ST7789_LEDK_GPIO_PIN  GPIO_Pin_4
 
 /* I2C - Touchscreen, ADC (RS also drives LCD register select on the shared flex / routing) */
 #define I2C_SCL_GPIO_PORT   GPIOB

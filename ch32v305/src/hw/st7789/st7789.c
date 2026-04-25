@@ -12,11 +12,16 @@ static void ST7789_SPI_TxU8(uint8_t v)
 
 static void ST7789_HW_Init(void)
 {
-	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC | RCC_APB2Periph_GPIOD, ENABLE);
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC | RCC_APB2Periph_GPIOD,
+						   ENABLE);
 
 	GPIO_InitTypeDef g = {0};
 	g.GPIO_Mode = GPIO_Mode_Out_PP;
 	g.GPIO_Speed = GPIO_Speed_50MHz;
+
+	g.GPIO_Pin = ST7789_LEDK_GPIO_PIN;
+	GPIO_Init(ST7789_LEDK_GPIO_PORT, &g);
+	GPIO_WriteBit(ST7789_LEDK_GPIO_PORT, ST7789_LEDK_GPIO_PIN, Bit_RESET);
 
 	g.GPIO_Pin = ST7789_DC_PIN;
 	GPIO_Init(ST7789_DC_PORT, &g);
@@ -150,7 +155,7 @@ void ST7789_Init(void)
     ST7789_RST_Assert();
     Delay_Ms(10);
     ST7789_RST_Release();
-    Delay_Ms(20);
+    Delay_Ms(120);
 
     ST7789_WriteCommand(ST7789_COLMOD);		//	Set color mode
     ST7789_WriteSmallData(ST7789_COLOR_MODE_16bit);
@@ -168,12 +173,15 @@ void ST7789_Init(void)
     ST7789_WriteSmallData(0x19);			//	0.725v (default 0.75v for 0x20)
     ST7789_WriteCommand(0xC0);				//	LCMCTRL	
     ST7789_WriteSmallData (0x2C);			//	Default value
-    ST7789_WriteCommand (0xC2);				//	VDV and VRH command Enable
-    ST7789_WriteSmallData (0x01);			//	Default value
+    ST7789_WriteCommand (ST7789_VRHEN);		//	VRH command Enable
+	{
+		uint8_t data[] = {0x01, 0xFF};
+		ST7789_WriteData(data, sizeof(data));
+	}
     ST7789_WriteCommand (0xC3);				//	VRH set
     ST7789_WriteSmallData (0x12);			//	+-4.45v (defalut +-4.1v for 0x0B)
-    ST7789_WriteCommand (0xC4);				//	VDV set
-    ST7789_WriteSmallData (0x20);			//	Default value
+    ST7789_WriteCommand (ST7789_VCMOFSET);	//	VCOMS offset set
+    ST7789_WriteSmallData (0x20);			//	0V offset
     ST7789_WriteCommand (0xC6);				//	Frame rate control in normal mode
     ST7789_WriteSmallData (0x0F);			//	Default value (60HZ)
     ST7789_WriteCommand (0xD0);				//	Power control
@@ -194,6 +202,7 @@ void ST7789_Init(void)
 	}
     ST7789_WriteCommand (ST7789_INVON);		//	Inversion ON
 	ST7789_WriteCommand (ST7789_SLPOUT);	//	Out of sleep mode
+	Delay_Ms(5);
   	ST7789_WriteCommand (ST7789_NORON);		//	Normal Display on
   	ST7789_WriteCommand (ST7789_DISPON);	//	Main screen turned on	
 	ST7789_UnSelect();
