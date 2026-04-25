@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include "hw/pinout.h"
 #include "hw/dac_hw.h"
+#include "hw/encoder.h"
 #include "hw/spi_manual.h"
 #include "hw/st7789/st7789.h"
 /* #include "test/spi_gpio_pins.h" */
@@ -164,6 +165,7 @@ void GPIO_Toggle_INIT(void)
  *********************************************************************/
 static uint8_t s_tlv320_i2s_report_initialized = 0U;
 static uint64_t ticks_from_ms(uint32_t ms);
+static void Encoder_ReportRotation(void);
 
 static void TLV320_I2S_Poll(void)
 {
@@ -322,6 +324,16 @@ static void FmAudioOut_PollEncoderPress(void)
     }
 }
 
+static void Encoder_ReportRotation(void)
+{
+    int16_t delta = encoder_take_delta();
+
+    if(delta != 0)
+    {
+        printf("encoder delta: %d\r\n", delta);
+    }
+}
+
 /*********************************************************************
  * @fn      main
  *
@@ -386,6 +398,7 @@ int main(void)
     i2s_hw_enable(ENABLE);
 
     dac_hw_init();
+    encoder_init();
     fm_audio_out_init();
     fm_audio_out_set_enabled(enable_fm_audio_out);
     if(enable_fm_audio_out)
@@ -406,6 +419,7 @@ int main(void)
     {
         TLV320_I2S_CheckBitslip();
         TLV320_I2S_Poll();
+        Encoder_ReportRotation();
         FmAudioOut_PollEncoderPress();
         tud_task();
         //Scan_I2CBus_EverySecond();

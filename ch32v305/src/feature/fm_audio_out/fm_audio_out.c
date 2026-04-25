@@ -9,38 +9,108 @@ static int32_t s_i_prev = 0;
 static int32_t s_q_prev = 0;
 static int32_t s_audio_lp = 0;
 static int32_t s_deemph_state = 0;
+static int32_t s_dac_sd_error_q19 = 0;
 static uint8_t s_has_prev = 0U;
 static uint8_t s_decim_ctr = 0U;
+
+/* pi-domain constants in Q29 so small-angle gain matches the prior num/den path. */
+static const int32_t s_pi_q29 = 1686629713;
+static const int32_t s_pi_over_2_q29 = 843314857;
 
 /* alpha = exp(-1/(48000*50e-6)) in Q31 */
 static const int32_t s_deemph_alpha_q31 = 1412758477;
 static const int32_t s_one_minus_alpha_q31 = (int32_t)(0x7FFFFFFF - 1412758477);
 
+/*
+ * Odd 5th-degree least-squares fit of atan(x) on [0, 1]:
+ * atan(x) ~= x * (c1 + x^2 * (c3 + x^2 * c5))
+ * Coefficients are stored in Q31 and evaluated with Horner form.
+ */
+static const int32_t s_atan_c1_q31 = 2138856262;
+static const int32_t s_atan_c3_q31 = -627668775;
+static const int32_t s_atan_c5_q31 = 178286847;
+
+static int64_t clamp_i64(int64_t x, int64_t lo, int64_t hi)
+{
+    if(x < lo)
+    {
+        return lo;
+    }
+    if(x > hi)
+    {
+        return hi;
+    }
+    return x;
+}
+
 static int32_t sat_i32(int64_t x)
 {
-    if(x > INT32_MAX)
+    return (int32_t)clamp_i64(x, INT32_MIN, INT32_MAX);
+}
+
+static uint64_t abs_i64(int64_t x)
+{
+    return (x < 0) ? (uint64_t)(-x) : (uint64_t)x;
+}
+
+static int32_t atan_0_1_q29(uint32_t x_q31)
+{
+    uint64_t x2_q31 = ((uint64_t)x_q31 * (uint64_t)x_q31) >> 31;
+    int64_t acc_q31 = s_atan_c5_q31;
+
+    acc_q31 = (int64_t)s_atan_c3_q31 + ((acc_q31 * (int64_t)x2_q31) >> 31);
+    acc_q31 = (int64_t)s_atan_c1_q31 + ((acc_q31 * (int64_t)x2_q31) >> 31);
+
+    return (int32_t)((((int64_t)x_q31 * acc_q31) >> 31) >> 2);
+}
+
+static int32_t atan2_q29(int64_t y, int64_t x)
+{
+    uint64_t ay = abs_i64(y);
+    uint64_t ax = abs_i64(x);
+    int32_t base_q29;
+    uint32_t ratio_q31;
+
+    if((ax == 0U) && (ay == 0U))
     {
-        return INT32_MAX;
+        return 0;
     }
-    if(x < INT32_MIN)
+
+    if(ax >= ay)
     {
-        return INT32_MIN;
+        ratio_q31 = (ax == 0U) ? 0U : (uint32_t)((ay << 31) / ax);
+        base_q29 = atan_0_1_q29(ratio_q31);
     }
-    return (int32_t)x;
+    else
+    {
+        ratio_q31 = (uint32_t)((ax << 31) / ay);
+        base_q29 = s_pi_over_2_q29 - atan_0_1_q29(ratio_q31);
+    }
+
+    if(x < 0)
+    {
+        base_q29 = s_pi_q29 - base_q29;
+    }
+
+    return (y < 0) ? -base_q29 : base_q29;
 }
 
 static uint16_t fm_q31_to_dac12(int32_t y_q31)
 {
-    int32_t y_i16 = y_q31 >> 15;              /* -32768..32767 nominal */
-    int32_t dac = 2048 + (y_i16 >> 5);        /* conservative gain around mid-rail */
-    if(dac < 0)
+    int64_t shaped_q19 = ((int64_t)2048 << 19) + ((int64_t)y_q31 >> 1) + (int64_t)s_dac_sd_error_q19;
+    int64_t clamped_q19 = clamp_i64(shaped_q19, 0, (int64_t)4095 << 19);
+    int32_t dac;
+
+    /* Clamp before quantizing so the error integrator does not wind up at the rails. */
+    if(clamped_q19 != shaped_q19)
     {
-        return 0U;
+        s_dac_sd_error_q19 = 0;
+        return (uint16_t)(clamped_q19 >> 19);
     }
-    if(dac > 4095)
-    {
-        return 4095U;
-    }
+
+    dac = (int32_t)((shaped_q19 + ((int64_t)1 << 18)) >> 19);
+    s_dac_sd_error_q19 = (int32_t)(shaped_q19 - ((int64_t)dac << 19));
+
     return (uint16_t)dac;
 }
 
@@ -50,6 +120,7 @@ void fm_audio_out_init(void)
     s_q_prev = 0;
     s_audio_lp = 0;
     s_deemph_state = 0;
+    s_dac_sd_error_q19 = 0;
     s_has_prev = 0U;
     s_decim_ctr = 0U;
 }
@@ -89,10 +160,10 @@ bool fm_audio_out_process_i2s_words_isr(volatile uint16_t const *src_words, size
     frame_count = word_count / 4U;
     for(i = 0U; i < frame_count; ++i)
     {
-        uint16_t i_hi = src_words[i * 4U];
-        uint16_t i_lo = src_words[i * 4U + 1U];
-        uint16_t q_hi = src_words[i * 4U + 2U];
-        uint16_t q_lo = src_words[i * 4U + 3U];
+        uint16_t i_hi = src_words[i * 4U + 1U];
+        uint16_t i_lo = src_words[i * 4U + 0U];
+        uint16_t q_hi = src_words[i * 4U + 3U];
+        uint16_t q_lo = src_words[i * 4U + 2U];
         int32_t i_now = (int32_t)(((uint32_t)i_hi << 16) | (uint32_t)i_lo);
         int32_t q_now = (int32_t)(((uint32_t)q_hi << 16) | (uint32_t)q_lo);
 
@@ -102,12 +173,7 @@ bool fm_audio_out_process_i2s_words_isr(volatile uint16_t const *src_words, size
             int64_t den = (((int64_t)i_now * (int64_t)s_i_prev) + ((int64_t)q_now * (int64_t)s_q_prev)) >> 31;
             int32_t fm_q31;
 
-            if((den > -1024) && (den < 1024))
-            {
-                den = (den >= 0) ? 1024 : -1024;
-            }
-
-            fm_q31 = sat_i32(-((num << 29) / den));
+            fm_q31 = -atan2_q29(num, den);
             s_audio_lp = sat_i32((((int64_t)s_audio_lp * 7) + fm_q31) / 8);
 
             s_decim_ctr++;
