@@ -38,7 +38,7 @@ Connected to a PC
 | `ch32v305/` | Firmware (CH32V305). Build, flash, toolchain: [ch32v305/README.md](ch32v305/README.md). |
 | `client-sw/` | Host Python (`hfsdr_probe`, PyUSB helpers), GNU Radio blocks and examples (`gr-hfsdr-lib`, `.grc`). |
 | `docs/` | [host-guide.md](docs/host-guide.md) — primary host-side documentation. |
-| `hardware/` | KiCad project and related hardware files. |
+| `hardware/` | KiCad project and related hardware files. (Will be published in a while) |
 | `scripts/` | Helper scripts (e.g. udev `99-hfsdr.rules`, Windows USB checks). |
 | `ui/` | WebUSB Web UI (Svelte/Vite). Deployed build: `homepage` in [ui/package.json](ui/package.json). |
 
@@ -47,3 +47,4 @@ Connected to a PC
 1. rhgndf - hard carry schematic & everything inside actually
 2. Hackin7 - Art, PCB rough layout & routing & some embedded
 3. Hack & Roll Cursor Credits + Codex - allow us to do this while being overseas/ having full time jobs
+4. https://github.com/ttrftech/CentSDR - Useful reference
