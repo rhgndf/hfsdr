@@ -50,10 +50,9 @@ void GPIO_Toggle_INIT(void)
 
 [[maybe_unused]] static void TP_Reset_Pin_On(void)
 {
-    GPIO_InitTypeDef gpio_init = {0};
-
     /* TP/LCD reset net is active-low: drive high to release ("on"). */
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
+    GPIO_InitTypeDef gpio_init = {0};
     gpio_init.GPIO_Pin = TP_RST_GPIO_PIN;
     gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
@@ -63,10 +62,9 @@ void GPIO_Toggle_INIT(void)
 
 [[maybe_unused]] static void TP_Reset_Pin_Off(void)
 {
-    GPIO_InitTypeDef gpio_init = {0};
-
     /* TP/LCD reset net is active-low: drive high to release ("on"). */
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
+    GPIO_InitTypeDef gpio_init = {0};
     gpio_init.GPIO_Pin = TP_RST_GPIO_PIN;
     gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
@@ -114,8 +112,6 @@ void GPIO_Toggle_INIT(void)
     static uint8_t initialized = 0;
     uint64_t now_tick = SysTick->CNT;
     uint64_t scan_period_ticks = (uint64_t)SystemCoreClock;
-    uint8_t addr = 0;
-    uint8_t device_count = 0;
 
     if(scan_period_ticks == 0U)
     {
@@ -136,7 +132,8 @@ void GPIO_Toggle_INIT(void)
 
     printf("I2C scan:");
 
-    for(addr = 0x08U; addr <= 0x77U; ++addr)
+    uint8_t device_count = 0;
+    for(uint8_t addr = 0x08U; addr <= 0x77U; ++addr)
     {
         if(i2c_hw_scan_bus_at(addr) == READY)
         {
@@ -172,21 +169,10 @@ static void TLV320_I2S_Poll(void)
     static uint32_t last_vendor_total_word_count = 0U;
     static uint32_t last_vendor_dropped_word_count = 0U;
     static uint8_t initialized = 0U;
-    uint64_t now_tick;
-    uint64_t elapsed_ticks;
-    uint32_t words_now;
-    uint32_t words_per_sec;
-    uint32_t frames_per_sec;
-    uint32_t bytes_per_sec;
-    uint32_t vendor_words_now;
-    uint32_t vendor_dropped_words_now;
-    uint32_t vendor_words_per_sec;
-    uint32_t vendor_dropped_words_per_sec;
-
-    now_tick = SysTick->CNT;
-    words_now = i2s_hw_rx_word_count();
-    vendor_words_now = usb_hw_vendor_total_words();
-    vendor_dropped_words_now = usb_hw_vendor_dropped_words();
+    uint64_t now_tick = SysTick->CNT;
+    uint32_t words_now = i2s_hw_rx_word_count();
+    uint32_t vendor_words_now = usb_hw_vendor_total_words();
+    uint32_t vendor_dropped_words_now = usb_hw_vendor_dropped_words();
 
     if(initialized == 0U)
     {
@@ -198,14 +184,14 @@ static void TLV320_I2S_Poll(void)
     }
     else
     {
-        elapsed_ticks = now_tick - last_report_tick;
+        uint64_t elapsed_ticks = now_tick - last_report_tick;
         if(elapsed_ticks >= (uint64_t)SystemCoreClock)
         {
-            words_per_sec = (uint32_t)((((uint64_t)(words_now - last_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
-            frames_per_sec = words_per_sec / 4U;
-            bytes_per_sec = words_per_sec * (uint32_t)sizeof(uint16_t);
-            vendor_words_per_sec = (uint32_t)((((uint64_t)(vendor_words_now - last_vendor_total_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
-            vendor_dropped_words_per_sec = (uint32_t)((((uint64_t)(vendor_dropped_words_now - last_vendor_dropped_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
+            uint32_t words_per_sec = (uint32_t)((((uint64_t)(words_now - last_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
+            uint32_t frames_per_sec = words_per_sec / 4U;
+            uint32_t bytes_per_sec = words_per_sec * (uint32_t)sizeof(uint16_t);
+            uint32_t vendor_words_per_sec = (uint32_t)((((uint64_t)(vendor_words_now - last_vendor_total_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
+            uint32_t vendor_dropped_words_per_sec = (uint32_t)((((uint64_t)(vendor_dropped_words_now - last_vendor_dropped_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
 
             printf("ADC I2S rate: %lu words/s, %lu frames/s, %lu B/s | vendor %lu words/s drop %lu words/s | LO %lu Hz\r\n",
                    (unsigned long)words_per_sec,
@@ -223,10 +209,11 @@ static void TLV320_I2S_Poll(void)
             if(i2s_needs_reset())
             {
                 printf("bitslipped, resetting\n");
-                /*i2s_hw_deinit();
+                i2s_hw_deinit();
+                Delay_Ms(1);
                 i2s_hw_init();
                 i2s_hw_enable(ENABLE);
-                initialized = 0U;*/
+                initialized = 0U;
             }
         }
     }
@@ -253,13 +240,9 @@ static void FmAudioOut_PollEncoderPress(void)
     static uint8_t raw_state = 0U;
     static uint8_t stable_state = 0U;
     static uint64_t last_change_tick = 0U;
-    uint8_t new_raw;
-    uint64_t now_tick;
-    uint64_t debounce_ticks;
-
-    now_tick = SysTick->CNT;
-    debounce_ticks = ticks_from_ms(30U);
-    new_raw = (uint8_t)GPIO_ReadInputDataBit(ENC_BTN_GPIO_PORT, ENC_BTN_GPIO_PIN);
+    uint64_t now_tick = SysTick->CNT;
+    uint64_t debounce_ticks = ticks_from_ms(30U);
+    uint8_t new_raw = (uint8_t)GPIO_ReadInputDataBit(ENC_BTN_GPIO_PORT, ENC_BTN_GPIO_PIN);
 
     if(initialized == 0U)
     {
