@@ -8,7 +8,10 @@ const IQ_FIXED_POINT_SCALE = 1 / 0x80000000
 const BYTES_PER_MB = 1000 * 1000
 
 function decodeSlotSample(view, offset) {
-  return view.getInt32(offset, true) * IQ_FIXED_POINT_SCALE
+  const hiWord = view.getUint16(offset, true)
+  const loWord = view.getUint16(offset + 2, true)
+  const sample = ((hiWord << 16) | loWord) >> 0
+  return sample * IQ_FIXED_POINT_SCALE
 }
 
 function decodeIqFrames(dataView) {

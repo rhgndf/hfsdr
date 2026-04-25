@@ -175,10 +175,10 @@ bool fm_audio_out_process_i2s_words_isr(volatile uint16_t const *src_words, size
     frame_count = word_count / 4U;
     for(i = 0U; i < frame_count; ++i)
     {
-        uint16_t i_hi = src_words[i * 4U + 1U];
-        uint16_t i_lo = src_words[i * 4U + 0U];
-        uint16_t q_hi = src_words[i * 4U + 3U];
-        uint16_t q_lo = src_words[i * 4U + 2U];
+        uint16_t i_hi = src_words[i * 4U + 0U];
+        uint16_t i_lo = src_words[i * 4U + 1U];
+        uint16_t q_hi = src_words[i * 4U + 2U];
+        uint16_t q_lo = src_words[i * 4U + 3U];
         int32_t i_now = (int32_t)(((uint32_t)i_hi << 16) | (uint32_t)i_lo);
         int32_t q_now = (int32_t)(((uint32_t)q_hi << 16) | (uint32_t)q_lo);
 

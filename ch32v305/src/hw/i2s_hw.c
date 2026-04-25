@@ -99,7 +99,7 @@ static void i2s_process_buf(volatile uint16_t const *src_words)
     uint32_t coincidences = 0;
     for(size_t i = 0; i < I2S_RX_DMA_CHUNK_WORDS - 4; i += 2U)
     {
-        uint32_t sample_32 = ((uint32_t)src_words[i + 1U] << 16) | src_words[i];
+        uint32_t sample_32 = ((uint32_t)src_words[i] << 16) | src_words[i + 1U];
         bool first_two_bits_same = (sample_32 >> 31) == ((sample_32 >> 30) & 1);
         bool last_bit_different = (sample_32 >> 31) != (sample_32 & 1);
         coincidences += first_two_bits_same && last_bit_different;
@@ -325,7 +325,7 @@ bool i2s_needs_reset(void)
     if ((s_i2s_reset_coincidences < s_i2s_coincidences_samples / 2 - thres) ||
         (s_i2s_reset_coincidences > s_i2s_coincidences_samples / 2 + thres)) {
         // Is bitslipped, request reset outside the ISR.
-        uint32_t sample_32 = ((uint32_t)s_rx_dma_buf[1] << 16) | s_rx_dma_buf[0];
+        uint32_t sample_32 = ((uint32_t)s_rx_dma_buf[0] << 16) | s_rx_dma_buf[1];
         printf("coincidences: %ld/%ld, thres: %ld, sample: %08lX\n", s_i2s_reset_coincidences, s_i2s_coincidences_samples, thres, sample_32);
         ret = true;
     }
