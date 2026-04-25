@@ -285,6 +285,12 @@ void dac_hw_init(void)
     gpio.GPIO_Mode = GPIO_Mode_AIN;
     GPIO_Init(DAC1_OUT_GPIO_PORT, &gpio);
 
+    GPIO_SetBits(DAC_AMP_SD_GPIO_PORT, DAC_AMP_SD_GPIO_PIN);
+    gpio.GPIO_Pin = DAC_AMP_SD_GPIO_PIN;
+    gpio.GPIO_Mode = GPIO_Mode_Out_PP;
+    gpio.GPIO_Speed = GPIO_Speed_2MHz;
+    GPIO_Init(DAC_AMP_SD_GPIO_PORT, &gpio);
+
     s_tx_frame_count = 0U;
     dac_stream_dma_irq_init();
     dac_hw_configure_direct_mode();

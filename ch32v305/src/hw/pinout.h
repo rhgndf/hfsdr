@@ -20,6 +20,8 @@
 #define DAC1_OUT_GPIO_PIN  GPIO_Pin_4
 #define DAC2_OUT_GPIO_PORT GPIOA
 #define DAC2_OUT_GPIO_PIN  GPIO_Pin_5
+#define DAC_AMP_SD_GPIO_PORT GPIOA
+#define DAC_AMP_SD_GPIO_PIN  GPIO_Pin_11
 
 /* Encoder */
 #define ENC_A_GPIO_PORT    GPIOB
