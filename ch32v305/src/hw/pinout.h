@@ -22,10 +22,10 @@
 #define DAC2_OUT_GPIO_PIN  GPIO_Pin_5
 
 /* Encoder */
-#define ENC_B_GPIO_PORT    GPIOC
-#define ENC_B_GPIO_PIN     GPIO_Pin_13
-#define ENC_A_GPIO_PORT    GPIOC
-#define ENC_A_GPIO_PIN     GPIO_Pin_14
+#define ENC_A_GPIO_PORT    GPIOB
+#define ENC_A_GPIO_PIN     GPIO_Pin_8
+#define ENC_B_GPIO_PORT    GPIOB
+#define ENC_B_GPIO_PIN     GPIO_Pin_9
 #define ENC_BTN_GPIO_PORT  GPIOC
 #define ENC_BTN_GPIO_PIN   GPIO_Pin_15
 
