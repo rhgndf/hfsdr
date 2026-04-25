@@ -100,9 +100,7 @@ static uint16_t dac_stream_next_sample(void)
 
 static void dac_stream_fill(uint32_t *dst, size_t n)
 {
-    size_t i;
-
-    for(i = 0U; i < n; ++i)
+    for(size_t i = 0U; i < n; ++i)
     {
         dst[i] = dac_pack_dual_12(dac_stream_next_sample());
     }
@@ -111,12 +109,10 @@ static void dac_stream_fill(uint32_t *dst, size_t n)
 static uint32_t tim6_counter_clock_hz(void)
 {
     RCC_ClocksTypeDef clk = {0};
-    uint32_t pclk1;
-    uint32_t ppre1;
 
     RCC_GetClocksFreq(&clk);
-    pclk1 = clk.PCLK1_Frequency;
-    ppre1 = (RCC->CFGR0 & RCC_PPRE1) >> 8;
+    uint32_t pclk1 = clk.PCLK1_Frequency;
+    uint32_t ppre1 = (RCC->CFGR0 & RCC_PPRE1) >> 8;
     if(ppre1 != 0U)
     {
         return pclk1 * 2U;
@@ -165,21 +161,15 @@ static void dac_hw_configure_stream_mode(void)
 
 static void dac_stream_timer_configure(uint32_t sample_rate_hz)
 {
-    TIM_TimeBaseInitTypeDef tim = {0};
-    uint32_t timclk;
-    uint32_t ticks;
-    uint32_t psc;
-    uint32_t arr;
-
-    timclk = tim7_counter_clock_hz();
-    ticks = timclk / sample_rate_hz;
+    uint32_t timclk = tim7_counter_clock_hz();
+    uint32_t ticks = timclk / sample_rate_hz;
     if(ticks == 0U)
     {
         ticks = 1U;
     }
 
-    psc = 0U;
-    arr = ticks - 1U;
+    uint32_t psc = 0U;
+    uint32_t arr = ticks - 1U;
     while(arr > 0xFFFFU && psc < 0xFFFFU)
     {
         ++psc;
@@ -192,6 +182,7 @@ static void dac_stream_timer_configure(uint32_t sample_rate_hz)
 
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM7, ENABLE);
     TIM_DeInit(TIM7);
+    TIM_TimeBaseInitTypeDef tim = {0};
     TIM_TimeBaseStructInit(&tim);
     tim.TIM_Period = (uint16_t)arr;
     tim.TIM_Prescaler = (uint16_t)psc;
@@ -258,11 +249,10 @@ static void dac_stream_dma_stop(void)
 
 void dac_hw_init(void)
 {
-    GPIO_InitTypeDef gpio = {0};
-
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_DAC, ENABLE);
 
+    GPIO_InitTypeDef gpio = {0};
     gpio.GPIO_Pin = DAC1_OUT_GPIO_PIN | DAC2_OUT_GPIO_PIN;
     gpio.GPIO_Mode = GPIO_Mode_AIN;
     GPIO_Init(DAC1_OUT_GPIO_PORT, &gpio);
@@ -359,13 +349,6 @@ void dac_hw_square_wave_stop(void)
 
 void dac_hw_square_wave_start(uint32_t freq_hz, uint16_t low_12, uint16_t high_12)
 {
-    TIM_TimeBaseInitTypeDef tim = {0};
-    NVIC_InitTypeDef nvic = {0};
-    uint32_t timclk;
-    uint32_t ticks_half;
-    uint32_t psc;
-    uint32_t arr;
-
     dac_hw_stream_stop();
     dac_hw_square_wave_stop();
 
@@ -387,15 +370,15 @@ void dac_hw_square_wave_start(uint32_t freq_hz, uint16_t low_12, uint16_t high_1
         return;
     }
 
-    timclk = tim6_counter_clock_hz();
-    ticks_half = timclk / (2U * freq_hz);
+    uint32_t timclk = tim6_counter_clock_hz();
+    uint32_t ticks_half = timclk / (2U * freq_hz);
     if(ticks_half == 0U)
     {
         ticks_half = 1U;
     }
 
-    psc = 0U;
-    arr = ticks_half - 1U;
+    uint32_t psc = 0U;
+    uint32_t arr = ticks_half - 1U;
     while(arr > 0xFFFFU && psc < 0xFFFFU)
     {
         ++psc;
@@ -408,6 +391,7 @@ void dac_hw_square_wave_start(uint32_t freq_hz, uint16_t low_12, uint16_t high_1
 
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM6, ENABLE);
     TIM_DeInit(TIM6);
+    TIM_TimeBaseInitTypeDef tim = {0};
     TIM_TimeBaseStructInit(&tim);
     tim.TIM_Period = (uint16_t)arr;
     tim.TIM_Prescaler = (uint16_t)psc;
@@ -417,6 +401,7 @@ void dac_hw_square_wave_start(uint32_t freq_hz, uint16_t low_12, uint16_t high_1
     TIM_ClearFlag(TIM6, TIM_FLAG_Update);
     TIM_ITConfig(TIM6, TIM_IT_Update, ENABLE);
 
+    NVIC_InitTypeDef nvic = {0};
     nvic.NVIC_IRQChannel = TIM6_IRQn;
     nvic.NVIC_IRQChannelPreemptionPriority = 2;
     nvic.NVIC_IRQChannelSubPriority = 0;

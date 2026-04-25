@@ -112,10 +112,8 @@ static ErrorStatus si5351_validate_phase_offset(uint32_t phase_offset)
 
 static struct si5351_ms si5351_calc_pll_ms(const struct si5351_pll_config *pll_conf)
 {
+    uint32_t t = (128U * pll_conf->num) / pll_conf->denom;
     struct si5351_ms ms;
-    uint32_t t;
-
-    t = (128U * pll_conf->num) / pll_conf->denom;
     ms.p1 = 128U * pll_conf->mult + t - 512U;
     ms.p2 = 128U * pll_conf->num - pll_conf->denom * t;
     ms.p3 = pll_conf->denom;
@@ -253,11 +251,11 @@ static ErrorStatus si5351_calculate_clk0_config(uint64_t freq_scaled, struct si5
 
 static ErrorStatus si5351_wait_sys_init(void)
 {
-    uint8_t st;
     uint32_t timeout = 100000U;
 
     do
     {
+        uint8_t st;
         if(i2c_hw_read_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_DEVICE_STATUS, &st) != READY)
         {
             return NoREADY;
@@ -276,7 +274,6 @@ static ErrorStatus si5351_wait_sys_init(void)
 static ErrorStatus si5351_hw_apply_clk(uint8_t ctrl_reg, const struct si5351_output_config *out_conf)
 {
     uint8_t reg;
-
     if(i2c_hw_read_register(SI5351_I2C_ADDR_7BIT, ctrl_reg, &reg) != READY)
     {
         return NoREADY;
@@ -305,7 +302,6 @@ static ErrorStatus si5351_hw_apply_clk(uint8_t ctrl_reg, const struct si5351_out
 static ErrorStatus si5351_enable_clk_output(uint8_t clk_index)
 {
     uint8_t oe;
-
     if(i2c_hw_read_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_OUTPUT_ENABLE, &oe) != READY)
     {
         return NoREADY;
@@ -319,11 +315,9 @@ static ErrorStatus si5351_hw_clk0_quadrature_set_freq_hz(uint64_t hz)
     uint8_t pll_buf[8];
     uint8_t ms0_buf[8];
     uint8_t ms1_buf[8];
-    uint64_t freq_scaled;
     struct si5351_pll_config pll_conf;
     struct si5351_output_config clk0_conf;
     struct si5351_output_config clk1_conf;
-    uint32_t phase_offset;
 
     if(hz == 0ULL)
     {
@@ -364,13 +358,13 @@ static ErrorStatus si5351_hw_clk0_quadrature_set_freq_hz(uint64_t hz)
         return NoREADY;
     }
 
-    freq_scaled = hz * SI5351_FREQ_MULT;
+    uint64_t freq_scaled = hz * SI5351_FREQ_MULT;
     if(si5351_calculate_clk0_config(freq_scaled, &pll_conf, &clk0_conf) != READY)
     {
         return NoREADY;
     }
 
-    phase_offset = (uint32_t)clk0_conf.div * (uint32_t)clk0_conf.r_div_factor;
+    uint32_t phase_offset = (uint32_t)clk0_conf.div * (uint32_t)clk0_conf.r_div_factor;
 
     clk1_conf = clk0_conf;
     clk0_conf.allow_integer_mode = 0U;

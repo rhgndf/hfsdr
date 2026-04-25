@@ -7,10 +7,9 @@
 
 void spi_manual_init(void)
 {
-    GPIO_InitTypeDef g = {0};
-
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC | RCC_APB2Periph_GPIOD, ENABLE);
 
+    GPIO_InitTypeDef g = {0};
     g.GPIO_Mode = GPIO_Mode_Out_PP;
     g.GPIO_Speed = GPIO_Speed_50MHz;
 

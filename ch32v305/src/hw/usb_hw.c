@@ -52,9 +52,8 @@ static bool usb_hw_vendor_control_target_valid(tusb_control_request_t const* req
 static uint64_t usb_u64_from_le(uint8_t const *buf)
 {
     uint64_t value = 0U;
-    uint32_t i;
 
-    for(i = 0U; i < USB_HW_CLK_FREQ_PAYLOAD_SIZE; ++i)
+    for(uint32_t i = 0U; i < USB_HW_CLK_FREQ_PAYLOAD_SIZE; ++i)
     {
         value |= ((uint64_t)buf[i]) << (8U * i);
     }
@@ -64,9 +63,7 @@ static uint64_t usb_u64_from_le(uint8_t const *buf)
 
 static void usb_u64_to_le(uint64_t value, uint8_t *buf)
 {
-    uint32_t i;
-
-    for(i = 0U; i < USB_HW_CLK_FREQ_PAYLOAD_SIZE; ++i)
+    for(uint32_t i = 0U; i < USB_HW_CLK_FREQ_PAYLOAD_SIZE; ++i)
     {
         buf[i] = (uint8_t)(value >> (8U * i));
     }

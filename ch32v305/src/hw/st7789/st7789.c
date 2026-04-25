@@ -12,10 +12,9 @@ static void ST7789_SPI_TxU8(uint8_t v)
 
 static void ST7789_HW_Init(void)
 {
-	GPIO_InitTypeDef g = {0};
-
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC | RCC_APB2Periph_GPIOD, ENABLE);
 
+	GPIO_InitTypeDef g = {0};
 	g.GPIO_Mode = GPIO_Mode_Out_PP;
 	g.GPIO_Speed = GPIO_Speed_50MHz;
 
@@ -115,8 +114,10 @@ void ST7789_SetRotation(uint8_t m)
 static void ST7789_SetAddressWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 {
 	ST7789_Select();
-	uint16_t x_start = x0 + X_SHIFT, x_end = x1 + X_SHIFT;
-	uint16_t y_start = y0 + Y_SHIFT, y_end = y1 + Y_SHIFT;
+	uint16_t x_start = x0 + X_SHIFT;
+	uint16_t x_end = x1 + X_SHIFT;
+	uint16_t y_start = y0 + Y_SHIFT;
+	uint16_t y_end = y1 + Y_SHIFT;
 	
 	/* Column Address set */
 	ST7789_WriteCommand(ST7789_CASET); 
@@ -208,13 +209,11 @@ void ST7789_Init(void)
  */
 void ST7789_Fill_Color(uint16_t color)
 {
-	uint16_t i;
-	uint16_t j;
 	ST7789_SetAddressWindow(0, 0, ST7789_WIDTH - 1, ST7789_HEIGHT - 1);
 	ST7789_Select();
 
-	for (i = 0; i < ST7789_WIDTH; i++)
-		for (j = 0; j < ST7789_HEIGHT; j++) {
+	for (uint16_t i = 0; i < ST7789_WIDTH; i++)
+		for (uint16_t j = 0; j < ST7789_HEIGHT; j++) {
 			uint8_t data[] = {color >> 8, color & 0xFF};
 			ST7789_WriteData(data, sizeof(data));
 		}
@@ -251,10 +250,9 @@ void ST7789_Fill(uint16_t xSta, uint16_t ySta, uint16_t xEnd, uint16_t yEnd, uin
 	if ((xEnd < 0) || (xEnd >= ST7789_WIDTH) ||
 		 (yEnd < 0) || (yEnd >= ST7789_HEIGHT))	return;
 	ST7789_Select();
-	uint16_t i, j;
 	ST7789_SetAddressWindow(xSta, ySta, xEnd, yEnd);
-	for (i = ySta; i <= yEnd; i++)
-		for (j = xSta; j <= xEnd; j++) {
+	for (uint16_t i = ySta; i <= yEnd; i++)
+		for (uint16_t j = xSta; j <= xEnd; j++) {
 			uint8_t data[] = {color >> 8, color & 0xFF};
 			ST7789_WriteData(data, sizeof(data));
 		}

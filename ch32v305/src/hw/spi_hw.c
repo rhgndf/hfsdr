@@ -7,19 +7,18 @@
 
 void spi_hw_init(void)
 {
-    GPIO_InitTypeDef gpio_init = {0};
-    SPI_InitTypeDef spi_init = {0};
-
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_AFIO, ENABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI3, ENABLE);
 
     //GPIO_PinRemapConfig(GPIO_Remap_SPI3, ENABLE);
 
+    GPIO_InitTypeDef gpio_init = {0};
     gpio_init.GPIO_Pin = SPI3_SCL_SCK_GPIO_PIN | SPI3_SDA_MOSI_GPIO_PIN;
     gpio_init.GPIO_Mode = GPIO_Mode_AF_PP;
     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(GPIOB, &gpio_init);
 
+    SPI_InitTypeDef spi_init = {0};
     SPI_StructInit(&spi_init);
     spi_init.SPI_Direction = SPI_Direction_2Lines_FullDuplex;
     spi_init.SPI_Mode = SPI_Mode_Master;

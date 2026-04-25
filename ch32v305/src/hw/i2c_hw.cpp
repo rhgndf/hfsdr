@@ -130,12 +130,10 @@ extern "C" ErrorStatus i2c_hw_scan_bus_at(uint8_t addr_7bit)
 
 extern "C" void i2c_hw_init(void)
 {
-    GPIO_InitTypeDef gpio_init = {0};
-    I2C_InitTypeDef i2c_init = {0};
-
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC, ENABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_I2C2, ENABLE);
 
+    GPIO_InitTypeDef gpio_init = {0};
     gpio_init.GPIO_Pin = I2C_SCL_GPIO_PIN | I2C_SDA_GPIO_PIN;
     gpio_init.GPIO_Mode = GPIO_Mode_AF_OD;
     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
@@ -147,6 +145,7 @@ extern "C" void i2c_hw_init(void)
     GPIO_Init(ST7789_RS_GPIO_PORT, &gpio_init);
     GPIO_SetBits(ST7789_RS_GPIO_PORT, ST7789_RS_GPIO_PIN);
 
+    I2C_InitTypeDef i2c_init = {0};
     I2C_StructInit(&i2c_init);
     i2c_init.I2C_ClockSpeed = I2C_CLOCK_SPEED_HZ;
     i2c_init.I2C_Mode = I2C_Mode_I2C;

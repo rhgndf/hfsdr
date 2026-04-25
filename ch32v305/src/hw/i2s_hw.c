@@ -158,8 +158,6 @@ static void i2s_dma_rx_stop(void)
 
 static ErrorStatus i2s_hw_clock_init_24mhz(void)
 {
-    GPIO_InitTypeDef gpio = {0};
-
     if(RCC_GetFlagStatus(RCC_FLAG_HSERDY) == RESET)
     {
         return NoREADY;
@@ -167,6 +165,7 @@ static ErrorStatus i2s_hw_clock_init_24mhz(void)
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_AFIO, ENABLE);
 
+    GPIO_InitTypeDef gpio = {0};
     gpio.GPIO_Pin = GPIO_Pin_8;
     gpio.GPIO_Mode = GPIO_Mode_AF_PP;
     gpio.GPIO_Speed = GPIO_Speed_50MHz;
@@ -181,15 +180,11 @@ static ErrorStatus i2s_hw_clock_init_24mhz(void)
    so we have to use TIM8 as a clock out instead */
 static ErrorStatus i2s_hw_alt_clock_init_24mhz(void)
 {
-    GPIO_InitTypeDef gpio = {0};
-    TIM_TimeBaseInitTypeDef tim = {0};
-    TIM_OCInitTypeDef oc = {0};
     RCC_ClocksTypeDef clocks = {0};
-    uint32_t tim_clk_hz;
-    uint32_t period_ticks;
 
     RCC_GetClocksFreq(&clocks);
 
+    uint32_t tim_clk_hz;
     if((RCC->CFGR0 & RCC_PPRE2) == RCC_PPRE2_DIV1)
     {
         tim_clk_hz = clocks.PCLK2_Frequency;
@@ -204,7 +199,7 @@ static ErrorStatus i2s_hw_alt_clock_init_24mhz(void)
         return NoREADY;
     }
 
-    period_ticks = tim_clk_hz / 24000000U;
+    uint32_t period_ticks = tim_clk_hz / 24000000U;
     if(period_ticks < 2U)
     {
         return NoREADY;
@@ -212,12 +207,14 @@ static ErrorStatus i2s_hw_alt_clock_init_24mhz(void)
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC | RCC_APB2Periph_AFIO | RCC_APB2Periph_TIM8, ENABLE);
 
+    GPIO_InitTypeDef gpio = {0};
     gpio.GPIO_Pin = GPIO_Pin_6;
     gpio.GPIO_Mode = GPIO_Mode_AF_PP;
     gpio.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(GPIOC, &gpio);
 
     TIM_DeInit(TIM8);
+    TIM_TimeBaseInitTypeDef tim = {0};
     tim.TIM_Prescaler = 0U;
     tim.TIM_CounterMode = TIM_CounterMode_Up;
     tim.TIM_Period = period_ticks - 1U;
@@ -225,6 +222,7 @@ static ErrorStatus i2s_hw_alt_clock_init_24mhz(void)
     tim.TIM_RepetitionCounter = 0U;
     TIM_TimeBaseInit(TIM8, &tim);
 
+    TIM_OCInitTypeDef oc = {0};
     oc.TIM_OCMode = TIM_OCMode_PWM1;
     oc.TIM_OutputState = TIM_OutputState_Enable;
     oc.TIM_Pulse = period_ticks / 2U;
@@ -240,13 +238,12 @@ static ErrorStatus i2s_hw_alt_clock_init_24mhz(void)
 
 static void i2s_hw_alt_clock_deinit(void)
 {
-    GPIO_InitTypeDef gpio = {0};
-
     TIM_Cmd(TIM8, DISABLE);
     TIM_CtrlPWMOutputs(TIM8, DISABLE);
     TIM_OC1PreloadConfig(TIM8, TIM_OCPreload_Disable);
     TIM_DeInit(TIM8);
 
+    GPIO_InitTypeDef gpio = {0};
     gpio.GPIO_Pin = GPIO_Pin_6;
     gpio.GPIO_Mode = GPIO_Mode_IN_FLOATING;
     gpio.GPIO_Speed = GPIO_Speed_50MHz;
@@ -257,15 +254,13 @@ static void i2s_hw_alt_clock_deinit(void)
 
 void i2s_hw_init(void)
 {
-    GPIO_InitTypeDef gpio_init = {0};
-    I2S_InitTypeDef i2s_init = {0};
-    
     s_rx_word_count = 0U;
     s_i2s_reset_coincidences = 0U;
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC, ENABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI2, ENABLE);
 
+    GPIO_InitTypeDef gpio_init = {0};
     gpio_init.GPIO_Pin = I2S_WS_GPIO_PIN | I2S_CK_GPIO_PIN;
     gpio_init.GPIO_Mode = GPIO_Mode_IN_FLOATING;
     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
@@ -277,6 +272,7 @@ void i2s_hw_init(void)
     GPIO_Init(GPIOB, &gpio_init);
 
     SPI_I2S_DeInit(SPI2);
+    I2S_InitTypeDef i2s_init = {0};
     i2s_init.I2S_Mode = I2S_Mode_SlaveRx;
     i2s_init.I2S_Standard = I2S_Standard_Phillips;
     i2s_init.I2S_DataFormat = I2S_DataFormat_32b;
@@ -294,14 +290,13 @@ void i2s_hw_init(void)
 
 void i2s_hw_deinit(void)
 {
-    GPIO_InitTypeDef gpio_init = {0};
-
     s_i2s_reset_coincidences = 0U;
     i2s_dma_rx_stop();
     i2s_hw_dma_irq_deinit();
     i2s_hw_alt_clock_deinit();
     SPI_I2S_DeInit(SPI2);
 
+    GPIO_InitTypeDef gpio_init = {0};
     gpio_init.GPIO_Pin = I2S_WS_GPIO_PIN | I2S_CK_GPIO_PIN | I2S_SD_GPIO_PIN;
     gpio_init.GPIO_Mode = GPIO_Mode_IN_FLOATING;
     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
