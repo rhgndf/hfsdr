@@ -2,11 +2,14 @@
 
 #include "hw/dac.h"
 
+#define FM_AUDIO_OUT_GAIN_DEFAULT 16U;
+
 /* State mirrors the fixed-point path: discriminator -> 4-sample CIC -> deemph -> DAC DMA. */
 static int32_t s_i_prev = 0;
 static int32_t s_q_prev = 0;
 static int32_t s_deemph_state = 0;
 static int32_t s_dac_sd_error_q19 = 0;
+static volatile uint16_t s_audio_gain_q8_8 = FM_AUDIO_OUT_GAIN_DEFAULT;
 static int32_t s_cic_hist_q31[4] = {0};
 static int64_t s_cic_sum_q31 = 0;
 static uint8_t s_cic_idx = 0U;
@@ -107,7 +110,9 @@ static int32_t atan2_q29(int64_t y, int64_t x)
 
 static uint16_t fm_q31_to_dac12(int32_t y_q31)
 {
-    int64_t shaped_q19 = ((int64_t)2048 << 19) + ((int64_t)y_q31 >> 1) + (int64_t)s_dac_sd_error_q19;
+    uint16_t gain_q8_8 = s_audio_gain_q8_8;
+    int64_t audio_q19 = ((int64_t)y_q31 * (int64_t)gain_q8_8) >> 9;
+    int64_t shaped_q19 = ((int64_t)2048 << 19) + audio_q19 + (int64_t)s_dac_sd_error_q19;
     int64_t clamped_q19 = clamp_i64(shaped_q19, 0, (int64_t)4095 << 19);
     int32_t dac;
 
@@ -124,12 +129,18 @@ static uint16_t fm_q31_to_dac12(int32_t y_q31)
     return (uint16_t)dac;
 }
 
+void fm_audio_out_set_gain_q8_8(uint16_t gain_q8_8)
+{
+    s_audio_gain_q8_8 = gain_q8_8;
+}
+
 void fm_audio_out_init(void)
 {
     s_i_prev = 0;
     s_q_prev = 0;
     s_deemph_state = 0;
     s_dac_sd_error_q19 = 0;
+    s_audio_gain_q8_8 = FM_AUDIO_OUT_GAIN_DEFAULT;
     s_cic_hist_q31[0] = 0;
     s_cic_hist_q31[1] = 0;
     s_cic_hist_q31[2] = 0;
