@@ -1,16 +1,18 @@
 #include "ui/fft.h"
 
+#include <array>
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <dsp/interpolation_functions.h>
 #include <dsp/transform_functions.h>
-#include <dsp/window_functions.h>
 
+extern "C" {
 #include "debug.h"
 #include "hw/i2s.h"
 #include "hw/display/st7789.h"
+}
 
 #define FFT_SAMPLE_COUNT        I2S_HW_COMPLEX_SAMPLE_COUNT
 #define FFT_COMPLEX_FLOAT_COUNT (FFT_SAMPLE_COUNT * 2U)
@@ -27,11 +29,39 @@
 #define FFT_WATERFALL_TOP       80U
 #define FFT_WATERFALL_BOTTOM    320U
 
+namespace {
+
+constexpr float64_t kPi = 3.14159265358979323846264338327950288;
+
+consteval float32_t blackman_harris_92db_sample(uint32_t index, uint32_t size)
+{
+    float64_t w = kPi * static_cast<float64_t>(index) * (2.0 / static_cast<float64_t>(size));
+    return static_cast<float32_t>(0.35875 -
+                                  (0.48829 * std::cos(w)) +
+                                  (0.14128 * std::cos(2.0 * w)) -
+                                  (0.01168 * std::cos(3.0 * w)));
+}
+
+template<size_t Size>
+consteval std::array<float32_t, Size> make_blackman_harris_92db_window()
+{
+    std::array<float32_t, Size> window{};
+    for(size_t i = 0U; i < Size; ++i)
+    {
+        window[i] = blackman_harris_92db_sample(static_cast<uint32_t>(i), static_cast<uint32_t>(Size));
+    }
+    return window;
+}
+
+}
+
 static uint32_t s_last_rx_word_count = 0U;
 static uint16_t s_waterfall_line = FFT_WATERFALL_TOP;
 static riscv_cfft_instance_f32 s_fft_instance;
 static riscv_bilinear_interp_instance_f32 s_fft_interp_instance;
-static float32_t fft_window[FFT_SAMPLE_COUNT];
+static constexpr auto fft_window = make_blackman_harris_92db_window<FFT_SAMPLE_COUNT>();
+static uint16_t fft_line[FFT_DISPLAY_SAMPLE_COUNT];
+static_assert(FFT_SAMPLE_COUNT == 256, "FFT sample count is not 256");
 
 static uint64_t ui_fft_ticks_from_ms(uint32_t ms)
 {
@@ -120,12 +150,11 @@ void UI_FFT_Init(void)
     s_last_rx_word_count = 0U;
     s_waterfall_line = FFT_WATERFALL_TOP;
 
-    if(riscv_cfft_init_f32(&s_fft_instance, FFT_SAMPLE_COUNT) != RISCV_MATH_SUCCESS)
+    if(riscv_cfft_init_256_f32(&s_fft_instance) != RISCV_MATH_SUCCESS)
     {
         return;
     }
 
-    riscv_blackman_harris_92db_f32(fft_window, FFT_SAMPLE_COUNT);
     s_fft_interp_instance.numRows = FFT_INTERP_ROW_COUNT;
     s_fft_interp_instance.numCols = FFT_INTERP_COL_COUNT;
     s_fft_interp_instance.pData = i2s_fft_sample_arr;
@@ -159,7 +188,6 @@ void UI_FFT_Draw(void)
 
     fft_build_interp_db_table();
 
-    uint16_t fft_line[FFT_DISPLAY_SAMPLE_COUNT];
     for(uint32_t x_bin = 0U; x_bin < FFT_DISPLAY_SAMPLE_COUNT; ++x_bin)
     {
         float32_t source_x = ((float32_t)x_bin * FFT_INTERP_X_MAX) /

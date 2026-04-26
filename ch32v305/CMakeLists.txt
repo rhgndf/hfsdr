@@ -86,6 +86,8 @@ target_compile_options(${EXECUTABLE} PRIVATE
 
   -fdata-sections
   -ffunction-sections
+  -fstack-usage
+  -Wstack-usage=512
 
   -Wunused -Wuninitialized
 
@@ -111,6 +113,8 @@ target_link_options(${EXECUTABLE} PRIVATE
 
   -fdata-sections
   -ffunction-sections
+  -fstack-usage
+  -Wstack-usage=512
 
   -Wunused -Wuninitialized
   

@@ -25,7 +25,7 @@
 #define DAC_DMA_GL_IT          DMA2_IT_GL3
 #define DAC_STREAM_BUF_SAMPLES 512U
 #define DAC_STREAM_CHUNK_SAMPLES (DAC_STREAM_BUF_SAMPLES / 2U)
-#define DAC_FM_RING_SAMPLES    2048U
+#define DAC_FM_RING_SAMPLES    2048U // Any lower will result in frame drops
 
 static_assert((DAC_STREAM_BUF_SAMPLES % 2U) == 0U,
               "DAC stream buffer must split evenly for DMA HT/TC refills");
