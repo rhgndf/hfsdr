@@ -39,6 +39,7 @@ extern "C" {
 #include "feature/blinky/blinky.h"
 #include "feature/fm_audio_out/fm_audio_out.h"
 #include "ui/fft.h"
+#include "ui/ui.h"
 }
 
 #include "tusb.h"
@@ -83,7 +84,6 @@ static void Scan_I2CBus_EverySecond(void)
 
 static uint8_t s_tlv320_i2s_report_initialized = 0U;
 static uint64_t ticks_from_ms(uint32_t ms);
-static void Encoder_ReportRotation(void);
 
 template<typename Callable>
 class PeriodicTrigger
@@ -200,16 +200,6 @@ static uint64_t ticks_from_ms(uint32_t ms)
     return ticks;
 }
 
-static void Encoder_ReportRotation(void)
-{
-    int16_t delta = encoder_take_delta();
-
-    if(delta != 0)
-    {
-        printf("encoder delta: %d\r\n", delta);
-    }
-}
-
 /*********************************************************************
  * @fn      main
  *
@@ -265,6 +255,7 @@ int main(void)
 
     blinky_init();
     UI_FFT_Init();
+    UI_Init();
 
     //watchdog_init();
 
@@ -272,6 +263,7 @@ int main(void)
     PeriodicTrigger I2SPoll{1000U, TLV320_I2S_Poll};
     PeriodicTrigger I2CBusScan{1000U, Scan_I2CBus_EverySecond};
     PeriodicTrigger SysTickReportUSB{1000U, SysTick_Report_USB_EverySecond};
+    PeriodicTrigger FFTDraw{1000U / 60U, UI_FFT_Draw};
 
     while(1)
     {
@@ -279,9 +271,9 @@ int main(void)
         I2SPoll();
         //I2CBusScan();
         //SysTickReportUSB();
-        Encoder_ReportRotation();
+        UI_Draw();
         tud_task();
-        UI_FFT_Draw();
+        FFTDraw();
         blinky_task();
         //watchdog_kick();
     }
