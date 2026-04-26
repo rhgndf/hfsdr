@@ -14,7 +14,7 @@
 
 #define FFT_SAMPLE_COUNT        I2S_HW_COMPLEX_SAMPLE_COUNT
 #define FFT_COMPLEX_FLOAT_COUNT (FFT_SAMPLE_COUNT * 2U)
-#define FFT_DISPLAY_SAMPLE_COUNT 320U
+#define FFT_DISPLAY_SAMPLE_COUNT 240U
 #define FFT_INTERP_COL_COUNT    FFT_SAMPLE_COUNT
 #define FFT_INTERP_ROW_COUNT    2U
 #define FFT_INTERP_X_MAX        ((float32_t)(FFT_SAMPLE_COUNT - 1U) - 1.0e-3f)
@@ -24,9 +24,11 @@
 #define FFT_DB_CEILING          200.0f
 #define FFT_DISPLAY_MIN_DB      -100.0f
 #define FFT_DISPLAY_MAX_DB      -30.0f
+#define FFT_WATERFALL_TOP       80U
+#define FFT_WATERFALL_BOTTOM    320U
 
 static uint32_t s_last_rx_word_count = 0U;
-static uint16_t s_line = 0U;
+static uint16_t s_waterfall_line = FFT_WATERFALL_TOP;
 static riscv_cfft_instance_f32 s_fft_instance;
 static riscv_bilinear_interp_instance_f32 s_fft_interp_instance;
 static float32_t fft_window[FFT_SAMPLE_COUNT];
@@ -116,7 +118,7 @@ static void fft_build_interp_db_table(void)
 void UI_FFT_Init(void)
 {
     s_last_rx_word_count = 0U;
-    s_line = 0U;
+    s_waterfall_line = FFT_WATERFALL_TOP;
 
     if(riscv_cfft_init_f32(&s_fft_instance, FFT_SAMPLE_COUNT) != RISCV_MATH_SUCCESS)
     {
@@ -130,6 +132,7 @@ void UI_FFT_Init(void)
     i2s_fft_sample_arr_reset();
 
     ST7789_Fill_Color(BLACK);
+    s_waterfall_line = ST7789_ScrollRows(FFT_WATERFALL_TOP, FFT_WATERFALL_BOTTOM, 0);
 }
 
 void UI_FFT_Draw(void)
@@ -146,12 +149,13 @@ void UI_FFT_Draw(void)
     }
 
     s_last_rx_word_count = rx_word_count;
-    s_line = (uint16_t)((s_line + 1U) % ST7789_HEIGHT);
 
     fft_apply_window();
     riscv_cfft_f32(&s_fft_instance, i2s_fft_sample_arr, 0U, 1U);
 
-    ST7789_Fill(0U, s_line, ST7789_WIDTH - 1U, s_line, BLACK);
+    s_waterfall_line = ST7789_ScrollRows(FFT_WATERFALL_TOP, FFT_WATERFALL_BOTTOM, 1);
+    ST7789_Fill(0U, s_waterfall_line, ST7789_WIDTH - 1U, s_waterfall_line, BLACK);
+
 
     fft_build_interp_db_table();
 
@@ -163,7 +167,7 @@ void UI_FFT_Draw(void)
         float32_t db = riscv_bilinear_interp_f32(&s_fft_interp_instance, source_x, 0.0f);
         fft_line[x_bin] = fft_db_to_color(db);
     }
-    ST7789_DrawColorLine(0U, s_line, fft_line, FFT_DISPLAY_SAMPLE_COUNT);
+    ST7789_DrawColorLine(0U, s_waterfall_line, fft_line, FFT_DISPLAY_SAMPLE_COUNT);
 
     i2s_fft_sample_arr_reset();
 }

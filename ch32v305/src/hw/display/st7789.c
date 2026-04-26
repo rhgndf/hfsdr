@@ -7,6 +7,19 @@
 
 #define ST7789_DMA_COLOR_LINE_CHUNK_PIXELS 32U
 
+static uint16_t s_scroll_top = 0U;
+static uint16_t s_scroll_bottom = ST7789_HEIGHT;
+static uint16_t s_scroll_offset = 0U;
+
+static uint16_t ST7789_ScrollYToLogicalY(uint16_t y)
+{
+#if ST7789_ROTATION == 0
+	return (uint16_t)(ST7789_HEIGHT - 1U - y);
+#else
+	return y;
+#endif
+}
+
 static void ST7789_SPI_TxU8(uint8_t v)
 {
 	(void)spi_hw_transfer_u8(v);
@@ -280,6 +293,60 @@ void ST7789_DrawColorLine(uint16_t x, uint16_t y, const uint16_t *colors, uint16
 		offset += chunk_pixels;
 	}
 	ST7789_UnSelect();
+}
+
+uint16_t ST7789_ScrollRows(uint16_t top, uint16_t bottom, int16_t rows)
+{
+	if((top >= bottom) || (bottom > ST7789_HEIGHT)) {
+		return top;
+	}
+
+	uint16_t height = bottom - top;
+	if(height == 0U) {
+		return top;
+	}
+
+	uint16_t scroll_top = top;
+	int16_t scroll_rows = rows;
+#if ST7789_ROTATION == 0
+	scroll_top = ST7789_HEIGHT - bottom;
+#endif
+
+	if((top != s_scroll_top) || (bottom != s_scroll_bottom) || (rows == 0)) {
+		uint16_t bottom_fixed = ST7789_HEIGHT - scroll_top - height;
+		uint8_t data[] = {
+			(uint8_t)(scroll_top >> 8), (uint8_t)(scroll_top & 0xFFU),
+			(uint8_t)(height >> 8), (uint8_t)(height & 0xFFU),
+			(uint8_t)(bottom_fixed >> 8), (uint8_t)(bottom_fixed & 0xFFU),
+		};
+
+		s_scroll_top = top;
+		s_scroll_bottom = bottom;
+		s_scroll_offset = 0U;
+
+		ST7789_WriteCommand(ST7789_VSCRDEF);
+		ST7789_WriteData(data, sizeof(data));
+	}
+
+	int32_t offset = (int32_t)s_scroll_offset + (int32_t)scroll_rows;
+	offset %= (int32_t)height;
+	if(offset < 0) {
+		offset += (int32_t)height;
+	}
+	s_scroll_offset = (uint16_t)offset;
+
+	uint16_t scroll_start = scroll_top + s_scroll_offset;
+	uint8_t data[] = {(uint8_t)(scroll_start >> 8), (uint8_t)(scroll_start & 0xFFU)};
+	ST7789_WriteCommand(ST7789_VSCSAD);
+	ST7789_WriteData(data, sizeof(data));
+
+	uint16_t write_scroll_y;
+	if(scroll_rows >= 0) {
+		write_scroll_y = (uint16_t)(scroll_top + ((s_scroll_offset + height - 1U) % height));
+	} else {
+		write_scroll_y = (uint16_t)(scroll_top + s_scroll_offset);
+	}
+	return ST7789_ScrollYToLogicalY(write_scroll_y);
 }
 
 /**

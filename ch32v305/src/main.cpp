@@ -28,7 +28,6 @@ extern "C" {
 #include "hw/pinout.h"
 #include "hw/dac.h"
 #include "hw/encoder.h"
-#include "hw/spi_manual.h"
 #include "hw/display/st7789.h"
 
 #include "hw/i2c.h"

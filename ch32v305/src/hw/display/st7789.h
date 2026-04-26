@@ -20,23 +20,11 @@
 #define ST7789_CS_PIN   ST7789_CS_GPIO_PIN
 #endif
 
-/* If u need Backlight control, uncomment below */
-//#define BLK_PORT
-//#define BLK_PIN
-
-
-/*
- * Comment one to use another.
- * 3 parameters can be choosed
- * 135x240(0.96 inch) & 240x240(1.3inch) & 170x320(1.9inch)
- * X_SHIFT & Y_SHIFT are used to adapt different display's resolution
- */
-
 /* Choose a display rotation you want to use: (0-3) */
-//#define ST7789_ROTATION 0
+#define ST7789_ROTATION 0
 //#define ST7789_ROTATION 1
 //#define ST7789_ROTATION 2
-#define ST7789_ROTATION 3
+//#define ST7789_ROTATION 3
 
 
 #if ST7789_ROTATION == 0
@@ -116,8 +104,10 @@
 #define ST7789_RAMRD   0x2E
 
 #define ST7789_PTLAR   0x30
+#define ST7789_VSCRDEF 0x33
 #define ST7789_COLMOD  0x3A
 #define ST7789_MADCTL  0x36
+#define ST7789_VSCSAD  0x37
 #define ST7789_VRHEN    0xC2
 #define ST7789_VCMOFSET 0xC5
 
@@ -172,6 +162,7 @@ void ST7789_DrawPixel(uint16_t x, uint16_t y, uint16_t color);
 void ST7789_DrawColorLine(uint16_t x, uint16_t y, const uint16_t *colors, uint16_t width);
 void ST7789_Fill(uint16_t xSta, uint16_t ySta, uint16_t xEnd, uint16_t yEnd, uint16_t color);
 void ST7789_DrawPixel_4px(uint16_t x, uint16_t y, uint16_t color);
+uint16_t ST7789_ScrollRows(uint16_t top, uint16_t bottom, int16_t rows);
 
 /* Graphical functions. */
 void ST7789_DrawLine(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color);
