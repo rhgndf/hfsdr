@@ -17,16 +17,16 @@
 
 */
 
+
 #include "debug.h"
 #include <stddef.h>
+
 #include "hw/pinout.h"
 #include "hw/dac_hw.h"
 #include "hw/encoder.h"
 #include "hw/spi_manual.h"
-#include "hw/st7789/st7789.h"
-/* #include "test/spi_gpio_pins.h" */
-/* #include "test/display_spi_test.h" */
-#include "test/dac_hw_sine_test.h"
+#include "hw/display/st7789.h"
+
 #include "hw/i2c_hw.h"
 #include "hw/tlv320adc6120_hw.h"
 #include "hw/si5351_hw.h"
@@ -36,6 +36,7 @@
 #include "feature/blinky/blinky.h"
 #include "feature/fm_audio_out/fm_audio_out.h"
 #include "ui/fft.h"
+
 #include "tusb.h"
 
 /*********************************************************************
@@ -276,55 +277,6 @@ static uint64_t ticks_from_ms(uint32_t ms)
     return ticks;
 }
 
-/*
- * Toggle FM audio mode on each debounced encoder button press.
- * Encoder button is configured as GPIO_Mode_IPD in blinky_gpio_init(), so
- * pressed == logic 1.
- */
-static void FmAudioOut_PollEncoderPress(void)
-{
-    static uint8_t initialized = 0U;
-    static uint8_t raw_state = 0U;
-    static uint8_t stable_state = 0U;
-    static uint64_t last_change_tick = 0U;
-    uint64_t now_tick = SysTick->CNT;
-    uint64_t debounce_ticks = ticks_from_ms(30U);
-    uint8_t new_raw = (uint8_t)GPIO_ReadInputDataBit(ENC_BTN_GPIO_PORT, ENC_BTN_GPIO_PIN);
-
-    if(initialized == 0U)
-    {
-        raw_state = new_raw;
-        stable_state = new_raw;
-        last_change_tick = now_tick;
-        initialized = 1U;
-        return;
-    }
-
-    if(new_raw != raw_state)
-    {
-        raw_state = new_raw;
-        last_change_tick = now_tick;
-    }
-
-    if((now_tick - last_change_tick) < debounce_ticks)
-    {
-        return;
-    }
-
-    if(stable_state == raw_state)
-    {
-        return;
-    }
-
-    stable_state = raw_state;
-    if(stable_state != 0U)
-    {
-        bool new_state = !enable_fm_audio_out;
-        fm_audio_out_set_enabled(new_state);
-        printf("FM audio out: %s by encoder press\r\n", new_state ? "enabled" : "disabled");
-    }
-}
-
 static void Encoder_ReportRotation(void)
 {
     int16_t delta = encoder_take_delta();
@@ -389,15 +341,7 @@ int main(void)
     dac_hw_init();
     encoder_init();
     fm_audio_out_init();
-    fm_audio_out_set_enabled(enable_fm_audio_out);
-    if(enable_fm_audio_out)
-    {
-        printf("FM audio out: enabled (fixed-point FM demod to DAC)\r\n");
-    }
-    else
-    {
-        printf("DAC: A4 sine 440 Hz on PA4+PA5 @ 192 ksps\r\n");
-    }
+    printf("FM audio out: enabled (fixed-point FM demod to DAC)\r\n");
 
     blinky_init();
     UI_FFT_Init();
@@ -410,7 +354,6 @@ int main(void)
         TLV320_I2S_CheckBitslip();
         TLV320_I2S_Poll();
         Encoder_ReportRotation();
-        FmAudioOut_PollEncoderPress();
         tud_task();
         UI_FFT_Draw();
         //Scan_I2CBus_EverySecond();
