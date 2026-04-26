@@ -20,7 +20,11 @@
 
 #include "debug.h"
 #include <stddef.h>
+#include <functional>
+#include <type_traits>
+#include <utility>
 
+extern "C" {
 #include "hw/pinout.h"
 #include "hw/dac_hw.h"
 #include "hw/encoder.h"
@@ -36,69 +40,14 @@
 #include "feature/blinky/blinky.h"
 #include "feature/fm_audio_out/fm_audio_out.h"
 #include "ui/fft.h"
+}
 
 #include "tusb.h"
 
-/*********************************************************************
- * @fn      GPIO_Toggle_INIT
- *
- * @brief   Initializes GPIOA.0
- *
- * @return  none
- */
-void GPIO_Toggle_INIT(void)
-{
-    blinky_gpio_init();
-}
-
-[[maybe_unused]] static void TP_Reset_Pin_On(void)
-{
-    /* TP/LCD reset net is active-low: drive high to release ("on"). */
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
-    GPIO_InitTypeDef gpio_init = {0};
-    gpio_init.GPIO_Pin = TP_RST_GPIO_PIN;
-    gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
-    gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_Init(TP_RST_GPIO_PORT, &gpio_init);
-    GPIO_WriteBit(TP_RST_GPIO_PORT, TP_RST_GPIO_PIN, Bit_SET);
-}
-
-[[maybe_unused]] static void TP_Reset_Pin_Off(void)
-{
-    /* TP/LCD reset net is active-low: drive high to release ("on"). */
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
-    GPIO_InitTypeDef gpio_init = {0};
-    gpio_init.GPIO_Pin = TP_RST_GPIO_PIN;
-    gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
-    gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_Init(TP_RST_GPIO_PORT, &gpio_init);
-    GPIO_WriteBit(TP_RST_GPIO_PORT, TP_RST_GPIO_PIN, Bit_RESET);
-}
-
-
-[[maybe_unused]] static void SysTick_Report_USB_EverySecond(void)
+static void SysTick_Report_USB_EverySecond(void)
 {
     static uint64_t last_report_tick = 0;
-    static uint8_t initialized = 0;
     uint64_t now_tick = SysTick->CNT;
-    uint64_t report_period_ticks = (uint64_t)SystemCoreClock / 2;
-
-    if(report_period_ticks == 0U)
-    {
-        report_period_ticks = 1U;
-    }
-
-    if(initialized == 0U)
-    {
-        last_report_tick = now_tick;
-        initialized = 1U;
-        return;
-    }
-
-    if((now_tick - last_report_tick) < report_period_ticks)
-    {
-        return;
-    }
 
     printf("%d systick_now=0x%lx last=0x%lx %d\r\n",
            25,
@@ -109,30 +58,8 @@ void GPIO_Toggle_INIT(void)
     last_report_tick = now_tick;
 }
 
-[[maybe_unused]] static void Scan_I2CBus_EverySecond(void)
+static void Scan_I2CBus_EverySecond(void)
 {
-    static uint64_t last_scan_tick = 0;
-    static uint8_t initialized = 0;
-    uint64_t now_tick = SysTick->CNT;
-    uint64_t scan_period_ticks = (uint64_t)SystemCoreClock;
-
-    if(scan_period_ticks == 0U)
-    {
-        scan_period_ticks = 1U;
-    }
-
-    if(initialized == 0U)
-    {
-        last_scan_tick = now_tick;
-        initialized = 1U;
-        return;
-    }
-
-    if((now_tick - last_scan_tick) < scan_period_ticks)
-    {
-        return;
-    }
-
     printf("I2C scan:");
 
     uint8_t device_count = 0;
@@ -153,29 +80,51 @@ void GPIO_Toggle_INIT(void)
     {
         printf(" (%u)\r\n", device_count);
     }
-
-    last_scan_tick = now_tick;
 }
 
-/*********************************************************************
- * TLV320ADC6120 I2S capture (CH1/CH2)
- *
- * In the current 24-bit I2S mode, the CH32 peripheral uses 32-bit channel
- * frames, so each stereo frame arrives as four 16-bit DMA words.
- * SPI2 RX DMA runs in circular mode; DMA HT/TC interrupts count those words.
- * Report the incoming data rate once per second.
- *********************************************************************/
 static uint8_t s_tlv320_i2s_report_initialized = 0U;
 static uint64_t ticks_from_ms(uint32_t ms);
 static void Encoder_ReportRotation(void);
 
+template<typename Callable>
+class PeriodicTrigger
+{
+public:
+    template<typename F>
+    constexpr PeriodicTrigger(uint32_t trigger_ms, F&& f) :
+        trigger_ms(trigger_ms),
+        f(std::forward<F>(f))
+    {
+    }
+
+    auto operator()()
+    {
+        uint64_t now_tick = SysTick->CNT;
+        uint64_t trigger_period_ticks = ticks_from_ms(trigger_ms);
+
+        if((now_tick - last_trigger_tick) < trigger_period_ticks)
+        {
+            return;
+        }
+
+        last_trigger_tick = now_tick;
+        return std::invoke(f);
+    }
+
+private:
+    const uint32_t trigger_ms;
+    uint64_t last_trigger_tick = 0U;
+    Callable f;
+};
+
+template<typename F>
+PeriodicTrigger(uint32_t, F&&) -> PeriodicTrigger<std::decay_t<F>>;
+
 static void TLV320_I2S_Poll(void)
 {
-    static uint64_t last_report_tick = 0U;
     static uint32_t last_word_count = 0U;
     static uint32_t last_vendor_total_word_count = 0U;
     static uint32_t last_vendor_dropped_word_count = 0U;
-    uint64_t now_tick = SysTick->CNT;
     uint32_t words_now = i2s_hw_rx_word_count();
     uint32_t vendor_words_now = usb_hw_vendor_total_words();
     uint32_t vendor_dropped_words_now = usb_hw_vendor_dropped_words();
@@ -185,7 +134,6 @@ static void TLV320_I2S_Poll(void)
        (vendor_words_now < last_vendor_total_word_count) ||
        (vendor_dropped_words_now < last_vendor_dropped_word_count))
     {
-        last_report_tick = now_tick;
         last_word_count = words_now;
         last_vendor_total_word_count = vendor_words_now;
         last_vendor_dropped_word_count = vendor_dropped_words_now;
@@ -193,58 +141,35 @@ static void TLV320_I2S_Poll(void)
     }
     else
     {
-        uint64_t elapsed_ticks = now_tick - last_report_tick;
-        if(elapsed_ticks >= (uint64_t)SystemCoreClock)
-        {
-            uint32_t words_per_sec = (uint32_t)((((uint64_t)(words_now - last_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
-            uint32_t frames_per_sec = words_per_sec / 4U;
-            uint32_t bytes_per_sec = words_per_sec * (uint32_t)sizeof(uint16_t);
-            uint32_t vendor_words_per_sec = (uint32_t)((((uint64_t)(vendor_words_now - last_vendor_total_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
-            uint32_t vendor_dropped_words_per_sec = (uint32_t)((((uint64_t)(vendor_dropped_words_now - last_vendor_dropped_word_count)) * (uint64_t)SystemCoreClock) / elapsed_ticks);
+        uint32_t words_per_sec = words_now - last_word_count;
+        uint32_t frames_per_sec = words_per_sec / 4U;
+        uint32_t bytes_per_sec = words_per_sec * (uint32_t)sizeof(uint16_t);
+        uint32_t vendor_words_per_sec = vendor_words_now - last_vendor_total_word_count;
+        uint32_t vendor_dropped_words_per_sec = vendor_dropped_words_now - last_vendor_dropped_word_count;
 
-            printf("ADC I2S rate: %lu words/s, %lu frames/s, %lu B/s | vendor %lu words/s drop %lu words/s | LO %lu Hz\r\n",
-                   (unsigned long)words_per_sec,
-                   (unsigned long)frames_per_sec,
-                   (unsigned long)bytes_per_sec,
-                   (unsigned long)vendor_words_per_sec,
-                   (unsigned long)vendor_dropped_words_per_sec,
-                   (unsigned long)si5351_hw_clk0_get_freq_hz());
+        printf("ADC I2S rate: %lu words/s, %lu frames/s, %lu B/s | vendor %lu words/s drop %lu words/s | LO %lu Hz\r\n",
+               (unsigned long)words_per_sec,
+               (unsigned long)frames_per_sec,
+               (unsigned long)bytes_per_sec,
+               (unsigned long)vendor_words_per_sec,
+               (unsigned long)vendor_dropped_words_per_sec,
+               (unsigned long)si5351_hw_clk0_get_freq_hz());
 
-            last_word_count = words_now;
-            last_vendor_total_word_count = vendor_words_now;
-            last_vendor_dropped_word_count = vendor_dropped_words_now;
-            last_report_tick = now_tick;
-        }
+        last_word_count = words_now;
+        last_vendor_total_word_count = vendor_words_now;
+        last_vendor_dropped_word_count = vendor_dropped_words_now;
     }
 }
 
 static void TLV320_I2S_CheckBitslip(void)
 {
-    static uint64_t last_check_tick = 0U;
-    static uint8_t initialized = 0U;
     static uint8_t enabled = 1U;
     static uint8_t false_checks_in_a_row = 0U;
-    uint64_t now_tick = SysTick->CNT;
-    uint64_t check_period_ticks = ticks_from_ms(100U);
 
     if(enabled == 0U)
     {
         return;
     }
-
-    if(initialized == 0U)
-    {
-        last_check_tick = now_tick;
-        initialized = 1U;
-        return;
-    }
-
-    if((now_tick - last_check_tick) < check_period_ticks)
-    {
-        return;
-    }
-
-    last_check_tick = now_tick;
 
     if(i2s_needs_reset())
     {
@@ -256,7 +181,6 @@ static void TLV320_I2S_CheckBitslip(void)
         i2s_hw_enable(ENABLE);
         s_tlv320_i2s_report_initialized = 0U;
         enabled = 1U;
-        initialized = 0U;
         return;
     }
 
@@ -307,11 +231,9 @@ int main(void)
     printf( "ChipID:%08lx\r\n", DBGMCU_GetCHIPID() );
 
     printf("GPIO Toggle TEST\r\n");
-    GPIO_Toggle_INIT();
     
     printf("ST7789 init + built-in screen test\r\n");
     ST7789_Init();
-    //ST7789_Test();
 
     i2c_hw_init();
 
@@ -325,7 +247,6 @@ int main(void)
         printf("TLV320ADC6120: I2C init failed (check wiring / AVDD AREG define / 24 MHz MCLK)\r\n");
     }
 
-    // if(usb_hw_set_clk_freq_hz(7067333ULL) == READY)
     if(usb_hw_set_clk_freq_hz(93300000ULL) == READY)
     {
         printf("Si5351: LO CLK0/CLK1 = 12000000 Hz, CLK1 = +90 deg\r\n");
@@ -346,18 +267,22 @@ int main(void)
     blinky_init();
     UI_FFT_Init();
 
-    /* display_spi_test_run(); */
     //watchdog_init();
+
+    PeriodicTrigger I2SBitslipCheck{100U, TLV320_I2S_CheckBitslip};
+    PeriodicTrigger I2SPoll{1000U, TLV320_I2S_Poll};
+    PeriodicTrigger I2CBusScan{1000U, Scan_I2CBus_EverySecond};
+    PeriodicTrigger SysTickReportUSB{1000U, SysTick_Report_USB_EverySecond};
 
     while(1)
     {
-        TLV320_I2S_CheckBitslip();
-        TLV320_I2S_Poll();
+        I2SBitslipCheck();
+        I2SPoll();
+        //I2CBusScan();
+        //SysTickReportUSB();
         Encoder_ReportRotation();
         tud_task();
         UI_FFT_Draw();
-        //Scan_I2CBus_EverySecond();
-        //SysTick_Report_USB_EverySecond();
         blinky_task();
         //watchdog_kick();
     }

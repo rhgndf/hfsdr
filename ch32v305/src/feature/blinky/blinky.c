@@ -293,7 +293,7 @@ static void led_render_link_activity(uint64_t now_tick)
     led_set_duty(LED_ID_PC1, duty_pc1);
 }
 
-void blinky_gpio_init(void)
+void blinky_init(void)
 {
     GPIO_InitTypeDef gpio_init = {0};
 
@@ -309,10 +309,7 @@ void blinky_gpio_init(void)
     GPIO_Init(LED1_GPIO_PORT, &gpio_init);
     GPIO_WriteBit(LED1_GPIO_PORT, LED1_GPIO_PIN, Bit_RESET);
     GPIO_WriteBit(LED2_GPIO_PORT, LED2_GPIO_PIN, Bit_RESET);
-}
 
-void blinky_init(void)
-{
     g_led_ctrl.selected_mode = LED_MODE_MORSE_HELLO;
     g_led_ctrl.usb_data_seen = 0U;
     g_led_ctrl.freq_changed_seen = 0U;
