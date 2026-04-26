@@ -56,8 +56,6 @@ add_executable(${EXECUTABLE}
   ${SRC_FILES}
   ${SRC_FILES_RECURSE}
 
-  src/hw/si5351_hw.c
-  lib/tinyusb/src/tusb.c
 )
 
 target_include_directories(${EXECUTABLE} PRIVATE 
