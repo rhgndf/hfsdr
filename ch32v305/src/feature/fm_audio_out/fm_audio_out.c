@@ -1,6 +1,6 @@
 #include "feature/fm_audio_out/fm_audio_out.h"
 
-#include "hw/dac_hw.h"
+#include "hw/dac.h"
 
 /* State mirrors the fixed-point path: discriminator -> 4-sample CIC -> deemph -> DAC DMA. */
 static int32_t s_i_prev = 0;

@@ -1,6 +1,6 @@
-#include "tlv320adc6120_hw.h"
+#include "tlv320adc6120.h"
 
-#include "hw/i2c_hw.h"
+#include "hw/i2c.h"
 
 #include "debug.h"
 
@@ -219,7 +219,7 @@ ErrorStatus tlv320adc6120_hw_init(void)
     }
     Delay_Ms(10U);
 
-    /* ASI: I2S, 24-bit — matches i2s_hw.c I2S_DataFormat_24b + Philips. */
+    /* ASI: I2S, 24-bit — matches i2s.c I2S_DataFormat_24b + Philips. */
     if(tlv320adc6120_hw_write_reg(TLV320_REG_ASI_CFG0, TLV320_ASI_CFG0_I2S_32BIT) != READY)
     {
         return NoREADY;

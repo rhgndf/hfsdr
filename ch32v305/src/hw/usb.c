@@ -1,10 +1,10 @@
-#include "usb_hw.h"
+#include "usb.h"
 
 #include <string.h>
 
 #include "debug.h"
-#include "si5351_hw.h"
-#include "tlv320adc6120_hw.h"
+#include "si5351.h"
+#include "tlv320adc6120.h"
 #include "tusb.h"
 #include "usb_descriptors.h"
 

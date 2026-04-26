@@ -11,7 +11,7 @@
 * microcontroller manufactured by Nanjing Qinheng Microelectronics.
 *******************************************************************************/
 #include "debug.h"
-#include "hw/usb_hw.h"
+#include "hw/usb.h"
 
 static uint32_t s_ticks_per_us = 0U;
 

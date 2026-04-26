@@ -1,6 +1,6 @@
 #include "test/dac_hw_sine_test.h"
 
-#include "hw/dac_hw.h"
+#include "hw/dac.h"
 
 void dac_hw_sine_test_stop(void)
 {

@@ -1,4 +1,4 @@
-#include "i2c_hw.h"
+#include "i2c.h"
 
 extern "C" {
 #include "debug.h"

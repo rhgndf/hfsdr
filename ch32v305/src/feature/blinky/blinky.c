@@ -2,8 +2,8 @@
 
 #include "debug.h"
 #include "hw/pinout.h"
-#include "hw/si5351_hw.h"
-#include "hw/usb_hw.h"
+#include "hw/si5351.h"
+#include "hw/usb.h"
 
 typedef enum
 {

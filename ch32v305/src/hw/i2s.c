@@ -1,4 +1,4 @@
-#include "i2s_hw.h"
+#include "i2s.h"
 
 #include <assert.h>
 #include <math.h>
@@ -7,7 +7,7 @@
 #include "debug.h"
 #include "feature/fm_audio_out/fm_audio_out.h"
 #include "pinout.h"
-#include "usb_hw.h"
+#include "usb.h"
 
 #include "ch32v30x_dma.h"
 #include "ch32v30x_misc.h"

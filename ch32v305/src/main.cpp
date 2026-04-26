@@ -26,16 +26,16 @@
 
 extern "C" {
 #include "hw/pinout.h"
-#include "hw/dac_hw.h"
+#include "hw/dac.h"
 #include "hw/encoder.h"
 #include "hw/spi_manual.h"
 #include "hw/display/st7789.h"
 
-#include "hw/i2c_hw.h"
-#include "hw/tlv320adc6120_hw.h"
-#include "hw/si5351_hw.h"
-#include "hw/i2s_hw.h"
-#include "hw/usb_hw.h"
+#include "hw/i2c.h"
+#include "hw/tlv320adc6120.h"
+#include "hw/si5351.h"
+#include "hw/i2s.h"
+#include "hw/usb.h"
 #include "hw/watchdog.h"
 #include "feature/blinky/blinky.h"
 #include "feature/fm_audio_out/fm_audio_out.h"

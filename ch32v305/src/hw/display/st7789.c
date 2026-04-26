@@ -1,7 +1,7 @@
 #include "st7789.h"
 
 #include "debug.h"
-#include "hw/spi_hw.h"
+#include "hw/spi.h"
 
 #include <stddef.h>
 

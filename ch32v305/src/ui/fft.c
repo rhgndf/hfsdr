@@ -9,7 +9,7 @@
 #include <dsp/window_functions.h>
 
 #include "debug.h"
-#include "hw/i2s_hw.h"
+#include "hw/i2s.h"
 #include "hw/display/st7789.h"
 
 #define FFT_SAMPLE_COUNT        I2S_HW_COMPLEX_SAMPLE_COUNT

@@ -1,4 +1,4 @@
-#include "dac_hw.h"
+#include "dac.h"
 
 #include <assert.h>
 #include <stddef.h>

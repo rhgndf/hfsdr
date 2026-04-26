@@ -1,4 +1,4 @@
-#include "spi_hw.h"
+#include "spi.h"
 
 #include "debug.h"
 #include "pinout.h"

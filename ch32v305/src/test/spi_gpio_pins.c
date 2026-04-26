@@ -1,7 +1,7 @@
 #include "test/spi_gpio_pins.h"
 
 #include "hw/pinout.h"
-#include "hw/spi_hw.h"
+#include "hw/spi.h"
 
 #include "ch32v30x_spi.h"
 

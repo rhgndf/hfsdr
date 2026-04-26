@@ -1,6 +1,6 @@
-#include "si5351_hw.h"
+#include "si5351.h"
 
-#include "hw/i2c_hw.h"
+#include "hw/i2c.h"
 
 #include "debug.h"
 
