@@ -34,13 +34,15 @@
 
 static_assert((I2S_RX_DMA_BUFFER_WORDS % I2S_RX_FRAME_WORDS) == 0U,
               "24-bit I2S DMA buffer must align to full stereo frames");
-static_assert(I2S_HW_COMPLEX_SAMPLE_COUNT == (I2S_RX_DMA_BUFFER_WORDS / I2S_RX_FRAME_WORDS),
-              "public I2S complex sample count must match the full DMA buffer");
 
 static volatile uint32_t s_rx_word_count = 0U;
 static volatile uint16_t s_rx_dma_buf[I2S_RX_DMA_BUFFER_WORDS];
 static volatile uint32_t s_i2s_reset_coincidences = 0U;
 static volatile uint32_t s_i2s_coincidences_samples = 0U;
+
+
+float i2s_fft_sample_arr[I2S_HW_COMPLEX_SAMPLE_COUNT * 2];
+static volatile uint32_t s_fft_sample_cnt = 0U;
 
 void DMA1_Channel4_IRQHandler(void) __attribute__((interrupt));
 extern void audio_usb_mic_write_isr(volatile uint16_t const *src_words, size_t word_count);
@@ -95,6 +97,14 @@ static void i2s_hw_dma_irq_deinit(void)
     NVIC_Init(&nvic);
 }
 
+static void i2s_fft_push_sample(int32_t sample)
+{
+    if(!i2s_fft_sample_arr_ready())
+    {
+        i2s_fft_sample_arr[s_fft_sample_cnt++] = (float)sample / 2147483648.0f;
+    }
+}
+
 static void i2s_process_buf(volatile uint16_t const *src_words)
 {
     // Compare the top bit with the LSB, which is effectively noise
@@ -105,6 +115,7 @@ static void i2s_process_buf(volatile uint16_t const *src_words)
         bool first_two_bits_same = (sample_32 >> 31) == ((sample_32 >> 30) & 1);
         bool last_bit_different = (sample_32 >> 31) != (sample_32 & 1);
         coincidences += first_two_bits_same && last_bit_different;
+        i2s_fft_push_sample((int32_t)sample_32);
     }
     s_i2s_reset_coincidences += coincidences;
     s_i2s_coincidences_samples += I2S_RX_DMA_CHUNK_WORDS / 2;
@@ -112,6 +123,16 @@ static void i2s_process_buf(volatile uint16_t const *src_words)
     s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
     usb_hw_vendor_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
     fm_audio_out_process_i2s_words_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
+}
+
+void i2s_fft_sample_arr_reset(void)
+{
+    s_fft_sample_cnt = 0U;
+}
+
+bool i2s_fft_sample_arr_ready(void)
+{
+    return s_fft_sample_cnt >= (I2S_HW_COMPLEX_SAMPLE_COUNT * 2U);
 }
 
 static void i2s_dma_rx_start(void)
@@ -331,15 +352,6 @@ bool i2s_needs_reset(void)
     s_i2s_coincidences_samples = 0;
     s_i2s_reset_coincidences = 0;
     return ret;
-}
-
-void i2s_hw_obtain_buffer_and_window(float* output_complex_arr, float* window) {
-    for(size_t i = 0; i < I2S_RX_DMA_BUFFER_WORDS; i += 2U)
-    {
-        uint32_t sample_32 = ((uint32_t)s_rx_dma_buf[i] << 16) | s_rx_dma_buf[i + 1U];
-        int32_t signed_sample = (int32_t)sample_32;
-        output_complex_arr[i / 2] = ((float)signed_sample / 2147483648.0f) * window[i / 4];
-    }
 }
 
 void i2s_hw_enable(FunctionalState state)

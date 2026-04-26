@@ -4,30 +4,20 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <dsp/interpolation_functions.h>
+#include <dsp/transform_functions.h>
+#include <dsp/window_functions.h>
+
 #include "debug.h"
 #include "hw/i2s_hw.h"
 #include "hw/st7789/st7789.h"
 
-typedef float float32_t;
-typedef enum
-{
-    RISCV_MATH_SUCCESS = 0
-} riscv_status;
-
-typedef struct
-{
-    uint16_t fftLen;
-    const float32_t *pTwiddle;
-    const uint16_t *pBitRevTable;
-    uint16_t bitRevLength;
-} riscv_cfft_instance_f32;
-
-riscv_status riscv_cfft_init_f32(riscv_cfft_instance_f32 *S, uint16_t fftLen);
-void riscv_cfft_f32(const riscv_cfft_instance_f32 *S, float32_t *p1, uint8_t ifftFlag, uint8_t bitReverseFlag);
-void riscv_blackman_harris_92db_f32(float32_t *pDst, uint32_t blockSize);
-
 #define FFT_SAMPLE_COUNT        I2S_HW_COMPLEX_SAMPLE_COUNT
 #define FFT_COMPLEX_FLOAT_COUNT (FFT_SAMPLE_COUNT * 2U)
+#define FFT_DISPLAY_SAMPLE_COUNT 320U
+#define FFT_INTERP_COL_COUNT    FFT_SAMPLE_COUNT
+#define FFT_INTERP_ROW_COUNT    2U
+#define FFT_INTERP_X_MAX        ((float32_t)(FFT_SAMPLE_COUNT - 1U) - 1.0e-3f)
 #define FFT_UPDATE_PERIOD_MS    80U
 #define FFT_MIN_POWER           1.0e-20f
 #define FFT_DB_FLOOR            -200.0f
@@ -38,7 +28,8 @@ void riscv_blackman_harris_92db_f32(float32_t *pDst, uint32_t blockSize);
 static uint32_t s_last_rx_word_count = 0U;
 static uint16_t s_line = 0U;
 static riscv_cfft_instance_f32 s_fft_instance;
-static float32_t s_fft_data[FFT_COMPLEX_FLOAT_COUNT];
+static riscv_bilinear_interp_instance_f32 s_fft_interp_instance;
+static float32_t fft_window[FFT_SAMPLE_COUNT];
 
 static uint64_t ui_fft_ticks_from_ms(uint32_t ms)
 {
@@ -98,6 +89,30 @@ static float32_t fft_power_to_db(float32_t power)
     return db;
 }
 
+static void fft_apply_window() {
+    for(size_t i = 0;i < FFT_SAMPLE_COUNT;i++) {
+        i2s_fft_sample_arr[i * 2 + 0] *= fft_window[i];
+        i2s_fft_sample_arr[i * 2 + 1] *= fft_window[i];
+    }
+}
+
+static void fft_build_interp_db_table(void)
+{
+    for(uint32_t x_bin = FFT_SAMPLE_COUNT; x_bin > 0U; --x_bin)
+    {
+        uint32_t interp_bin = x_bin - 1U;
+        uint32_t fft_bin = (interp_bin + (FFT_SAMPLE_COUNT / 2U)) % FFT_SAMPLE_COUNT;
+        float32_t real = i2s_fft_sample_arr[2U * fft_bin];
+        float32_t imag = i2s_fft_sample_arr[(2U * fft_bin) + 1U];
+        i2s_fft_sample_arr[interp_bin] = fft_power_to_db((real * real) + (imag * imag));
+    }
+
+    for(uint32_t x_bin = 0U; x_bin < FFT_INTERP_COL_COUNT; ++x_bin)
+    {
+        i2s_fft_sample_arr[FFT_INTERP_COL_COUNT + x_bin] = i2s_fft_sample_arr[x_bin];
+    }
+}
+
 void UI_FFT_Init(void)
 {
     s_last_rx_word_count = 0U;
@@ -107,6 +122,12 @@ void UI_FFT_Init(void)
     {
         return;
     }
+
+    riscv_blackman_harris_92db_f32(fft_window, FFT_SAMPLE_COUNT);
+    s_fft_interp_instance.numRows = FFT_INTERP_ROW_COUNT;
+    s_fft_interp_instance.numCols = FFT_INTERP_COL_COUNT;
+    s_fft_interp_instance.pData = i2s_fft_sample_arr;
+    i2s_fft_sample_arr_reset();
 
     ST7789_Fill_Color(BLACK);
 }
@@ -119,25 +140,30 @@ void UI_FFT_Draw(void)
     {
         return;
     }
+    if(!i2s_fft_sample_arr_ready())
+    {
+        return;
+    }
 
     s_last_rx_word_count = rx_word_count;
     s_line = (uint16_t)((s_line + 1U) % ST7789_HEIGHT);
 
-    float32_t fft_window[FFT_SAMPLE_COUNT];
-    riscv_blackman_harris_92db_f32(fft_window, FFT_SAMPLE_COUNT);
-    i2s_hw_obtain_buffer_and_window(s_fft_data, fft_window);
-    riscv_cfft_f32(&s_fft_instance, s_fft_data, 0U, 1U);
+    fft_apply_window();
+    riscv_cfft_f32(&s_fft_instance, i2s_fft_sample_arr, 0U, 1U);
 
     ST7789_Fill(0U, s_line, ST7789_WIDTH - 1U, s_line, BLACK);
 
-    uint16_t fft_line[FFT_SAMPLE_COUNT];
-    for(uint32_t x_bin = 0U; x_bin < FFT_SAMPLE_COUNT; ++x_bin)
+    fft_build_interp_db_table();
+
+    uint16_t fft_line[FFT_DISPLAY_SAMPLE_COUNT];
+    for(uint32_t x_bin = 0U; x_bin < FFT_DISPLAY_SAMPLE_COUNT; ++x_bin)
     {
-        uint32_t fft_bin = (x_bin + (FFT_SAMPLE_COUNT / 2U)) % FFT_SAMPLE_COUNT;
-        float32_t real = s_fft_data[2U * fft_bin];
-        float32_t imag = s_fft_data[(2U * fft_bin) + 1U];
-        float32_t db = fft_power_to_db((real * real) + (imag * imag));
+        float32_t source_x = ((float32_t)x_bin * FFT_INTERP_X_MAX) /
+                             (float32_t)(FFT_DISPLAY_SAMPLE_COUNT - 1U);
+        float32_t db = riscv_bilinear_interp_f32(&s_fft_interp_instance, source_x, 0.0f);
         fft_line[x_bin] = fft_db_to_color(db);
     }
-    ST7789_DrawColorLine(0U, s_line, fft_line, FFT_SAMPLE_COUNT);
+    ST7789_DrawColorLine(0U, s_line, fft_line, FFT_DISPLAY_SAMPLE_COUNT);
+
+    i2s_fft_sample_arr_reset();
 }

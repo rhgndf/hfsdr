@@ -32,133 +32,39 @@
  * X_SHIFT & Y_SHIFT are used to adapt different display's resolution
  */
 
-/* Choose a type you are using */
-//#define USING_135X240
-//#define USING_240X240
-#define USING_240X320
-//#define USING_170X320
-
 /* Choose a display rotation you want to use: (0-3) */
 //#define ST7789_ROTATION 0
 //#define ST7789_ROTATION 1
 //#define ST7789_ROTATION 2
 #define ST7789_ROTATION 3
 
-#ifdef USING_135X240
 
-    #if ST7789_ROTATION == 0
-        #define ST7789_WIDTH 135
-        #define ST7789_HEIGHT 240
-        #define X_SHIFT 53
-        #define Y_SHIFT 40
-    #endif
-
-    #if ST7789_ROTATION == 1
-        #define ST7789_WIDTH 240
-        #define ST7789_HEIGHT 135
-        #define X_SHIFT 40
-        #define Y_SHIFT 52
-    #endif
-
-    #if ST7789_ROTATION == 2
-        #define ST7789_WIDTH 135
-        #define ST7789_HEIGHT 240
-        #define X_SHIFT 52
-        #define Y_SHIFT 40
-    #endif
-
-    #if ST7789_ROTATION == 3
-        #define ST7789_WIDTH 240
-        #define ST7789_HEIGHT 135
-        #define X_SHIFT 40
-        #define Y_SHIFT 53
-    #endif
-
-#endif
-
-#ifdef USING_240X240
-
+#if ST7789_ROTATION == 0
     #define ST7789_WIDTH 240
+    #define ST7789_HEIGHT 320
+    #define X_SHIFT 0
+    #define Y_SHIFT 0
+#endif
+
+#if ST7789_ROTATION == 1
+    #define ST7789_WIDTH 320
     #define ST7789_HEIGHT 240
-
-		#if ST7789_ROTATION == 0
-			#define X_SHIFT 0
-			#define Y_SHIFT 80
-		#elif ST7789_ROTATION == 1
-			#define X_SHIFT 80
-			#define Y_SHIFT 0
-		#elif ST7789_ROTATION == 2
-			#define X_SHIFT 0
-			#define Y_SHIFT 0
-		#elif ST7789_ROTATION == 3
-			#define X_SHIFT 0
-			#define Y_SHIFT 0
-		#endif
-
+    #define X_SHIFT 0
+    #define Y_SHIFT 0
 #endif
 
-#ifdef USING_240X320
-
-	#if ST7789_ROTATION == 0
-        #define ST7789_WIDTH 240
-        #define ST7789_HEIGHT 320
-        #define X_SHIFT 0
-        #define Y_SHIFT 0
-    #endif
-
-    #if ST7789_ROTATION == 1
-        #define ST7789_WIDTH 320
-        #define ST7789_HEIGHT 240
-        #define X_SHIFT 0
-        #define Y_SHIFT 0
-    #endif
-
-    #if ST7789_ROTATION == 2
-        #define ST7789_WIDTH 240
-        #define ST7789_HEIGHT 320
-        #define X_SHIFT 0
-        #define Y_SHIFT 0
-    #endif
-
-    #if ST7789_ROTATION == 3
-        #define ST7789_WIDTH 320
-        #define ST7789_HEIGHT 240
-        #define X_SHIFT 0
-        #define Y_SHIFT 0
-    #endif
-
+#if ST7789_ROTATION == 2
+    #define ST7789_WIDTH 240
+    #define ST7789_HEIGHT 320
+    #define X_SHIFT 0
+    #define Y_SHIFT 0
 #endif
 
-#ifdef USING_170X320
-
-	#if ST7789_ROTATION == 0
-        #define ST7789_WIDTH 170
-        #define ST7789_HEIGHT 320
-        #define X_SHIFT 35
-        #define Y_SHIFT 0
-    #endif
-
-    #if ST7789_ROTATION == 1
-        #define ST7789_WIDTH 320
-        #define ST7789_HEIGHT 170
-        #define X_SHIFT 0
-        #define Y_SHIFT 35
-    #endif
-
-    #if ST7789_ROTATION == 2
-        #define ST7789_WIDTH 170
-        #define ST7789_HEIGHT 320
-        #define X_SHIFT 35
-        #define Y_SHIFT 0
-    #endif
-
-    #if ST7789_ROTATION == 3
-        #define ST7789_WIDTH 320
-        #define ST7789_HEIGHT 170
-        #define X_SHIFT 0
-        #define Y_SHIFT 35
-    #endif
-
+#if ST7789_ROTATION == 3
+    #define ST7789_WIDTH 320
+    #define ST7789_HEIGHT 240
+    #define X_SHIFT 0
+    #define Y_SHIFT 0
 #endif
 
 /**

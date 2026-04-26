@@ -7,7 +7,7 @@
 #include "debug.h"
 
 /*
- * SPI2 in I2S slave RX: stereo 24-bit Philips in 32-bit channel frames.
+ * SPI2 in I2S slave RX: stereo 32-bit Philips in 32-bit channel frames.
  * WS (PB12) and CK (PB13) are supplied by an external I2S controller.
  * SD (PB15) receives serial data from an external I2S ADC / codec.
  * PC6 is reserved for an alternate 24 MHz clock output from TIM8_CH1, so the
@@ -17,13 +17,18 @@
  * increment a cumulative word counter and hand each completed half-buffer
  * chunk straight into the TinyUSB microphone FIFO.
  */
-#define I2S_HW_COMPLEX_SAMPLE_COUNT 128U
 
 void i2s_hw_init(void);
 void i2s_hw_deinit(void);
 void i2s_hw_enable(FunctionalState state);
 [[nodiscard]] bool i2s_needs_reset(void);
 [[nodiscard]] uint32_t i2s_hw_rx_word_count(void);
-void i2s_hw_obtain_buffer_and_window(float* output_complex_arr, float* window);
+
+
+#define I2S_HW_COMPLEX_SAMPLE_COUNT 512U
+
+extern float i2s_fft_sample_arr[I2S_HW_COMPLEX_SAMPLE_COUNT * 2];
+void i2s_fft_sample_arr_reset(void);
+bool i2s_fft_sample_arr_ready(void);
 
 #endif
