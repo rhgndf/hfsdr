@@ -2,8 +2,6 @@
 
 #include "hw/dac_hw.h"
 
-bool enable_fm_audio_out = false;
-
 /* State mirrors the fixed-point path: discriminator -> 4-sample CIC -> deemph -> DAC DMA. */
 static int32_t s_i_prev = 0;
 static int32_t s_q_prev = 0;
@@ -139,27 +137,7 @@ void fm_audio_out_init(void)
     s_cic_sum_q31 = 0;
     s_cic_idx = 0U;
     s_has_prev = 0U;
-}
-
-void fm_audio_out_set_enabled(bool enabled)
-{
-    enable_fm_audio_out = enabled;
-    fm_audio_out_init();
-
-    if(enabled)
-    {
-        dac_hw_stream_fm_start(192000U);
-    }
-    else
-    {
-        /* Baseline output when FM path is disabled: constant A4 reference tone. */
-        dac_hw_stream_sine_start(440U, 192000U);
-    }
-}
-
-bool fm_audio_out_get_enabled(void)
-{
-    return enable_fm_audio_out;
+    dac_hw_stream_fm_start(192000U);
 }
 
 bool fm_audio_out_process_i2s_words_isr(volatile uint16_t const *src_words, size_t word_count)
@@ -167,7 +145,7 @@ bool fm_audio_out_process_i2s_words_isr(volatile uint16_t const *src_words, size
     size_t frame_count;
     size_t i;
 
-    if((!enable_fm_audio_out) || (src_words == 0) || (word_count < 4U))
+    if((src_words == 0) || (word_count < 4U))
     {
         return false;
     }
