@@ -183,8 +183,10 @@ static void dac_hw_configure_stream_mode(void)
     DAC_Init(DAC_Channel_2, &dac);
     DAC_Cmd(DAC_Channel_1, ENABLE);
     DAC_Cmd(DAC_Channel_2, ENABLE);
+
+    /* DMA2 Channel3 is the DAC1 request. It writes RD12BDHR, which updates both DACs. */
     DAC_DMACmd(DAC_Channel_1, ENABLE);
-    DAC_DMACmd(DAC_Channel_2, ENABLE);
+    DAC_DMACmd(DAC_Channel_2, DISABLE);
 }
 
 static void dac_stream_timer_configure(uint32_t sample_rate_hz)
