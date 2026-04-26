@@ -174,8 +174,9 @@ static void TLV320_I2S_CheckBitslip(void)
     {
         false_checks_in_a_row = 0U;
         printf("bitslipped, resetting\n");
+        i2s_hw_enable(DISABLE);
         i2s_hw_deinit();
-        Delay_Ms(1);
+        Delay_Ms(10);
         i2s_hw_init();
         i2s_hw_enable(ENABLE);
         s_tlv320_i2s_report_initialized = 0U;
