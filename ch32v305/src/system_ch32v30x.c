@@ -24,7 +24,9 @@
 //#define SYSCLK_FREQ_72MHz_HSE  72000000
 //#define SYSCLK_FREQ_96MHz_HSE  96000000
 //#define SYSCLK_FREQ_120MHz_HSE  120000000
-#define SYSCLK_FREQ_144MHz_HSE  144000000
+//#define SYSCLK_FREQ_144MHz_HSE  144000000
+#define SYSCLK_FREQ_168MHz_HSE  168000000
+//#define SYSCLK_FREQ_192MHz_HSE  192000000
 //#define SYSCLK_FREQ_HSI    HSI_VALUE
 //#define SYSCLK_FREQ_48MHz_HSI  48000000
 //#define SYSCLK_FREQ_56MHz_HSI  56000000
@@ -48,6 +50,10 @@ uint32_t SystemCoreClock         = SYSCLK_FREQ_96MHz_HSE;        /* System Clock
 uint32_t SystemCoreClock         = SYSCLK_FREQ_120MHz_HSE;        /* System Clock Frequency (Core Clock) */
 #elif defined SYSCLK_FREQ_144MHz_HSE
 uint32_t SystemCoreClock         = SYSCLK_FREQ_144MHz_HSE;        /* System Clock Frequency (Core Clock) */
+#elif defined SYSCLK_FREQ_168MHz_HSE
+uint32_t SystemCoreClock         = SYSCLK_FREQ_168MHz_HSE;        /* System Clock Frequency (Core Clock) */
+#elif defined SYSCLK_FREQ_192MHz_HSE
+uint32_t SystemCoreClock         = SYSCLK_FREQ_192MHz_HSE;        /* System Clock Frequency (Core Clock) */
 #elif defined SYSCLK_FREQ_48MHz_HSI
 uint32_t SystemCoreClock         = SYSCLK_FREQ_48MHz_HSI;        /* System Clock Frequency (Core Clock) */
 #elif defined SYSCLK_FREQ_56MHz_HSI
@@ -85,6 +91,10 @@ static void SetSysClockTo96_HSE( void );
 static void SetSysClockTo120_HSE( void );
 #elif defined SYSCLK_FREQ_144MHz_HSE
 static void SetSysClockTo144_HSE( void );
+#elif defined SYSCLK_FREQ_168MHz_HSE
+static void SetSysClockTo168_HSE( void );
+#elif defined SYSCLK_FREQ_192MHz_HSE
+static void SetSysClockTo192_HSE( void );
 #elif defined SYSCLK_FREQ_48MHz_HSI
 static void SetSysClockTo48_HSI( void );
 #elif defined SYSCLK_FREQ_56MHz_HSI
@@ -249,6 +259,10 @@ static void SetSysClock(void)
     SetSysClockTo120_HSE();
 #elif defined SYSCLK_FREQ_144MHz_HSE
     SetSysClockTo144_HSE();
+#elif defined SYSCLK_FREQ_168MHz_HSE
+    SetSysClockTo168_HSE();
+#elif defined SYSCLK_FREQ_192MHz_HSE
+    SetSysClockTo192_HSE();
 #elif defined SYSCLK_FREQ_48MHz_HSI
     SetSysClockTo48_HSI();
 #elif defined SYSCLK_FREQ_56MHz_HSI
@@ -742,6 +756,152 @@ static void SetSysClockTo144_HSE(void)
         RCC->CFGR0 |= (uint32_t)(RCC_PLLSRC_HSE | RCC_PLLXTPRE_HSE | RCC_PLLMULL6);
 #else
         RCC->CFGR0 |= (uint32_t)(RCC_PLLSRC_HSE | RCC_PLLXTPRE_HSE | RCC_PLLMULL6_EXTEN);
+#endif
+
+    /* Enable PLL */
+    RCC->CTLR |= RCC_PLLON;
+    /* Wait till PLL is ready */
+    while((RCC->CTLR & RCC_PLLRDY) == 0)
+    {
+    }
+    /* Select PLL as system clock source */
+    RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_SW));
+    RCC->CFGR0 |= (uint32_t)RCC_SW_PLL;
+    /* Wait till PLL is used as system clock source */
+    while ((RCC->CFGR0 & (uint32_t)RCC_SWS) != (uint32_t)0x08)
+    {
+    }
+  }
+  else
+  {
+        /*
+         * If HSE fails to start-up, the application will have wrong clock
+     * configuration. User can add here some code to deal with this error
+         */
+  }
+}
+
+#elif defined SYSCLK_FREQ_168MHz_HSE
+
+/*********************************************************************
+ * @fn      SetSysClockTo168_HSE
+ *
+ * @brief   Sets System clock frequency to 168MHz and configure HCLK, PCLK2 and PCLK1 prescalers.
+ *
+ * @return  none
+ */
+static void SetSysClockTo168_HSE(void)
+{
+  __IO uint32_t StartUpCounter = 0, HSEStatus = 0;
+
+  RCC->CTLR |= ((uint32_t)RCC_HSEON);
+
+  /* Wait till HSE is ready and if Time out is reached exit */
+  do
+  {
+    HSEStatus = RCC->CTLR & RCC_HSERDY;
+    StartUpCounter++;
+  } while((HSEStatus == 0) && (StartUpCounter != HSE_STARTUP_TIMEOUT));
+
+  if ((RCC->CTLR & RCC_HSERDY) != RESET)
+  {
+    HSEStatus = (uint32_t)0x01;
+  }
+  else
+  {
+    HSEStatus = (uint32_t)0x00;
+  }
+
+  if (HSEStatus == (uint32_t)0x01)
+  {
+    /* HCLK = SYSCLK */
+    RCC->CFGR0 |= (uint32_t)RCC_HPRE_DIV1;
+    /* PCLK2 = HCLK */
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;
+    /* PCLK1 = HCLK */
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+
+    /* PLL configuration: PLLCLK = 24 MHz HSE * 7 = 168 MHz */
+    RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE |
+                                        RCC_PLLMULL));
+
+#ifdef CH32V30x_D8
+        RCC->CFGR0 |= (uint32_t)(RCC_PLLSRC_HSE | RCC_PLLXTPRE_HSE | RCC_PLLMULL7);
+#else
+        RCC->CFGR0 |= (uint32_t)(RCC_PLLSRC_HSE | RCC_PLLXTPRE_HSE | RCC_PLLMULL7_EXTEN);
+#endif
+
+    /* Enable PLL */
+    RCC->CTLR |= RCC_PLLON;
+    /* Wait till PLL is ready */
+    while((RCC->CTLR & RCC_PLLRDY) == 0)
+    {
+    }
+    /* Select PLL as system clock source */
+    RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_SW));
+    RCC->CFGR0 |= (uint32_t)RCC_SW_PLL;
+    /* Wait till PLL is used as system clock source */
+    while ((RCC->CFGR0 & (uint32_t)RCC_SWS) != (uint32_t)0x08)
+    {
+    }
+  }
+  else
+  {
+        /*
+         * If HSE fails to start-up, the application will have wrong clock
+     * configuration. User can add here some code to deal with this error
+         */
+  }
+}
+
+#elif defined SYSCLK_FREQ_192MHz_HSE
+
+/*********************************************************************
+ * @fn      SetSysClockTo192_HSE
+ *
+ * @brief   Sets System clock frequency to 192MHz and configure HCLK, PCLK2 and PCLK1 prescalers.
+ *
+ * @return  none
+ */
+static void SetSysClockTo192_HSE(void)
+{
+  __IO uint32_t StartUpCounter = 0, HSEStatus = 0;
+
+  RCC->CTLR |= ((uint32_t)RCC_HSEON);
+
+  /* Wait till HSE is ready and if Time out is reached exit */
+  do
+  {
+    HSEStatus = RCC->CTLR & RCC_HSERDY;
+    StartUpCounter++;
+  } while((HSEStatus == 0) && (StartUpCounter != HSE_STARTUP_TIMEOUT));
+
+  if ((RCC->CTLR & RCC_HSERDY) != RESET)
+  {
+    HSEStatus = (uint32_t)0x01;
+  }
+  else
+  {
+    HSEStatus = (uint32_t)0x00;
+  }
+
+  if (HSEStatus == (uint32_t)0x01)
+  {
+    /* HCLK = SYSCLK */
+    RCC->CFGR0 |= (uint32_t)RCC_HPRE_DIV1;
+    /* PCLK2 = HCLK */
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;
+    /* PCLK1 = HCLK */
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+
+    /* PLL configuration: PLLCLK = 24 MHz HSE * 8 = 192 MHz */
+    RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE |
+                                        RCC_PLLMULL));
+
+#ifdef CH32V30x_D8
+        RCC->CFGR0 |= (uint32_t)(RCC_PLLSRC_HSE | RCC_PLLXTPRE_HSE | RCC_PLLMULL8);
+#else
+        RCC->CFGR0 |= (uint32_t)(RCC_PLLSRC_HSE | RCC_PLLXTPRE_HSE | RCC_PLLMULL8_EXTEN);
 #endif
 
     /* Enable PLL */
