@@ -75,7 +75,7 @@ struct si5351_output_config
     struct si5351_ms ms;
 };
 
-uint64_t si5351_actual_frequency;
+static uint64_t si5351_actual_frequency;
 
 static void si5351_pack_ms(struct si5351_ms ms, uint8_t buf[8])
 {

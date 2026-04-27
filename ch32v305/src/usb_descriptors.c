@@ -235,8 +235,12 @@ static uint16_t _desc_str[32 + 1];
 static char _serial[25];
 static size_t board_get_serial() {
   uint32_t* id = (uint32_t*)0x1FFFF7E8;
-  size_t len = sprintf(_serial, "%08lX%08lX%08lX", id[0], id[1], id[2]);
-  for(uint32_t i = 0;i < len;i++) {
+  int written = snprintf(_serial, sizeof(_serial), "%08lX%08lX%08lX", id[0], id[1], id[2]);
+  size_t len = (written < 0) ? 0U : (size_t)written;
+  if (len >= sizeof(_serial)) {
+    len = sizeof(_serial) - 1U;
+  }
+  for(size_t i = 0; i < len; i++) {
     _desc_str[i + 1] = _serial[i];
   }
   return len;

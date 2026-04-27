@@ -243,7 +243,7 @@ ErrorStatus tlv320adc6120_hw_init(void)
      */
     Delay_Ms(10U);
 
-    /* ASI: I2S, 24-bit — matches i2s.c I2S_DataFormat_24b + Philips. */
+    /* ASI: I2S, 32-bit word length — matches i2s.c I2S_DataFormat_32b + Philips. */
     if(tlv320adc6120_hw_write_reg(TLV320_REG_ASI_CFG0, TLV320_ASI_CFG0_I2S_32BIT) != READY)
     {
         return NoREADY;

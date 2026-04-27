@@ -4,8 +4,10 @@
 #include "hw/spi.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 #define ST7789_DMA_COLOR_LINE_CHUNK_PIXELS 32U
+#define ST7789_DMA_FILL_CHUNK_PIXELS       64U
 
 static uint16_t s_scroll_top = 0U;
 static uint16_t s_scroll_bottom = ST7789_HEIGHT;
@@ -69,22 +71,47 @@ static void ST7789_WriteCommand(uint8_t cmd)
 }
 
 /**
- * @brief Write data to ST7789 controller
+ * @brief Write data to ST7789 controller via SPI DMA
  * @param buff -> pointer of data buffer
  * @param buff_size -> size of the data buffer
  * @return none
  */
 static void ST7789_WriteData(uint8_t *buff, size_t buff_size)
 {
-	ST7789_Select();
-	ST7789_DC_Set();
-
-	while (buff_size > 0) {
-		ST7789_SPI_TxU8(*buff);
-		buff++;
-		buff_size--;
+	if ((buff == NULL) || (buff_size == 0U)) {
+		return;
 	}
 
+	ST7789_Select();
+	ST7789_DC_Set();
+	spi_hw_transfer_dma(buff, buff_size);
+	ST7789_UnSelect();
+}
+
+/* Stream a single RGB565 pixel value to the panel pixel_count times via DMA. */
+static void ST7789_WriteRepeatedPixel(uint16_t color, uint32_t pixel_count)
+{
+	if (pixel_count == 0U) {
+		return;
+	}
+
+	uint8_t tx_buf[ST7789_DMA_FILL_CHUNK_PIXELS * 2U];
+	uint32_t chunk_pixels = (pixel_count > ST7789_DMA_FILL_CHUNK_PIXELS)
+	                           ? ST7789_DMA_FILL_CHUNK_PIXELS : pixel_count;
+
+	for (uint32_t i = 0U; i < chunk_pixels; ++i) {
+		tx_buf[2U * i] = (uint8_t)(color >> 8);
+		tx_buf[(2U * i) + 1U] = (uint8_t)(color & 0xFFU);
+	}
+
+	ST7789_Select();
+	ST7789_DC_Set();
+	while (pixel_count > 0U) {
+		uint32_t this_chunk = (pixel_count > ST7789_DMA_FILL_CHUNK_PIXELS)
+		                         ? ST7789_DMA_FILL_CHUNK_PIXELS : pixel_count;
+		spi_hw_transfer_dma(tx_buf, (size_t)this_chunk * 2U);
+		pixel_count -= this_chunk;
+	}
 	ST7789_UnSelect();
 }
 /**
@@ -234,14 +261,7 @@ void ST7789_Init(void)
 void ST7789_Fill_Color(uint16_t color)
 {
 	ST7789_SetAddressWindow(0, 0, ST7789_WIDTH - 1, ST7789_HEIGHT - 1);
-	ST7789_Select();
-
-	for (uint16_t i = 0; i < ST7789_WIDTH; i++)
-		for (uint16_t j = 0; j < ST7789_HEIGHT; j++) {
-			uint8_t data[] = {color >> 8, color & 0xFF};
-			ST7789_WriteData(data, sizeof(data));
-		}
-	ST7789_UnSelect();
+	ST7789_WriteRepeatedPixel(color, (uint32_t)ST7789_WIDTH * (uint32_t)ST7789_HEIGHT);
 }
 
 /**
@@ -358,16 +378,12 @@ uint16_t ST7789_ScrollRows(uint16_t top, uint16_t bottom, int16_t rows)
  */
 void ST7789_Fill(uint16_t xSta, uint16_t ySta, uint16_t xEnd, uint16_t yEnd, uint16_t color)
 {
-	if ((xEnd < 0) || (xEnd >= ST7789_WIDTH) ||
-		 (yEnd < 0) || (yEnd >= ST7789_HEIGHT))	return;
-	ST7789_Select();
+	if ((xEnd >= ST7789_WIDTH) || (yEnd >= ST7789_HEIGHT) ||
+	    (xSta > xEnd) || (ySta > yEnd))	return;
+
 	ST7789_SetAddressWindow(xSta, ySta, xEnd, yEnd);
-	for (uint16_t i = ySta; i <= yEnd; i++)
-		for (uint16_t j = xSta; j <= xEnd; j++) {
-			uint8_t data[] = {color >> 8, color & 0xFF};
-			ST7789_WriteData(data, sizeof(data));
-		}
-	ST7789_UnSelect();
+	uint32_t pixel_count = (uint32_t)(xEnd - xSta + 1U) * (uint32_t)(yEnd - ySta + 1U);
+	ST7789_WriteRepeatedPixel(color, pixel_count);
 }
 
 /**
@@ -378,8 +394,8 @@ void ST7789_Fill(uint16_t xSta, uint16_t ySta, uint16_t xEnd, uint16_t yEnd, uin
  */
 void ST7789_DrawPixel_4px(uint16_t x, uint16_t y, uint16_t color)
 {
-	if ((x <= 0) || (x > ST7789_WIDTH) ||
-		 (y <= 0) || (y > ST7789_HEIGHT))	return;
+	if ((x == 0U) || (x >= ST7789_WIDTH - 1U) ||
+		 (y == 0U) || (y >= ST7789_HEIGHT - 1U))	return;
 	ST7789_Select();
 	ST7789_Fill(x - 1, y - 1, x + 1, y + 1, color);
 	ST7789_UnSelect();
@@ -614,17 +630,10 @@ void ST7789_WriteString(uint16_t x, uint16_t y, const char *str, FontDef font, u
  */
 void ST7789_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color)
 {
-	ST7789_Select();
-	uint8_t i;
-
-	/* Check input parameters */
-	if (x >= ST7789_WIDTH ||
-		y >= ST7789_HEIGHT) {
-		/* Return error */
+	if (x >= ST7789_WIDTH || y >= ST7789_HEIGHT) {
 		return;
 	}
 
-	/* Check width and height */
 	if ((x + w) >= ST7789_WIDTH) {
 		w = ST7789_WIDTH - x;
 	}
@@ -632,12 +641,7 @@ void ST7789_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, 
 		h = ST7789_HEIGHT - y;
 	}
 
-	/* Draw lines */
-	for (i = 0; i <= h; i++) {
-		/* Draw lines */
-		ST7789_DrawLine(x, y + i, x + w, y + i, color);
-	}
-	ST7789_UnSelect();
+	ST7789_Fill(x, y, (uint16_t)(x + w - 1U), (uint16_t)(y + h - 1U), color);
 }
 
 /** 

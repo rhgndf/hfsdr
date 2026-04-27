@@ -50,6 +50,9 @@ void spi_hw_init(void)
     DMA_ClearFlag(SPI3_TX_DMA_FLAG_GL | SPI3_TX_DMA_FLAG_TC | SPI3_TX_DMA_FLAG_TE);
 }
 
+/* SPI3 is configured 1Line_Tx (transmit only), so there is nothing to receive.
+ * The return value is always 0 and exists only to match the historical signature;
+ * callers should ignore it. */
 uint8_t spi_hw_transfer_u8(uint8_t tx_byte)
 {
     while(SPI_I2S_GetFlagStatus(SPI3, SPI_I2S_FLAG_TXE) == RESET)

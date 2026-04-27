@@ -2,6 +2,7 @@
 
 #include "hw/pinout.h"
 
+#include <stdatomic.h>
 #include <stdbool.h>
 
 #include "ch32v30x_gpio.h"
@@ -18,7 +19,7 @@
 #define ENCODER_BUTTON_DEBOUNCE_MS 30U
 
 static volatile uint16_t s_encoder_last_counter = ENCODER_COUNTER_MIDPOINT;
-static volatile int16_t s_encoder_pending_raw_delta = 0;
+static atomic_int_fast32_t s_encoder_pending_raw_delta = 0;
 static volatile int32_t s_encoder_raw_position = 0;
 static int16_t s_encoder_detent_remainder = 0;
 static uint8_t s_button_raw_state = 0U;
@@ -95,7 +96,11 @@ __attribute__((interrupt)) void TIM10_CC_IRQHandler(void)
         TIM_ClearITPendingBit(ENCODER_TIMER, TIM_IT_CC2);
     }
 
-    s_encoder_pending_raw_delta += encoder_sync_delta();
+    int_fast32_t delta = encoder_sync_delta();
+    if(delta != 0)
+    {
+        atomic_fetch_add_explicit(&s_encoder_pending_raw_delta, delta, memory_order_relaxed);
+    }
 }
 
 void encoder_init(void)
@@ -157,7 +162,7 @@ void encoder_init(void)
     TIM_Cmd(ENCODER_TIMER, ENABLE);
 
     s_encoder_last_counter = ENCODER_COUNTER_MIDPOINT;
-    s_encoder_pending_raw_delta = 0;
+    atomic_store_explicit(&s_encoder_pending_raw_delta, 0, memory_order_relaxed);
     s_encoder_raw_position = 0;
     s_encoder_detent_remainder = 0;
     s_button_raw_state = (uint8_t)GPIO_ReadInputDataBit(ENC_BTN_GPIO_PORT, ENC_BTN_GPIO_PIN);
@@ -168,16 +173,23 @@ void encoder_init(void)
 
 int16_t encoder_take_delta(void)
 {
-    int16_t raw_delta = s_encoder_pending_raw_delta;
-    int16_t detent_delta;
+    int_fast32_t raw_delta = atomic_exchange_explicit(&s_encoder_pending_raw_delta, 0,
+                                                      memory_order_relaxed);
+    int_fast32_t combined = raw_delta + (int_fast32_t)s_encoder_detent_remainder;
+    int_fast32_t detent_delta = combined / ENCODER_COUNTS_PER_DETENT;
 
-    s_encoder_pending_raw_delta = 0;
-    raw_delta += s_encoder_detent_remainder;
+    s_encoder_detent_remainder = (int16_t)(combined - (detent_delta * ENCODER_COUNTS_PER_DETENT));
 
-    detent_delta = raw_delta / ENCODER_COUNTS_PER_DETENT;
-    s_encoder_detent_remainder = raw_delta - (detent_delta * ENCODER_COUNTS_PER_DETENT);
+    if(detent_delta > INT16_MAX)
+    {
+        detent_delta = INT16_MAX;
+    }
+    else if(detent_delta < INT16_MIN)
+    {
+        detent_delta = INT16_MIN;
+    }
 
-    return detent_delta;
+    return (int16_t)detent_delta;
 }
 
 bool encoder_take_button_press(void)
