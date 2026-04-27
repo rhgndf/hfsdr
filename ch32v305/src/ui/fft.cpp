@@ -108,17 +108,37 @@ static uint16_t fft_db_to_color(float32_t db)
 /*
  * 10*log10(x) approximation via std::bit_cast log2 split.
  * - exponent extraction gives integer log2 for free.
- * - 4th-degree polynomial on mantissa in [1,2) is accurate to ~0.005 dB.
+ * - 4th-degree minimax (Remez) polynomial for log2 on [1,2], max error
+ *   ~8.8e-5 -> ~0.0003 dB. Coefficients regenerable via tools/gen_log2_poly.py.
  * Handles x=0 (returns very negative; caller clamps to floor).
  */
-static float32_t fast_10log10f(float32_t x)
+static constexpr float32_t fast_10log10f(float32_t x)
 {
     uint32_t bits = std::bit_cast<uint32_t>(x);
     int32_t e = static_cast<int32_t>((bits >> 23) & 0xFFU) - 127;
     float32_t m = std::bit_cast<float32_t>((bits & 0x007FFFFFu) | 0x3F800000u);
-    float32_t l2m = -1.7417939f + (2.8212026f + (-1.4699568f + (0.4475461f - 0.05606445f * m) * m) * m) * m;
+    float32_t l2m = -2.51285462f + (4.07009079f + (-2.12067513f + (0.64514236f - 0.08161581f * m) * m) * m) * m;
     /* 10 / log2(10) = 3.01029995664f */
     return (static_cast<float32_t>(e) + l2m) * 3.01029995664f;
+}
+
+namespace {
+/* Verify polynomial against libm at compile time. __builtin_log10f is constexpr-foldable in GCC. */
+consteval bool fast_10log10f_close(float32_t x, float32_t tol_db)
+{
+    float32_t got = fast_10log10f(x);
+    float32_t want = 10.0f * __builtin_log10f(x);
+    float32_t diff = got - want;
+    return (diff > -tol_db) && (diff < tol_db);
+}
+static_assert(fast_10log10f_close(1.0f,    0.005f));
+static_assert(fast_10log10f_close(10.0f,   0.005f));
+static_assert(fast_10log10f_close(100.0f,  0.005f));
+static_assert(fast_10log10f_close(0.1f,    0.005f));
+static_assert(fast_10log10f_close(0.5f,    0.005f));
+static_assert(fast_10log10f_close(1.5f,    0.005f));
+static_assert(fast_10log10f_close(1e-10f,  0.005f));
+static_assert(fast_10log10f_close(1e10f,   0.005f));
 }
 
 static float32_t fft_power_to_db(float32_t power)

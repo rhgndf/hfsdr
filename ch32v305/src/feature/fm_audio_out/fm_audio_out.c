@@ -24,13 +24,14 @@ static constexpr int32_t s_deemph_alpha_q31 = 1935044054;
 static constexpr int32_t s_one_minus_alpha_q31 = (int32_t)(0x7FFFFFFF - 1935044054);
 
 /*
- * Odd 5th-degree least-squares fit of atan(x) on [0, 1]:
+ * Odd 5th-degree minimax (Remez) fit of atan(x) on [0, 1]:
  * atan(x) ~= x * (c1 + x^2 * (c3 + x^2 * c5))
+ * Max abs error ~6.1e-4 in atan (vs 1.3e-3 for the previous least-squares fit).
  * Coefficients are stored in Q31 and evaluated with Horner form.
  */
-static constexpr int32_t s_atan_c1_q31 = 2138856262;
-static constexpr int32_t s_atan_c3_q31 = -627668775;
-static constexpr int32_t s_atan_c5_q31 = 178286847;
+static constexpr int32_t s_atan_c1_q31 = 2137514932;
+static constexpr int32_t s_atan_c3_q31 = -619957566;
+static constexpr int32_t s_atan_c5_q31 = 170379294;
 
 static int64_t clamp_i64(int64_t x, int64_t lo, int64_t hi)
 {
