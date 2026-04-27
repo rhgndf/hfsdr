@@ -36,7 +36,7 @@ static void ST7789_HW_Init(void)
 
 	g.GPIO_Pin = ST7789_LEDK_GPIO_PIN;
 	GPIO_Init(ST7789_LEDK_GPIO_PORT, &g);
-	GPIO_WriteBit(ST7789_LEDK_GPIO_PORT, ST7789_LEDK_GPIO_PIN, Bit_RESET);
+	GPIO_WriteBit(ST7789_LEDK_GPIO_PORT, ST7789_LEDK_GPIO_PIN, Bit_SET);
 
 	g.GPIO_Pin = ST7789_DC_PIN;
 	GPIO_Init(ST7789_DC_PORT, &g);
@@ -166,9 +166,9 @@ void ST7789_Init(void)
 {
 	ST7789_HW_Init();
 
-	Delay_Ms(10);
+	Delay_Ms(1);
     ST7789_RST_Assert();
-    Delay_Ms(10);
+    Delay_Ms(1);
     ST7789_RST_Release();
     Delay_Ms(120);
 
@@ -222,8 +222,8 @@ void ST7789_Init(void)
   	ST7789_WriteCommand (ST7789_DISPON);	//	Main screen turned on	
 	ST7789_UnSelect();
 
-	Delay_Ms(50);
 	ST7789_Fill_Color(BLACK);				//	Fill with Black.
+	GPIO_WriteBit(ST7789_LEDK_GPIO_PORT, ST7789_LEDK_GPIO_PIN, Bit_RESET);
 }
 
 /**

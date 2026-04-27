@@ -220,7 +220,7 @@ ErrorStatus tlv320adc6120_hw_init(void)
     {
         return NoREADY;
     }
-    Delay_Ms(10U);
+    Delay_Ms(1U);
 
     /* Software reset to known defaults, then re-wake. */
     if(tlv320adc6120_hw_write_reg(TLV320_REG_SW_RESET, 0x01U) != READY)
@@ -237,6 +237,10 @@ ErrorStatus tlv320adc6120_hw_init(void)
     {
         return NoREADY;
     }
+    /*
+     * Keep 10 ms after wake before CHx_CFG writes; datasheet requires this
+     * for channel configuration registers after exiting sleep mode.
+     */
     Delay_Ms(10U);
 
     /* ASI: I2S, 24-bit — matches i2s.c I2S_DataFormat_24b + Philips. */
