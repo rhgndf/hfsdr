@@ -162,7 +162,6 @@ void UI_FFT_Init(void)
     s_fft_interp_instance.pData = i2s_fft_sample_arr;
     i2s_fft_sample_arr_reset();
 
-    ST7789_Fill_Color(BLACK);
     s_waterfall_line = ST7789_ScrollRows(FFT_WATERFALL_TOP, FFT_WATERFALL_BOTTOM, 0);
 }
 

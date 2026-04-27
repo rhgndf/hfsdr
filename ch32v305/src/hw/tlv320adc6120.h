@@ -13,6 +13,8 @@
  * Use 0 for 1.8 V AVDD with AREG shorted to AVDD (external AREG path).
  */
 
+#include <stdint.h>
+
 #include "debug.h"
 
 #ifndef TLV320ADC6120_USE_INTERNAL_AREG
@@ -20,8 +22,11 @@
 #endif
 
 #define TLV320ADC6120_I2C_ADDR_7BIT 0x4EU
+#define TLV320ADC6120_CH_GAIN_MIN_DB_X2 (-22)
+#define TLV320ADC6120_CH_GAIN_MAX_DB_X2 84U
 
 [[nodiscard]] ErrorStatus tlv320adc6120_hw_init(void);
 [[nodiscard]] ErrorStatus tlv320adc6120_hw_set_ch_gain_raw(uint8_t gain_raw);
+[[nodiscard]] ErrorStatus tlv320adc6120_hw_set_ch_gain_db_x2(int8_t gain_db_x2);
 
 #endif

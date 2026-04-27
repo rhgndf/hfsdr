@@ -2,7 +2,7 @@
 
 #include "hw/dac.h"
 
-#define FM_AUDIO_OUT_GAIN_DEFAULT_Q16 (16UL << 8)
+#define FM_AUDIO_OUT_GAIN_DEFAULT_Q16 0UL
 
 /* State mirrors the fixed-point path: discriminator -> 4-sample CIC -> deemph -> DAC DMA. */
 static int32_t s_i_prev = 0;

@@ -223,7 +223,7 @@ void ST7789_Init(void)
 	ST7789_UnSelect();
 
 	Delay_Ms(50);
-	ST7789_Fill_Color(WHITE);				//	Fill with Black.
+	ST7789_Fill_Color(BLACK);				//	Fill with Black.
 }
 
 /**

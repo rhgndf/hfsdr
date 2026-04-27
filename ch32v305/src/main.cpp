@@ -161,19 +161,21 @@ static void TLV320_I2S_Poll(void)
     }
 }
 
+static uint8_t s_i2s_bitslip_check = 1U;
+static uint8_t s_i2s_bitslip_false_checks_in_a_row = 0U;
+static uint8_t s_i2s_bitslip_sync_displayed_count = UINT8_MAX;
+
 static void TLV320_I2S_CheckBitslip(void)
 {
-    static uint8_t enabled = 1U;
-    static uint8_t false_checks_in_a_row = 0U;
 
-    if(enabled == 0U)
+    if(s_i2s_bitslip_check == 0U)
     {
         return;
     }
 
     if(i2s_needs_reset())
     {
-        false_checks_in_a_row = 0U;
+        s_i2s_bitslip_false_checks_in_a_row = 0U;
         printf("bitslipped, resetting\n");
         i2s_hw_enable(DISABLE);
         i2s_hw_deinit();
@@ -181,15 +183,34 @@ static void TLV320_I2S_CheckBitslip(void)
         i2s_hw_init();
         i2s_hw_enable(ENABLE);
         s_tlv320_i2s_report_initialized = 0U;
-        enabled = 1U;
+        s_i2s_bitslip_check = 1U;
         return;
     }
 
-    ++false_checks_in_a_row;
-    if(false_checks_in_a_row >= 20U)
+    ++s_i2s_bitslip_false_checks_in_a_row;
+    if(s_i2s_bitslip_false_checks_in_a_row >= 20U)
     {
-        enabled = 0U;
+        s_i2s_bitslip_check = 0U;
     }
+}
+
+static void Draw_I2S_Sync_Status(void)
+{
+    char sync_text[24];
+
+    if(s_i2s_bitslip_sync_displayed_count == s_i2s_bitslip_false_checks_in_a_row)
+    {
+        return;
+    }
+
+    s_i2s_bitslip_sync_displayed_count = s_i2s_bitslip_false_checks_in_a_row;
+    snprintf(sync_text, sizeof(sync_text),
+             "Synced: %u/20",
+             (unsigned int)s_i2s_bitslip_false_checks_in_a_row);
+
+    ST7789_Fill(0U, 0U, ST7789_WIDTH - 1U, 49U, BLACK);
+    ST7789_WriteString(0U, 5U, "Initializing...", Font_11x18, WHITE, BLACK);
+    ST7789_WriteString(0U, 27U, sync_text, Font_11x18, WHITE, BLACK);
 }
 
 static uint64_t ticks_from_ms(uint32_t ms)
@@ -256,8 +277,6 @@ int main(void)
     printf("FM audio out: enabled (fixed-point FM demod to DAC)\r\n");
 
     blinky_init();
-    UI_FFT_Init();
-    UI_Init();
 
     //watchdog_init();
 
@@ -266,6 +285,16 @@ int main(void)
     PeriodicTrigger I2CBusScan{1000U, Scan_I2CBus_EverySecond};
     PeriodicTrigger SysTickReportUSB{1000U, SysTick_Report_USB_EverySecond};
     PeriodicTrigger FFTDraw{1000U / 60U, UI_FFT_Draw};
+
+    while(s_i2s_bitslip_check)
+    {
+        Draw_I2S_Sync_Status();
+        I2SBitslipCheck();
+        tud_task();
+    }
+    
+    UI_FFT_Init();
+    UI_Init();
 
     while(1)
     {

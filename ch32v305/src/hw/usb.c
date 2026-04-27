@@ -24,6 +24,7 @@ static uint8_t usb_hw_tlv320_gain_req[USB_HW_TLV320_GAIN_REQ_SIZE];
 static uint8_t usb_hw_pll_lock_state[USB_HW_PLL_LOCK_STATE_SIZE];
 static ErrorStatus usb_hw_clk_freq_status = NoREADY;
 static uint8_t usb_hw_tlv320_gain_raw = 0x00U;
+static int8_t usb_hw_tlv320_gain_db_x2 = 0;
 static ErrorStatus usb_hw_tlv320_gain_status = NoREADY;
 static volatile uint32_t usb_hw_vendor_total_word_count = 0U;
 static volatile uint32_t usb_hw_vendor_dropped_word_count = 0U;
@@ -154,6 +155,32 @@ ErrorStatus usb_hw_set_tlv320_gain_raw(uint8_t gain_raw)
     {
         printf("TLV320: CHx_CFG1 set failed for 0x%02X (status %u)\r\n",
                (unsigned int)gain_raw,
+               (unsigned int)usb_hw_tlv320_gain_status);
+    }
+
+    return usb_hw_tlv320_gain_status;
+}
+
+ErrorStatus usb_hw_set_tlv320_gain_db_x2(int8_t gain_db_x2)
+{
+    uint8_t magnitude_db_x2 = (uint8_t)((gain_db_x2 < 0) ? -gain_db_x2 : gain_db_x2);
+    char sign = (gain_db_x2 < 0) ? '-' : '+';
+
+    usb_hw_tlv320_gain_status = tlv320adc6120_hw_set_ch_gain_db_x2(gain_db_x2);
+    if(usb_hw_tlv320_gain_status == READY)
+    {
+        usb_hw_tlv320_gain_db_x2 = gain_db_x2;
+        printf("TLV320: channel gain set to %c%lu.%lu dB\r\n",
+               sign,
+               (unsigned long)(magnitude_db_x2 / 2U),
+               (unsigned long)((magnitude_db_x2 & 1U) * 5U));
+    }
+    else
+    {
+        printf("TLV320: channel gain set failed for %c%lu.%lu dB (status %u)\r\n",
+               sign,
+               (unsigned long)(magnitude_db_x2 / 2U),
+               (unsigned long)((magnitude_db_x2 & 1U) * 5U),
                (unsigned int)usb_hw_tlv320_gain_status);
     }
 
@@ -298,7 +325,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
                     }
                     if(stage == CONTROL_STAGE_DATA)
                     {
-                        return (usb_hw_set_tlv320_gain_raw(usb_hw_tlv320_gain_req[0]) == READY);
+                        return (usb_hw_set_tlv320_gain_db_x2((int8_t)usb_hw_tlv320_gain_req[0]) == READY);
                     }
                     return true;
 

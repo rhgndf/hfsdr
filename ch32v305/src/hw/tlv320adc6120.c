@@ -108,8 +108,8 @@
 
 /*
  * CHx_CFG1 (0x3D / 0x42):
- * - bit7: CHx_GAIN_SIGN_BIT = 0, positive gain
- * - bits6:0: CHx_GAIN = 0d, 0.0 dB in 0.5-dB steps
+ * - bits7:1: CHx_GAIN = 0..84, 0.0 dB to 42.0 dB in 0.5-dB steps
+ * - bit0: CHx_GAIN_SIGN_BIT = 0 for positive gain, 1 for negative gain
  */
 #define TLV320_CH_CFG1_GAIN_0DB        0x00U
 
@@ -185,6 +185,26 @@ ErrorStatus tlv320adc6120_hw_set_ch_gain_raw(uint8_t gain_raw)
     }
 
     return READY;
+}
+
+ErrorStatus tlv320adc6120_hw_set_ch_gain_db_x2(int8_t gain_db_x2)
+{
+    uint8_t magnitude_db_x2;
+    uint8_t sign_bit;
+
+    if(gain_db_x2 < TLV320ADC6120_CH_GAIN_MIN_DB_X2)
+    {
+        gain_db_x2 = TLV320ADC6120_CH_GAIN_MIN_DB_X2;
+    }
+    if(gain_db_x2 > (int8_t)TLV320ADC6120_CH_GAIN_MAX_DB_X2)
+    {
+        gain_db_x2 = (int8_t)TLV320ADC6120_CH_GAIN_MAX_DB_X2;
+    }
+
+    sign_bit = (gain_db_x2 < 0) ? 1U : 0U;
+    magnitude_db_x2 = (uint8_t)((gain_db_x2 < 0) ? -gain_db_x2 : gain_db_x2);
+
+    return tlv320adc6120_hw_set_ch_gain_raw((uint8_t)((magnitude_db_x2 << 1U) | sign_bit));
 }
 
 ErrorStatus tlv320adc6120_hw_init(void)
