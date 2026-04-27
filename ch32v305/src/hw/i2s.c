@@ -33,7 +33,7 @@
 #define I2S_RX_DMA_CHUNK_BYTES       (I2S_RX_DMA_CHUNK_WORDS * sizeof(uint16_t))
 
 static_assert((I2S_RX_DMA_BUFFER_WORDS % I2S_RX_FRAME_WORDS) == 0U,
-              "24-bit I2S DMA buffer must align to full stereo frames");
+              "32-bit I2S DMA buffer must align to full stereo frames");
 
 static volatile uint32_t s_rx_word_count = 0U;
 static volatile uint16_t s_rx_dma_buf[I2S_RX_DMA_BUFFER_WORDS];
@@ -340,8 +340,8 @@ bool i2s_needs_reset(void)
     // If i2s is not bitslipped, we expect coincidences to be random with 50% probability
     // We do a two sided Z-test here
     bool ret = false;
-    double n = (double)s_i2s_coincidences_samples;
-    uint32_t thres = 1.2879 * sqrt(n);
+    float n = (float)s_i2s_coincidences_samples;
+    uint32_t thres = 1.2879f * sqrtf(n);
     if ((s_i2s_reset_coincidences < s_i2s_coincidences_samples / 2 - thres) ||
         (s_i2s_reset_coincidences > s_i2s_coincidences_samples / 2 + thres)) {
         // Is bitslipped, request reset outside the ISR.

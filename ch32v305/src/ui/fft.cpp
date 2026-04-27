@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <dsp/complex_math_functions.h>
 #include <dsp/interpolation_functions.h>
 #include <dsp/transform_functions.h>
 
@@ -121,11 +122,12 @@ static float32_t fft_power_to_db(float32_t power)
     return db;
 }
 
-static void fft_apply_window() {
-    for(size_t i = 0;i < FFT_SAMPLE_COUNT;i++) {
-        i2s_fft_sample_arr[i * 2 + 0] *= fft_window[i];
-        i2s_fft_sample_arr[i * 2 + 1] *= fft_window[i];
-    }
+static void fft_apply_window(void)
+{
+    riscv_cmplx_mult_real_f32(i2s_fft_sample_arr,
+                              fft_window.data(),
+                              i2s_fft_sample_arr,
+                              FFT_SAMPLE_COUNT);
 }
 
 static void fft_build_interp_db_table(void)

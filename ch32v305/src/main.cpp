@@ -96,7 +96,7 @@ public:
     {
     }
 
-    auto operator()()
+    void operator()()
     {
         uint64_t now_tick = SysTick->CNT;
         uint64_t trigger_period_ticks = ticks_from_ms(trigger_ms);
@@ -107,7 +107,8 @@ public:
         }
 
         last_trigger_tick = now_tick;
-        return std::invoke(f);
+        std::invoke(f);
+        return;
     }
 
 private:
