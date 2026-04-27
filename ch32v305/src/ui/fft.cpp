@@ -19,7 +19,6 @@ extern "C" {
 #define FFT_COMPLEX_FLOAT_COUNT (FFT_SAMPLE_COUNT * 2U)
 #define FFT_DISPLAY_SAMPLE_COUNT 240U
 #define FFT_INTERP_COL_COUNT    FFT_SAMPLE_COUNT
-#define FFT_INTERP_ROW_COUNT    2U
 #define FFT_INTERP_X_MAX        ((float32_t)(FFT_SAMPLE_COUNT - 1U) - 1.0e-3f)
 #define FFT_UPDATE_PERIOD_MS    80U
 #define FFT_MIN_POWER           1.0e-20f
@@ -54,13 +53,38 @@ consteval std::array<float32_t, Size> make_blackman_harris_92db_window()
     return window;
 }
 
+constexpr uint16_t kColorLutSize = 64U;
+
+consteval uint16_t fft_color_lut_entry(uint32_t g)
+{
+    uint32_t intensity = g >> 1;
+    uint32_t red = (intensity > 22U) ? ((intensity - 22U) * 7U) : 0U;
+    if(red > 31U)
+    {
+        red = 31U;
+    }
+    uint32_t blue = 31U - intensity;
+    return static_cast<uint16_t>((red << 11) | (g << 5) | blue);
+}
+
+consteval std::array<uint16_t, kColorLutSize> make_fft_color_lut()
+{
+    std::array<uint16_t, kColorLutSize> lut{};
+    for(uint32_t g = 0U; g < kColorLutSize; ++g)
+    {
+        lut[g] = fft_color_lut_entry(g);
+    }
+    return lut;
+}
+
 }
 
 static uint32_t s_last_rx_word_count = 0U;
 static uint16_t s_waterfall_line = FFT_WATERFALL_TOP;
 static riscv_cfft_instance_f32 s_fft_instance;
-static riscv_bilinear_interp_instance_f32 s_fft_interp_instance;
+static riscv_linear_interp_instance_f32 s_fft_interp_instance;
 static constexpr auto fft_window = make_blackman_harris_92db_window<FFT_SAMPLE_COUNT>();
+static constexpr auto fft_color_lut = make_fft_color_lut();
 static uint16_t fft_line[FFT_DISPLAY_SAMPLE_COUNT];
 static_assert(FFT_SAMPLE_COUNT == 256, "FFT sample count is not 256");
 
@@ -87,17 +111,12 @@ static uint16_t fft_db_to_color(float32_t db)
         normalized = 1.0f;
     }
 
-    uint16_t intensity = (uint16_t)(normalized * 31.0f);
-    uint16_t red = (intensity > 22U) ? (uint16_t)((intensity - 22U) * 7U) : 0U;
-    uint16_t green = (uint16_t)(normalized * 63.0f);
-    uint16_t blue = 31U - intensity;
-
-    if(red > 31U)
+    uint32_t g = (uint32_t)(normalized * 63.0f);
+    if(g >= kColorLutSize)
     {
-        red = 31U;
+        g = kColorLutSize - 1U;
     }
-
-    return (uint16_t)((red << 11) | (green << 5) | blue);
+    return fft_color_lut[g];
 }
 
 static float32_t fft_power_to_db(float32_t power)
@@ -140,11 +159,6 @@ static void fft_build_interp_db_table(void)
         float32_t imag = i2s_fft_sample_arr[(2U * fft_bin) + 1U];
         i2s_fft_sample_arr[interp_bin] = fft_power_to_db((real * real) + (imag * imag));
     }
-
-    for(uint32_t x_bin = 0U; x_bin < FFT_INTERP_COL_COUNT; ++x_bin)
-    {
-        i2s_fft_sample_arr[FFT_INTERP_COL_COUNT + x_bin] = i2s_fft_sample_arr[x_bin];
-    }
 }
 
 void UI_FFT_Init(void)
@@ -157,9 +171,10 @@ void UI_FFT_Init(void)
         return;
     }
 
-    s_fft_interp_instance.numRows = FFT_INTERP_ROW_COUNT;
-    s_fft_interp_instance.numCols = FFT_INTERP_COL_COUNT;
-    s_fft_interp_instance.pData = i2s_fft_sample_arr;
+    s_fft_interp_instance.nValues = FFT_INTERP_COL_COUNT;
+    s_fft_interp_instance.x1 = 0.0f;
+    s_fft_interp_instance.xSpacing = 1.0f;
+    s_fft_interp_instance.pYData = i2s_fft_sample_arr;
     i2s_fft_sample_arr_reset();
 
     s_waterfall_line = ST7789_ScrollRows(FFT_WATERFALL_TOP, FFT_WATERFALL_BOTTOM, 0);
@@ -189,12 +204,14 @@ void UI_FFT_Draw(void)
 
     fft_build_interp_db_table();
 
+    constexpr float32_t source_x_step = FFT_INTERP_X_MAX /
+                                        (float32_t)(FFT_DISPLAY_SAMPLE_COUNT - 1U);
+    float32_t source_x = 0.0f;
     for(uint32_t x_bin = 0U; x_bin < FFT_DISPLAY_SAMPLE_COUNT; ++x_bin)
     {
-        float32_t source_x = ((float32_t)x_bin * FFT_INTERP_X_MAX) /
-                             (float32_t)(FFT_DISPLAY_SAMPLE_COUNT - 1U);
-        float32_t db = riscv_bilinear_interp_f32(&s_fft_interp_instance, source_x, 0.0f);
+        float32_t db = riscv_linear_interp_f32(&s_fft_interp_instance, source_x);
         fft_line[x_bin] = fft_db_to_color(db);
+        source_x += source_x_step;
     }
     ST7789_DrawColorLine(0U, s_waterfall_line, fft_line, FFT_DISPLAY_SAMPLE_COUNT);
 
