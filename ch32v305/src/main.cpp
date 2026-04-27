@@ -29,6 +29,7 @@ extern "C" {
 #include "hw/dac.h"
 #include "hw/encoder.h"
 #include "hw/display/st7789.h"
+#include "hw/display/cst328.h"
 
 #include "hw/i2c.h"
 #include "hw/tlv320adc6120.h"
@@ -205,10 +206,9 @@ static void Draw_I2S_Sync_Status(void)
 
     s_i2s_bitslip_sync_displayed_count = s_i2s_bitslip_false_checks_in_a_row;
     snprintf(sync_text, sizeof(sync_text),
-             "Synced: %u/20",
+             "Synced: %2u/20",
              (unsigned int)s_i2s_bitslip_false_checks_in_a_row);
 
-    ST7789_Fill(0U, 0U, ST7789_WIDTH - 1U, 49U, BLACK);
     ST7789_WriteString(0U, 5U, "Initializing...", Font_11x18, WHITE, BLACK);
     ST7789_WriteString(0U, 27U, sync_text, Font_11x18, WHITE, BLACK);
 }
@@ -241,13 +241,20 @@ int main(void)
     //SysTick_Config(SystemCoreClock / 1000);	
     printf("SystemClk:%ld\r\n", SystemCoreClock);
     printf( "ChipID:%08lx\r\n", DBGMCU_GetCHIPID() );
-
-    printf("GPIO Toggle TEST\r\n");
     
-    printf("ST7789 init + built-in screen test\r\n");
+    printf("ST7789 init\r\n");
     ST7789_Init();
 
     i2c_hw_init();
+
+    if(cst328_hw_init() == READY)
+    {
+        printf("CST328: touch controller ready (I2C 0x1A)\r\n");
+    }
+    else
+    {
+        printf("CST328: init failed (check wiring / I2C 0x1A / TP_RST PC13 / IRQ PA12)\r\n");
+    }
 
     if(tlv320adc6120_hw_init() == READY)
     {
@@ -305,6 +312,7 @@ int main(void)
         UI_Draw();
         tud_task();
         FFTDraw();
+        cst328_hw_poll();
         blinky_task();
         //watchdog_kick();
     }

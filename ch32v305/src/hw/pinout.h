@@ -57,9 +57,12 @@
 /* ST7789 reset: active-low (drive low to reset, high for normal run). */
 #define ST7789_RST_GPIO_PORT  GPIOC
 #define ST7789_RST_GPIO_PIN   GPIO_Pin_14
-/* Touch panel reset (active-low): PC10 */
+/* CST328 touch panel reset (active-low): PC13 */
 #define TP_RST_GPIO_PORT      GPIOC
-#define TP_RST_GPIO_PIN       GPIO_Pin_10
+#define TP_RST_GPIO_PIN       GPIO_Pin_13
+/* CST328 touch panel IRQ (open-drain output from chip, active-low): PA12 */
+#define TP_INT_GPIO_PORT      GPIOA
+#define TP_INT_GPIO_PIN       GPIO_Pin_12
 /* Previous pinouts:
  * #define ST7789_CS_GPIO_PORT   GPIOD
  * #define ST7789_CS_GPIO_PIN    GPIO_Pin_2

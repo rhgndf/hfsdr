@@ -149,7 +149,7 @@ extern "C" void i2c_hw_init(void)
     I2C_StructInit(&i2c_init);
     i2c_init.I2C_ClockSpeed = I2C_CLOCK_SPEED_HZ;
     i2c_init.I2C_Mode = I2C_Mode_I2C;
-    i2c_init.I2C_DutyCycle = I2C_DutyCycle_2;
+    i2c_init.I2C_DutyCycle = I2C_DutyCycle_16_9;
     i2c_init.I2C_OwnAddress1 = I2C_OWN_ADDRESS;
     i2c_init.I2C_Ack = I2C_Ack_Enable;
     i2c_init.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
@@ -228,6 +228,118 @@ extern "C" ErrorStatus i2c_hw_write_register_burst(uint8_t addr_7bit, uint8_t re
     }
 
     guard.finish();
+    return READY;
+}
+
+extern "C" ErrorStatus i2c_hw_write_register16(uint8_t addr_7bit, uint16_t reg16, const uint8_t *data, size_t len)
+{
+    I2CTransactionGuard guard;
+
+    if((data == nullptr) && (len != 0U))
+    {
+        return NoREADY;
+    }
+
+    I2C_GenerateSTART(I2C2, ENABLE);
+    if(i2c_hw_wait_event(I2C_EVENT_MASTER_MODE_SELECT) != READY)
+    {
+        return NoREADY;
+    }
+
+    I2C_Send7bitAddress(I2C2, static_cast<uint8_t>(addr_7bit << 1), I2C_Direction_Transmitter);
+    if(i2c_hw_wait_event(I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED) != READY)
+    {
+        return NoREADY;
+    }
+
+    I2C_SendData(I2C2, static_cast<uint8_t>((reg16 >> 8) & 0xFFU));
+    if(i2c_hw_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED) != READY)
+    {
+        return NoREADY;
+    }
+
+    I2C_SendData(I2C2, static_cast<uint8_t>(reg16 & 0xFFU));
+    if(i2c_hw_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED) != READY)
+    {
+        return NoREADY;
+    }
+
+    for(size_t i = 0U; i < len; ++i)
+    {
+        I2C_SendData(I2C2, data[i]);
+        if(i2c_hw_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED) != READY)
+        {
+            return NoREADY;
+        }
+    }
+
+    guard.finish();
+    return READY;
+}
+
+extern "C" ErrorStatus i2c_hw_read_register16(uint8_t addr_7bit, uint16_t reg16, uint8_t *data, size_t len)
+{
+    I2CTransactionGuard guard;
+    I2CAckGuard ack_guard;
+
+    if((data == nullptr) || (len == 0U))
+    {
+        return NoREADY;
+    }
+
+    I2C_GenerateSTART(I2C2, ENABLE);
+    if(i2c_hw_wait_event(I2C_EVENT_MASTER_MODE_SELECT) != READY)
+    {
+        return NoREADY;
+    }
+
+    I2C_Send7bitAddress(I2C2, static_cast<uint8_t>(addr_7bit << 1), I2C_Direction_Transmitter);
+    if(i2c_hw_wait_event(I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED) != READY)
+    {
+        return NoREADY;
+    }
+
+    I2C_SendData(I2C2, static_cast<uint8_t>((reg16 >> 8) & 0xFFU));
+    if(i2c_hw_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED) != READY)
+    {
+        return NoREADY;
+    }
+
+    I2C_SendData(I2C2, static_cast<uint8_t>(reg16 & 0xFFU));
+    if(i2c_hw_wait_event(I2C_EVENT_MASTER_BYTE_TRANSMITTED) != READY)
+    {
+        return NoREADY;
+    }
+
+    I2C_GenerateSTART(I2C2, ENABLE);
+    if(i2c_hw_wait_event(I2C_EVENT_MASTER_MODE_SELECT) != READY)
+    {
+        return NoREADY;
+    }
+
+    I2C_Send7bitAddress(I2C2, static_cast<uint8_t>(addr_7bit << 1), I2C_Direction_Receiver);
+    if(i2c_hw_wait_event(I2C_EVENT_MASTER_RECEIVER_MODE_SELECTED) != READY)
+    {
+        return NoREADY;
+    }
+
+    for(size_t i = 0U; i < len; ++i)
+    {
+        if(i == (len - 1U))
+        {
+            ack_guard.disable();
+            guard.finish();
+        }
+
+        if(i2c_hw_wait_event(I2C_EVENT_MASTER_BYTE_RECEIVED) != READY)
+        {
+            return NoREADY;
+        }
+
+        data[i] = I2C_ReceiveData(I2C2);
+    }
+
+    guard.dismiss();
     return READY;
 }
 
