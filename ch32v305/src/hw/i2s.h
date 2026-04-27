@@ -27,7 +27,7 @@ void i2s_hw_enable(FunctionalState state);
 
 #define I2S_HW_COMPLEX_SAMPLE_COUNT 256U
 
-extern float i2s_fft_sample_arr[I2S_HW_COMPLEX_SAMPLE_COUNT * 2];
+extern int32_t i2s_fft_sample_arr[I2S_HW_COMPLEX_SAMPLE_COUNT * 2];
 void i2s_fft_sample_arr_reset(void);
 bool i2s_fft_sample_arr_ready(void);
 

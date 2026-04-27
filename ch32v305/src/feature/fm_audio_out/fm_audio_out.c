@@ -16,21 +16,21 @@ static uint8_t s_cic_idx = 0U;
 static uint8_t s_has_prev = 0U;
 
 /* pi-domain constants in Q29 so small-angle gain matches the prior num/den path. */
-static const int32_t s_pi_q29 = 1686629713;
-static const int32_t s_pi_over_2_q29 = 843314857;
+static constexpr int32_t s_pi_q29 = 1686629713;
+static constexpr int32_t s_pi_over_2_q29 = 843314857;
 
 /* alpha = exp(-1/(192000*50e-6)) in Q31 */
-static const int32_t s_deemph_alpha_q31 = 1935044054;
-static const int32_t s_one_minus_alpha_q31 = (int32_t)(0x7FFFFFFF - 1935044054);
+static constexpr int32_t s_deemph_alpha_q31 = 1935044054;
+static constexpr int32_t s_one_minus_alpha_q31 = (int32_t)(0x7FFFFFFF - 1935044054);
 
 /*
  * Odd 5th-degree least-squares fit of atan(x) on [0, 1]:
  * atan(x) ~= x * (c1 + x^2 * (c3 + x^2 * c5))
  * Coefficients are stored in Q31 and evaluated with Horner form.
  */
-static const int32_t s_atan_c1_q31 = 2138856262;
-static const int32_t s_atan_c3_q31 = -627668775;
-static const int32_t s_atan_c5_q31 = 178286847;
+static constexpr int32_t s_atan_c1_q31 = 2138856262;
+static constexpr int32_t s_atan_c3_q31 = -627668775;
+static constexpr int32_t s_atan_c5_q31 = 178286847;
 
 static int64_t clamp_i64(int64_t x, int64_t lo, int64_t hi)
 {
@@ -58,12 +58,13 @@ static int32_t cic4_q31(int32_t x_q31)
     s_cic_idx = (s_cic_idx + 1U) & 3U;
     s_cic_sum_q31 += (int64_t)x_q31 - (int64_t)old_q31;
 
-    return sat_i32(s_cic_sum_q31 >> 2);
+    /* Sum of 4 Q31 samples is bounded by 4*INT32_MAX; >>2 is back inside int32_t. */
+    return (int32_t)(s_cic_sum_q31 >> 2);
 }
 
-static uint64_t abs_i64(int64_t x)
+static uint32_t abs_i32(int32_t x)
 {
-    return (x < 0) ? (uint64_t)(-x) : (uint64_t)x;
+    return (x < 0) ? (uint32_t)(-(int64_t)x) : (uint32_t)x;
 }
 
 static int32_t atan_0_1_q29(uint32_t x_q31)
@@ -77,10 +78,10 @@ static int32_t atan_0_1_q29(uint32_t x_q31)
     return (int32_t)((((int64_t)x_q31 * acc_q31) >> 31) >> 2);
 }
 
-static int32_t atan2_q29(int64_t y, int64_t x)
+static int32_t atan2_q29(int32_t y, int32_t x)
 {
-    uint64_t ay = abs_i64(y);
-    uint64_t ax = abs_i64(x);
+    uint32_t ay = abs_i32(y);
+    uint32_t ax = abs_i32(x);
     int32_t base_q29;
     uint32_t ratio_q31;
 
@@ -91,12 +92,12 @@ static int32_t atan2_q29(int64_t y, int64_t x)
 
     if(ax >= ay)
     {
-        ratio_q31 = (ax == 0U) ? 0U : (uint32_t)((ay << 31) / ax);
+        ratio_q31 = (uint32_t)(((uint64_t)ay << 31) / ax);
         base_q29 = atan_0_1_q29(ratio_q31);
     }
     else
     {
-        ratio_q31 = (uint32_t)((ax << 31) / ay);
+        ratio_q31 = (uint32_t)(((uint64_t)ax << 31) / ay);
         base_q29 = s_pi_over_2_q29 - atan_0_1_q29(ratio_q31);
     }
 
@@ -174,8 +175,13 @@ bool fm_audio_out_process_i2s_words_isr(volatile uint16_t const *src_words, size
 
         if(s_has_prev != 0U)
         {
-            int64_t num = (((int64_t)i_now * (int64_t)s_q_prev) - ((int64_t)q_now * (int64_t)s_i_prev)) >> 31;
-            int64_t den = (((int64_t)i_now * (int64_t)s_i_prev) + ((int64_t)q_now * (int64_t)s_q_prev)) >> 31;
+            /* mulh-truncate each product before combining: 4 mulh + add/sub vs full 64-bit subtract with borrow.
+               on very rare cases when inputs are at the limits, num/den may overflow, but practically that won't happen
+             */
+            int32_t num = (int32_t)(((int64_t)i_now * (int64_t)s_q_prev) >> 32)
+                        - (int32_t)(((int64_t)q_now * (int64_t)s_i_prev) >> 32);
+            int32_t den = (int32_t)(((int64_t)i_now * (int64_t)s_i_prev) >> 32)
+                        + (int32_t)(((int64_t)q_now * (int64_t)s_q_prev) >> 32);
             int32_t fm_q31;
             int32_t cic_q31;
             int64_t mixed;

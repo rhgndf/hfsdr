@@ -41,7 +41,7 @@ static volatile uint32_t s_i2s_reset_coincidences = 0U;
 static volatile uint32_t s_i2s_coincidences_samples = 0U;
 
 
-float i2s_fft_sample_arr[I2S_HW_COMPLEX_SAMPLE_COUNT * 2];
+int32_t i2s_fft_sample_arr[I2S_HW_COMPLEX_SAMPLE_COUNT * 2];
 static volatile uint32_t s_fft_sample_cnt = 0U;
 
 void DMA1_Channel4_IRQHandler(void) __attribute__((interrupt));
@@ -97,26 +97,26 @@ static void i2s_hw_dma_irq_deinit(void)
     NVIC_Init(&nvic);
 }
 
-static void i2s_fft_push_sample(int32_t sample)
-{
-    if(!i2s_fft_sample_arr_ready())
-    {
-        i2s_fft_sample_arr[s_fft_sample_cnt++] = (float)sample / 2147483648.0f;
-    }
-}
-
-static void i2s_process_buf(volatile uint16_t const *src_words)
+static void i2s_process_buf(uint16_t const *src_words)
 {
     // Compare the top bit with the LSB, which is effectively noise
     uint32_t coincidences = 0;
+    uint32_t fft_idx = s_fft_sample_cnt;
+    constexpr uint32_t fft_cap = I2S_HW_COMPLEX_SAMPLE_COUNT * 2U;
     for(size_t i = 0; i < I2S_RX_DMA_CHUNK_WORDS; i += 2U)
     {
         uint32_t sample_32 = ((uint32_t)src_words[i] << 16) | src_words[i + 1U];
-        bool first_two_bits_same = (sample_32 >> 31) == ((sample_32 >> 30) & 1);
-        bool last_bit_different = (sample_32 >> 31) != (sample_32 & 1);
-        coincidences += first_two_bits_same && last_bit_different;
-        i2s_fft_push_sample((int32_t)sample_32);
+        uint32_t s31 = sample_32 >> 31;
+        uint32_t s30 = (sample_32 >> 30) & 1U;
+        uint32_t s0  = sample_32 & 1U;
+        // Counts bit31 == bit30 and bit31 != bit0
+        coincidences += ((s31 ^ s30) ^ 1U) & (s31 ^ s0);
+        if(fft_idx < fft_cap)
+        {
+            i2s_fft_sample_arr[fft_idx++] = (int32_t)sample_32;
+        }
     }
+    s_fft_sample_cnt = fft_idx;
     s_i2s_reset_coincidences += coincidences;
     s_i2s_coincidences_samples += I2S_RX_DMA_CHUNK_WORDS / 2;
 
@@ -370,13 +370,13 @@ void DMA1_Channel4_IRQHandler(void)
     if(DMA_GetITStatus(I2S_RX_DMA_HT_IT) != RESET)
     {
         DMA_ClearITPendingBit(I2S_RX_DMA_HT_IT);
-        i2s_process_buf(&s_rx_dma_buf[0]);
+        i2s_process_buf((uint16_t const *)&s_rx_dma_buf[0]);
     }
 
     if(DMA_GetITStatus(I2S_RX_DMA_TC_IT) != RESET)
     {
         DMA_ClearITPendingBit(I2S_RX_DMA_TC_IT);
-        i2s_process_buf(&s_rx_dma_buf[I2S_RX_DMA_CHUNK_WORDS]);
+        i2s_process_buf((uint16_t const *)&s_rx_dma_buf[I2S_RX_DMA_CHUNK_WORDS]);
     }
 
     if(DMA_GetITStatus(I2S_RX_DMA_TE_IT) != RESET)

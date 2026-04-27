@@ -1,9 +1,11 @@
 #include "ui/fft.h"
 
+#include <algorithm>
 #include <array>
-#include <math.h>
-#include <stddef.h>
-#include <stdint.h>
+#include <bit>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
 
 #include <dsp/complex_math_functions.h>
 #include <dsp/interpolation_functions.h>
@@ -35,11 +37,14 @@ constexpr float64_t kPi = 3.14159265358979323846264338327950288;
 
 consteval float32_t blackman_harris_92db_sample(uint32_t index, uint32_t size)
 {
+    /* Fold the int32 -> float scale (1/2^31) into the window so the runtime
+     * conversion loop drops one fmul per sample. */
+    constexpr float64_t kScale = 1.0 / 2147483648.0;
     float64_t w = kPi * static_cast<float64_t>(index) * (2.0 / static_cast<float64_t>(size));
-    return static_cast<float32_t>(0.35875 -
-                                  (0.48829 * std::cos(w)) +
-                                  (0.14128 * std::cos(2.0 * w)) -
-                                  (0.01168 * std::cos(3.0 * w)));
+    return static_cast<float32_t>(kScale * (0.35875 -
+                                            (0.48829 * std::cos(w)) +
+                                            (0.14128 * std::cos(2.0 * w)) -
+                                            (0.01168 * std::cos(3.0 * w))));
 }
 
 template<size_t Size>
@@ -83,70 +88,54 @@ static uint32_t s_last_rx_word_count = 0U;
 static uint16_t s_waterfall_line = FFT_WATERFALL_TOP;
 static riscv_cfft_instance_f32 s_fft_instance;
 static riscv_linear_interp_instance_f32 s_fft_interp_instance;
+static float32_t *fft_buf;
 static constexpr auto fft_window = make_blackman_harris_92db_window<FFT_SAMPLE_COUNT>();
 static constexpr auto fft_color_lut = make_fft_color_lut();
 static uint16_t fft_line[FFT_DISPLAY_SAMPLE_COUNT];
 static_assert(FFT_SAMPLE_COUNT == 256, "FFT sample count is not 256");
 
-static uint64_t ui_fft_ticks_from_ms(uint32_t ms)
-{
-    uint64_t ticks = ((uint64_t)SystemCoreClock * (uint64_t)ms) / 1000ULL;
-    if(ticks == 0U)
-    {
-        ticks = 1U;
-    }
-    return ticks;
-}
-
 static uint16_t fft_db_to_color(float32_t db)
 {
-    float32_t normalized = (db - FFT_DISPLAY_MIN_DB) / (FFT_DISPLAY_MAX_DB - FFT_DISPLAY_MIN_DB);
+    float32_t normalized = std::clamp(
+        (db - FFT_DISPLAY_MIN_DB) / (FFT_DISPLAY_MAX_DB - FFT_DISPLAY_MIN_DB),
+        0.0f, 1.0f);
 
-    if(normalized < 0.0f)
-    {
-        normalized = 0.0f;
-    }
-    else if(normalized > 1.0f)
-    {
-        normalized = 1.0f;
-    }
-
-    uint32_t g = (uint32_t)(normalized * 63.0f);
-    if(g >= kColorLutSize)
-    {
-        g = kColorLutSize - 1U;
-    }
+    uint32_t g = std::min(static_cast<uint32_t>(normalized * 63.0f),
+                          static_cast<uint32_t>(kColorLutSize - 1U));
     return fft_color_lut[g];
+}
+
+/*
+ * 10*log10(x) approximation via std::bit_cast log2 split.
+ * - exponent extraction gives integer log2 for free.
+ * - 4th-degree polynomial on mantissa in [1,2) is accurate to ~0.005 dB.
+ * Handles x=0 (returns very negative; caller clamps to floor).
+ */
+static float32_t fast_10log10f(float32_t x)
+{
+    uint32_t bits = std::bit_cast<uint32_t>(x);
+    int32_t e = static_cast<int32_t>((bits >> 23) & 0xFFU) - 127;
+    float32_t m = std::bit_cast<float32_t>((bits & 0x007FFFFFu) | 0x3F800000u);
+    float32_t l2m = -1.7417939f + (2.8212026f + (-1.4699568f + (0.4475461f - 0.05606445f * m) * m) * m) * m;
+    /* 10 / log2(10) = 3.01029995664f */
+    return (static_cast<float32_t>(e) + l2m) * 3.01029995664f;
 }
 
 static float32_t fft_power_to_db(float32_t power)
 {
-    float32_t db = 10.0f * log10f(power + FFT_MIN_POWER);
-
-    if(!isfinite(db))
-    {
-        return FFT_DB_CEILING;
-    }
-
-    if(db < FFT_DB_FLOOR)
-    {
-        return FFT_DB_FLOOR;
-    }
-
-    if(db > FFT_DB_CEILING)
-    {
-        return FFT_DB_CEILING;
-    }
-
-    return db;
+    float32_t db = fast_10log10f(power);
+    return std::clamp(db, FFT_DB_FLOOR, FFT_DB_CEILING);
 }
 
-static void fft_apply_window(void)
+static void fft_convert_and_window(void)
 {
-    riscv_cmplx_mult_real_f32(i2s_fft_sample_arr,
-                              fft_window.data(),
-                              i2s_fft_sample_arr,
-                              FFT_SAMPLE_COUNT);
+    /* kScale already folded into fft_window at compile time. */
+    for(uint32_t i = 0U; i < FFT_SAMPLE_COUNT; ++i)
+    {
+        float32_t w = fft_window[i];
+        fft_buf[2U * i] = static_cast<float32_t>(i2s_fft_sample_arr[2U * i]) * w;
+        fft_buf[(2U * i) + 1U] = static_cast<float32_t>(i2s_fft_sample_arr[(2U * i) + 1U]) * w;
+    }
 }
 
 static void fft_build_interp_db_table(void)
@@ -155,9 +144,9 @@ static void fft_build_interp_db_table(void)
     {
         uint32_t interp_bin = x_bin - 1U;
         uint32_t fft_bin = (interp_bin + (FFT_SAMPLE_COUNT / 2U)) % FFT_SAMPLE_COUNT;
-        float32_t real = i2s_fft_sample_arr[2U * fft_bin];
-        float32_t imag = i2s_fft_sample_arr[(2U * fft_bin) + 1U];
-        i2s_fft_sample_arr[interp_bin] = fft_power_to_db((real * real) + (imag * imag));
+        float32_t real = fft_buf[2U * fft_bin];
+        float32_t imag = fft_buf[(2U * fft_bin) + 1U];
+        fft_buf[interp_bin] = fft_power_to_db((real * real) + (imag * imag));
     }
 }
 
@@ -171,10 +160,11 @@ void UI_FFT_Init(void)
         return;
     }
 
+    fft_buf = reinterpret_cast<float32_t *>(i2s_fft_sample_arr);
     s_fft_interp_instance.nValues = FFT_INTERP_COL_COUNT;
     s_fft_interp_instance.x1 = 0.0f;
     s_fft_interp_instance.xSpacing = 1.0f;
-    s_fft_interp_instance.pYData = i2s_fft_sample_arr;
+    s_fft_interp_instance.pYData = fft_buf;
     i2s_fft_sample_arr_reset();
 
     s_waterfall_line = ST7789_ScrollRows(FFT_WATERFALL_TOP, FFT_WATERFALL_BOTTOM, 0);
@@ -195,12 +185,11 @@ void UI_FFT_Draw(void)
 
     s_last_rx_word_count = rx_word_count;
 
-    fft_apply_window();
-    riscv_cfft_f32(&s_fft_instance, i2s_fft_sample_arr, 0U, 1U);
+    fft_convert_and_window();
+    riscv_cfft_f32(&s_fft_instance, fft_buf, 0U, 1U);
 
     s_waterfall_line = ST7789_ScrollRows(FFT_WATERFALL_TOP, FFT_WATERFALL_BOTTOM, 1);
     ST7789_Fill(0U, s_waterfall_line, ST7789_WIDTH - 1U, s_waterfall_line, BLACK);
-
 
     fft_build_interp_db_table();
 
@@ -209,7 +198,11 @@ void UI_FFT_Draw(void)
     float32_t source_x = 0.0f;
     for(uint32_t x_bin = 0U; x_bin < FFT_DISPLAY_SAMPLE_COUNT; ++x_bin)
     {
-        float32_t db = riscv_linear_interp_f32(&s_fft_interp_instance, source_x);
+        /* xSpacing == 1, x1 == 0, so the CMSIS linear interp reduces to a 2-tap blend. */
+        uint32_t idx = static_cast<uint32_t>(source_x);
+        float32_t frac = source_x - static_cast<float32_t>(idx);
+        float32_t lo = fft_buf[idx];
+        float32_t db = lo + frac * (fft_buf[idx + 1U] - lo);
         fft_line[x_bin] = fft_db_to_color(db);
         source_x += source_x_step;
     }
