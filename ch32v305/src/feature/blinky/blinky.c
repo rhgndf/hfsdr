@@ -25,9 +25,6 @@ typedef struct
     uint64_t initial_frequency_hz;
     uint64_t activity_window_until_tick;
     uint64_t activity_led1_until_tick;
-    uint8_t button_raw_state;
-    uint8_t button_stable_state;
-    uint64_t button_last_change_tick;
     uint8_t led_duty_percent[2];
     uint8_t sw_pwm_phase;
     uint64_t sw_pwm_last_tick;
@@ -119,35 +116,6 @@ static uint8_t led_is_link_activity_enabled(uint64_t now_tick)
     }
 
     return (uint8_t)(now_tick < g_led_ctrl.activity_window_until_tick);
-}
-
-static void led_poll_button(uint64_t now_tick)
-{
-    uint8_t raw_state = (uint8_t)GPIO_ReadInputDataBit(ENC_BTN_GPIO_PORT, ENC_BTN_GPIO_PIN);
-    uint64_t debounce_ticks = ticks_from_ms(30U);
-
-    if(raw_state != g_led_ctrl.button_raw_state)
-    {
-        g_led_ctrl.button_raw_state = raw_state;
-        g_led_ctrl.button_last_change_tick = now_tick;
-    }
-
-    if((now_tick - g_led_ctrl.button_last_change_tick) < debounce_ticks)
-    {
-        return;
-    }
-
-    if(g_led_ctrl.button_stable_state == g_led_ctrl.button_raw_state)
-    {
-        return;
-    }
-
-    g_led_ctrl.button_stable_state = g_led_ctrl.button_raw_state;
-    if(g_led_ctrl.button_stable_state != 0U)
-    {
-        g_led_ctrl.selected_mode = (led_mode_t)(((uint32_t)g_led_ctrl.selected_mode + 1U) % (uint32_t)LED_MODE_COUNT);
-        printf("LED mode -> %u\r\n", (unsigned int)g_led_ctrl.selected_mode);
-    }
 }
 
 static void led_update_activity_gates(uint64_t now_tick)
@@ -299,10 +267,6 @@ void blinky_init(void)
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
 
-    gpio_init.GPIO_Pin = ENC_BTN_GPIO_PIN;
-    gpio_init.GPIO_Mode = GPIO_Mode_IPD;
-    GPIO_Init(ENC_BTN_GPIO_PORT, &gpio_init);
-
     gpio_init.GPIO_Pin = LED1_GPIO_PIN | LED2_GPIO_PIN;
     gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
@@ -317,9 +281,6 @@ void blinky_init(void)
     g_led_ctrl.initial_frequency_hz = si5351_hw_clk0_get_freq_hz();
     g_led_ctrl.activity_window_until_tick = 0U;
     g_led_ctrl.activity_led1_until_tick = 0U;
-    g_led_ctrl.button_raw_state = (uint8_t)GPIO_ReadInputDataBit(ENC_BTN_GPIO_PORT, ENC_BTN_GPIO_PIN);
-    g_led_ctrl.button_stable_state = g_led_ctrl.button_raw_state;
-    g_led_ctrl.button_last_change_tick = SysTick->CNT;
     g_led_ctrl.sw_pwm_phase = 0U;
     g_led_ctrl.sw_pwm_last_tick = SysTick->CNT;
     led_set_duty(LED_ID_PC0, 0U);
@@ -331,7 +292,6 @@ void blinky_task(void)
 {
     uint64_t now_tick = SysTick->CNT;
 
-    led_poll_button(now_tick);
     led_update_activity_gates(now_tick);
 
     if(led_is_link_activity_enabled(now_tick) != 0U)

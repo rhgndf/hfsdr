@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 void fm_audio_out_init(void);
-void fm_audio_out_set_gain_q8_8(uint16_t gain_q8_8);
+void fm_audio_out_set_gain(uint32_t gain_q16);
 
 /*
  * Process one I2S DMA chunk (16-bit words in groups of 4 per IQ frame).

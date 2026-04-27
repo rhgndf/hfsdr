@@ -2,6 +2,8 @@
 
 #include "hw/pinout.h"
 
+#include <stdbool.h>
+
 #include "ch32v30x_gpio.h"
 #include "ch32v30x_misc.h"
 #include "ch32v30x_rcc.h"
@@ -13,11 +15,23 @@
 #define ENCODER_INPUT_FILTER      0x0FU
 #define ENCODER_COUNTER_MIDPOINT  0x8000U
 #define ENCODER_COUNTS_PER_DETENT 4
+#define ENCODER_BUTTON_DEBOUNCE_MS 30U
 
 static volatile uint16_t s_encoder_last_counter = ENCODER_COUNTER_MIDPOINT;
 static volatile int16_t s_encoder_pending_raw_delta = 0;
 static volatile int32_t s_encoder_raw_position = 0;
 static int16_t s_encoder_detent_remainder = 0;
+static uint8_t s_button_raw_state = 0U;
+static uint8_t s_button_stable_state = 0U;
+static uint64_t s_button_last_change_tick = 0U;
+static bool s_button_pressed = false;
+
+static uint64_t encoder_ticks_from_ms(uint32_t ms)
+{
+    uint64_t ticks = ((uint64_t)SystemCoreClock * (uint64_t)ms) / 1000ULL;
+
+    return (ticks == 0U) ? 1U : ticks;
+}
 
 static int16_t encoder_sync_delta(void)
 {
@@ -31,6 +45,34 @@ static int16_t encoder_sync_delta(void)
     }
 
     return delta;
+}
+
+static void encoder_poll_button(void)
+{
+    uint64_t now_tick = SysTick->CNT;
+    uint8_t raw_state = (uint8_t)GPIO_ReadInputDataBit(ENC_BTN_GPIO_PORT, ENC_BTN_GPIO_PIN);
+
+    if(raw_state != s_button_raw_state)
+    {
+        s_button_raw_state = raw_state;
+        s_button_last_change_tick = now_tick;
+    }
+
+    if((now_tick - s_button_last_change_tick) < encoder_ticks_from_ms(ENCODER_BUTTON_DEBOUNCE_MS))
+    {
+        return;
+    }
+
+    if(s_button_stable_state == s_button_raw_state)
+    {
+        return;
+    }
+
+    s_button_stable_state = s_button_raw_state;
+    if(s_button_stable_state != 0U)
+    {
+        s_button_pressed = true;
+    }
 }
 
 __attribute__((interrupt)) void TIM10_CC_IRQHandler(void)
@@ -63,12 +105,16 @@ void encoder_init(void)
     TIM_ICInitTypeDef ic = {0};
     NVIC_InitTypeDef nvic = {0};
 
-    RCC_APB2PeriphClockCmd(ENCODER_GPIO_PERIPH | ENCODER_TIMER_PERIPH, ENABLE);
+    RCC_APB2PeriphClockCmd(ENCODER_GPIO_PERIPH | ENCODER_TIMER_PERIPH | RCC_APB2Periph_GPIOC, ENABLE);
 
     gpio.GPIO_Pin = ENC_A_GPIO_PIN | ENC_B_GPIO_PIN;
     gpio.GPIO_Mode = GPIO_Mode_IN_FLOATING;
     gpio.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(ENC_A_GPIO_PORT, &gpio);
+
+    gpio.GPIO_Pin = ENC_BTN_GPIO_PIN;
+    gpio.GPIO_Mode = GPIO_Mode_IPD;
+    GPIO_Init(ENC_BTN_GPIO_PORT, &gpio);
 
     TIM_DeInit(ENCODER_TIMER);
 
@@ -114,6 +160,10 @@ void encoder_init(void)
     s_encoder_pending_raw_delta = 0;
     s_encoder_raw_position = 0;
     s_encoder_detent_remainder = 0;
+    s_button_raw_state = (uint8_t)GPIO_ReadInputDataBit(ENC_BTN_GPIO_PORT, ENC_BTN_GPIO_PIN);
+    s_button_stable_state = s_button_raw_state;
+    s_button_last_change_tick = SysTick->CNT;
+    s_button_pressed = false;
 }
 
 int16_t encoder_take_delta(void)
@@ -128,6 +178,17 @@ int16_t encoder_take_delta(void)
     s_encoder_detent_remainder = raw_delta - (detent_delta * ENCODER_COUNTS_PER_DETENT);
 
     return detent_delta;
+}
+
+bool encoder_take_button_press(void)
+{
+    bool pressed;
+
+    encoder_poll_button();
+    pressed = s_button_pressed;
+    s_button_pressed = false;
+
+    return pressed;
 }
 
 int32_t encoder_get_position(void)
