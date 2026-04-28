@@ -247,13 +247,15 @@ int main(void)
 
     i2c_hw_init();
 
-    if(cst328_hw_init() == READY)
+    constexpr uint64_t kInitialLoFreqHz = 93300000ULL;
+    if(usb_hw_set_clk_freq_hz(kInitialLoFreqHz) == READY)
     {
-        printf("CST328: touch controller ready (I2C 0x1A)\r\n");
+        printf("Si5351: LO CLK0/CLK1 = %lu Hz, CLK1 = +90 deg\r\n",
+               (unsigned long)kInitialLoFreqHz);
     }
     else
     {
-        printf("CST328: init failed (check wiring / I2C 0x1A / TP_RST PC13 / IRQ PA12)\r\n");
+        printf("Si5351: LO program failed (I2C 0x60)\r\n");
     }
 
     if(tlv320adc6120_hw_init() == READY)
@@ -266,15 +268,13 @@ int main(void)
         printf("TLV320ADC6120: I2C init failed (check wiring / AVDD AREG define / 24 MHz MCLK)\r\n");
     }
 
-    constexpr uint64_t kInitialLoFreqHz = 93300000ULL;
-    if(usb_hw_set_clk_freq_hz(kInitialLoFreqHz) == READY)
+    if(cst328_hw_init() == READY)
     {
-        printf("Si5351: LO CLK0/CLK1 = %lu Hz, CLK1 = +90 deg\r\n",
-               (unsigned long)kInitialLoFreqHz);
+        printf("CST328: touch controller ready (I2C 0x1A)\r\n");
     }
     else
     {
-        printf("Si5351: LO program failed (I2C 0x60)\r\n");
+        printf("CST328: init failed (check wiring / I2C 0x1A / TP_RST PC13 / IRQ PA12)\r\n");
     }
 
     i2s_hw_init();
