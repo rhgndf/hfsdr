@@ -15,7 +15,7 @@ Portable Mode (not connected to a PC)
 
 Connected to a PC
 
-1. Go to [the web ui](https://hackin7.github.io/lain-sdr-chall)
+1. Go to [the web ui](https://rhgndf.github.io/hfsdr/)
 2. Connect & Pair a device
 3. Set the frequency & gain
 4. Pair the device again
