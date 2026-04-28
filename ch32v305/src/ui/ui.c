@@ -19,6 +19,8 @@
 #define UI_FREQ_SUFFIX_X   ((UI_FREQ_DIGITS * Font_16x26.width) + (Font_16x26.width / 2U))
 #define UI_MODE_TEXT_X     (ST7789_WIDTH - (4U * Font_11x18.width) - 1U)
 #define UI_MODE_TEXT_Y     0U
+#define UI_MODE_TEXT_WIDTH (4U * Font_11x18.width)
+#define UI_MODE_TEXT_HEIGHT Font_11x18.height
 #define UI_TRIANGLE_Y      1U
 #define UI_VOL_ROW_Y       40U
 #define UI_GAIN_ROW_Y      60U
@@ -35,6 +37,7 @@
 static uint64_t s_displayed_freq_hz = UINT64_MAX;
 static uint8_t s_displayed_volume = UINT8_MAX;
 static int8_t s_displayed_tlv320_gain_db_x2 = INT8_MAX;
+static fm_audio_out_mode_t s_displayed_fm_mode = FM_AUDIO_OUT_MODE_COUNT;
 static uint8_t s_volume = UI_VOLUME_DEFAULT;
 static int8_t s_tlv320_gain_db_x2 = UI_TLV320_GAIN_DEFAULT_DB_X2;
 static bool s_redraw_all = true;
@@ -45,6 +48,7 @@ typedef enum
     UI_CONTROL_FREQ_1_MHZ,
     UI_CONTROL_FREQ_100_KHZ,
     UI_CONTROL_FREQ_10_KHZ,
+    UI_CONTROL_FM_MODE,
     UI_CONTROL_VOLUME,
     UI_CONTROL_TLV320_GAIN,
     UI_CONTROL_COUNT
@@ -179,6 +183,25 @@ static void ui_draw_frequency(uint64_t freq_hz)
     }
 }
 
+static char const *ui_fm_mode_text(void)
+{
+    return (fm_audio_out_get_mode() == FM_AUDIO_OUT_MODE_NBFM) ? "NBFM" : "WBFM";
+}
+
+static void ui_draw_mode_control(void)
+{
+    bool active = (s_active_control == UI_CONTROL_FM_MODE);
+    uint16_t fg = active ? BLACK : CYAN;
+    uint16_t bg = active ? CYAN : BLACK;
+
+    ST7789_Fill(UI_MODE_TEXT_X,
+                UI_MODE_TEXT_Y,
+                (uint16_t)(UI_MODE_TEXT_X + UI_MODE_TEXT_WIDTH - 1U),
+                (uint16_t)(UI_MODE_TEXT_Y + UI_MODE_TEXT_HEIGHT - 1U),
+                bg);
+    ST7789_WriteString(UI_MODE_TEXT_X, UI_MODE_TEXT_Y, ui_fm_mode_text(), Font_11x18, fg, bg);
+}
+
 static void ui_draw_progress_row(uint16_t y, char const *label, int16_t value, int16_t min, int16_t max, bool active)
 {
     uint16_t color = active ? YELLOW : WHITE;
@@ -229,9 +252,9 @@ static void ui_draw_header(uint64_t freq_hz)
     if(s_redraw_all)
     {
         ST7789_Fill(0U, 0U, ST7789_WIDTH - 1U, UI_HEADER_BOTTOM_Y, BLACK);
-        ST7789_WriteString(UI_MODE_TEXT_X, UI_MODE_TEXT_Y, "WBFM", Font_11x18, CYAN, BLACK);
     }
 
+    ui_draw_mode_control();
     ui_draw_frequency(freq_hz);
     ui_draw_progress_row(UI_VOL_ROW_Y,
                          "VOL",
@@ -249,6 +272,7 @@ static void ui_draw_header(uint64_t freq_hz)
     s_displayed_freq_hz = freq_hz;
     s_displayed_volume = s_volume;
     s_displayed_tlv320_gain_db_x2 = s_tlv320_gain_db_x2;
+    s_displayed_fm_mode = fm_audio_out_get_mode();
     s_displayed_active_control = s_active_control;
     s_redraw_all = false;
 }
@@ -290,6 +314,23 @@ static void ui_apply_encoder_delta(int16_t delta, uint64_t freq_hz, uint64_t *ne
             break;
         }
 
+        case UI_CONTROL_FM_MODE:
+        {
+            fm_audio_out_mode_t mode = fm_audio_out_get_mode();
+
+            if(delta > 0)
+            {
+                mode = (mode == FM_AUDIO_OUT_MODE_WBFM) ? FM_AUDIO_OUT_MODE_NBFM : FM_AUDIO_OUT_MODE_WBFM;
+            }
+            else
+            {
+                mode = (mode == FM_AUDIO_OUT_MODE_NBFM) ? FM_AUDIO_OUT_MODE_WBFM : FM_AUDIO_OUT_MODE_NBFM;
+            }
+
+            fm_audio_out_set_mode(mode);
+            break;
+        }
+
         case UI_CONTROL_TLV320_GAIN:
         {
             int8_t gain_db_x2 = ui_apply_delta_i8(s_tlv320_gain_db_x2, delta, UI_TLV320_GAIN_MIN_DB_X2, UI_TLV320_GAIN_MAX_DB_X2);
@@ -312,11 +353,13 @@ void UI_Init(void)
     s_displayed_freq_hz = UINT64_MAX;
     s_displayed_volume = UINT8_MAX;
     s_displayed_tlv320_gain_db_x2 = INT8_MAX;
+    s_displayed_fm_mode = FM_AUDIO_OUT_MODE_COUNT;
     s_displayed_active_control = UI_CONTROL_COUNT;
     s_active_control = UI_CONTROL_FREQ_10_MHZ;
     s_volume = UI_VOLUME_DEFAULT;
     s_tlv320_gain_db_x2 = UI_TLV320_GAIN_DEFAULT_DB_X2;
     s_redraw_all = true;
+    fm_audio_out_set_mode(FM_AUDIO_OUT_MODE_WBFM);
     fm_audio_out_set_gain(ui_volume_gain_q16(s_volume));
     UI_Draw();
 }
@@ -337,6 +380,7 @@ void UI_Draw(void)
        (freq_hz != s_displayed_freq_hz) ||
        (s_volume != s_displayed_volume) ||
        (s_tlv320_gain_db_x2 != s_displayed_tlv320_gain_db_x2) ||
+       (fm_audio_out_get_mode() != s_displayed_fm_mode) ||
        (s_active_control != s_displayed_active_control))
     {
         ui_draw_header(freq_hz);
