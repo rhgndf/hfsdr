@@ -20,7 +20,6 @@ static int8_t mute[AUDIO_MIC_CTRL_CHANNELS + 1U];
 static int16_t volume[AUDIO_MIC_CTRL_CHANNELS + 1U];
 static uint8_t s_streaming_alt = 0U;
 static volatile uint32_t s_usb_drop_frame_count = 0U;
-static uint32_t s_usb_stream_buf[AUDIO_USB_DMA_CHUNK_FRAMES * AUDIO_USB_CHANNELS];
 
 [[nodiscard]] bool audio_usb_tx_ready(void)
 {
@@ -30,8 +29,10 @@ static uint32_t s_usb_stream_buf[AUDIO_USB_DMA_CHUNK_FRAMES * AUDIO_USB_CHANNELS
 void audio_usb_mic_write_isr(volatile uint16_t const* src_words, size_t word_count)
 {
   size_t const frame_count = word_count / 4U;
-  size_t frame_idx;
+  size_t const sample_count = frame_count * 2U;
+  size_t const total_bytes = frame_count * AUDIO_USB_FRAME_BYTES;
   tu_fifo_t* fifo;
+  tu_fifo_buffer_info_t info;
 
   if ((!audio_usb_tx_ready()) || (src_words == 0) || (frame_count == 0U)) {
     return;
@@ -43,22 +44,35 @@ void audio_usb_mic_write_isr(volatile uint16_t const* src_words, size_t word_cou
   }
 
   fifo = tud_audio_get_ep_in_ff();
-  if (tu_fifo_remaining(fifo) < (frame_count * AUDIO_USB_FRAME_BYTES)) {
+  tu_fifo_get_write_info(fifo, &info);
+  if ((info.linear.len + info.wrapped.len) < total_bytes) {
     s_usb_drop_frame_count += (uint32_t)frame_count;
     return;
   }
 
-  for (frame_idx = 0U; frame_idx < frame_count; ++frame_idx) {
-    uint16_t const left_hi = src_words[frame_idx * 4U];
-    uint16_t const left_lo = src_words[frame_idx * 4U + 1U];
-    uint16_t const right_hi = src_words[frame_idx * 4U + 2U];
-    uint16_t const right_lo = src_words[frame_idx * 4U + 3U];
-
-    s_usb_stream_buf[frame_idx * 2U] = ((uint32_t)left_hi << 16) | (uint32_t)left_lo;
-    s_usb_stream_buf[frame_idx * 2U + 1U] = ((uint32_t)right_hi << 16) | (uint32_t)right_lo;
+  /* Each I2S 32-bit sample lands as two LE uint16_t (MS half-word first), so
+   * a 32-bit load yields bytes [b2 b3 b0 b1]; rotating by 16 bits reorders
+   * them to [b0 b1 b2 b3] which is the LE 32-bit slot the host expects.
+   * The FIFO byte buffer is uint16_t-aligned by tinyusb (TUD_EPBUF_DEF
+   * uses 4-byte alignment), so the linear segment always splits on a
+   * 4-byte boundary in this 8-bytes-per-frame stream. */
+  uint32_t const* src32 = (uint32_t const*)(uintptr_t)src_words;
+  size_t const linear_samples = info.linear.len / sizeof(uint32_t);
+  size_t const head = (linear_samples < sample_count) ? linear_samples : sample_count;
+  uint32_t* dst = (uint32_t*)(uintptr_t)info.linear.ptr;
+  for (size_t i = 0U; i < head; ++i) {
+    uint32_t const raw = src32[i];
+    dst[i] = (raw << 16) | (raw >> 16);
+  }
+  if (head < sample_count) {
+    uint32_t* wrap = (uint32_t*)(uintptr_t)info.wrapped.ptr;
+    for (size_t i = head; i < sample_count; ++i) {
+      uint32_t const raw = src32[i];
+      wrap[i - head] = (raw << 16) | (raw >> 16);
+    }
   }
 
-  (void)tud_audio_write(s_usb_stream_buf, (uint16_t)(frame_count * AUDIO_USB_FRAME_BYTES));
+  tu_fifo_advance_write_pointer(fifo, (uint16_t)total_bytes);
 }
 
 static bool audio_clock_get_request(uint8_t rhport, audio20_control_request_t const* request) {
