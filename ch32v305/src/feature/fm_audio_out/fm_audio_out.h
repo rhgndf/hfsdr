@@ -5,6 +5,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum
 {
     FM_AUDIO_OUT_MODE_WBFM = 0,
@@ -22,5 +26,9 @@ fm_audio_out_mode_t fm_audio_out_get_mode(void);
  * Returns true when chunk was consumed by FM path.
  */
 bool fm_audio_out_process_i2s_words_isr(volatile uint16_t const *src_words, size_t word_count);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
