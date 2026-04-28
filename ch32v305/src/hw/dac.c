@@ -26,16 +26,12 @@ static_assert((DAC_STREAM_BUF_SAMPLES & (DAC_STREAM_BUF_SAMPLES - 1U)) == 0U,
 static volatile uint32_t s_dac_stream_buf[DAC_STREAM_BUF_SAMPLES];
 static volatile uint32_t s_write_idx;
 
+/* Caller must guarantee sample <= 4095. The FM path's only producer,
+ * fm_q31_to_dac12, returns ((clamped + 1<<18) >> 19) where clamped is bounded
+ * by (4095<<19 - 1<<18), so the dac code is provably in [0, 4095]. */
 static uint32_t dac_pack_dual_12(uint16_t sample)
 {
-    uint32_t clamped = sample;
-
-    if(clamped > 4095U)
-    {
-        clamped = 4095U;
-    }
-
-    return (clamped << 16) | clamped;
+    return ((uint32_t)sample << 16) | (uint32_t)sample;
 }
 
 static uint32_t tim7_counter_clock_hz(void)
