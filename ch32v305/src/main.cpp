@@ -37,6 +37,7 @@ extern "C" {
 #include "hw/i2s.h"
 #include "hw/usb.h"
 #include "hw/watchdog.h"
+#include "hw/adc.h"
 #include "feature/blinky/blinky.h"
 #include "feature/fm_audio_out/fm_audio_out.h"
 #include "ui/fft.h"
@@ -213,6 +214,24 @@ static void Draw_I2S_Sync_Status(void)
     ST7789_WriteString(0U, 27U, sync_text, Font_11x18, WHITE, BLACK);
 }
 
+static void ADC_Poll(void)
+{
+    uint32_t vdda = adc_hw_vdda_mv();
+    uint16_t batt_raw = adc_hw_read_batt_raw();
+    uint16_t vbus_raw = adc_hw_read_vbus_raw();
+    uint16_t temp_raw = adc_hw_read_temp_raw();
+
+    uint32_t batt_mv = (uint32_t)batt_raw * vdda * 2U / 4096U;
+    uint32_t vbus_mv = (uint32_t)vbus_raw * vdda * 2U / 4096U;
+    uint32_t temp_mv = (uint32_t)temp_raw * vdda / 4096U;
+    int32_t temp_c = TempSensor_Volt_To_Temper((int32_t)temp_mv);
+
+    printf("BATT: raw=%u %lu.%03lu V | VBUS: raw=%u %lu.%03lu V | TEMP: raw=%u %ld C\r\n",
+           batt_raw, (unsigned long)(batt_mv / 1000U), (unsigned long)(batt_mv % 1000U),
+           vbus_raw, (unsigned long)(vbus_mv / 1000U), (unsigned long)(vbus_mv % 1000U),
+           temp_raw, (long)temp_c);
+}
+
 static uint64_t ticks_from_ms(uint32_t ms)
 {
     uint64_t ticks = ((uint64_t)SystemCoreClock * (uint64_t)ms) / 1000ULL;
@@ -280,6 +299,7 @@ int main(void)
     i2s_hw_init();
     i2s_hw_enable(ENABLE);
 
+    adc_hw_init();
     dac_hw_init();
     encoder_init();
     fm_audio_out_init();
@@ -294,6 +314,7 @@ int main(void)
     PeriodicTrigger I2CBusScan{1000U, Scan_I2CBus_EverySecond};
     PeriodicTrigger SysTickReportUSB{1000U, SysTick_Report_USB_EverySecond};
     PeriodicTrigger FFTDraw{1000U / 60U, UI_FFT_Draw};
+    PeriodicTrigger ADCPoll{1000U, ADC_Poll};
 
     while(s_i2s_bitslip_check)
     {
@@ -314,6 +335,7 @@ int main(void)
         UI_Draw();
         tud_task();
         FFTDraw();
+        ADCPoll();
         cst328_hw_poll();
         blinky_task();
         //watchdog_kick();
