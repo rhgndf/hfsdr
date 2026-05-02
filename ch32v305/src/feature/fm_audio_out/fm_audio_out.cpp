@@ -140,60 +140,48 @@ static CICComplexFilter<int32_t, FM_IQ_CIC_MAX_TAPS> s_iq_cic;
 static SinglePoleIIR<int32_t, 31> s_deemph;
 static volatile fm_audio_out_mode_t s_mode = FM_AUDIO_OUT_MODE_WBFM;
 
-/* pi-domain constants in Q29 so small-angle gain matches the prior num/den path. */
 static constexpr int32_t s_pi_q29 = static_cast<int32_t>(std::numbers::pi_v<double> * (1LL << 29) + 0.5);
-static constexpr int32_t s_pi_over_2_q29 = static_cast<int32_t>(std::numbers::pi_v<double> / 2.0 * (1LL << 29) + 0.5);
 
-/*
- * Odd 5th-degree minimax (Remez) fit of atan(x) on [0, 1]:
- * atan(x) ~= x * (c1 + x^2 * (c3 + x^2 * c5))
- * Max abs error ~6.1e-4 in atan (vs 1.3e-3 for the previous least-squares fit).
- * Coefficients are stored in Q31 and evaluated with Horner form.
- */
-static constexpr int32_t s_atan_c1_q31 = 2137514932;
-static constexpr int32_t s_atan_c3_q31 = -619957566;
-static constexpr int32_t s_atan_c5_q31 = 170379294;
-
-static int32_t atan_0_1_q29(uint32_t x_q31)
-{
-    uint64_t x2_q31 = ((uint64_t)x_q31 * (uint64_t)x_q31) >> 31;
-    int64_t acc_q31 = s_atan_c5_q31;
-
-    acc_q31 = (int64_t)s_atan_c3_q31 + ((acc_q31 * (int64_t)x2_q31) >> 31);
-    acc_q31 = (int64_t)s_atan_c1_q31 + ((acc_q31 * (int64_t)x2_q31) >> 31);
-
-    return (int32_t)((((int64_t)x_q31 * acc_q31) >> 31) >> 2);
-}
+static constexpr int32_t s_cordic_table[14] = {
+    421657428, 248918915, 131521918, 66762579, 33510843,
+    16771758,  8387925,   4194219,   2097141,  1048575,
+    524288,    262144,    131072,    65536
+};
 
 static int32_t atan2_q29(int32_t y, int32_t x)
 {
-    uint32_t ay = static_cast<uint32_t>(std::abs(static_cast<int64_t>(y)));
-    uint32_t ax = static_cast<uint32_t>(std::abs(static_cast<int64_t>(x)));
-    int32_t base_q29;
-    uint32_t ratio_q31;
-
-    if((ax == 0U) && (ay == 0U))
-    {
+    if((x | y) == 0)
         return 0;
-    }
 
-    if(ax >= ay)
-    {
-        ratio_q31 = (uint32_t)(((uint64_t)ay << 31) / ax);
-        base_q29 = atan_0_1_q29(ratio_q31);
-    }
-    else
-    {
-        ratio_q31 = (uint32_t)(((uint64_t)ax << 31) / ay);
-        base_q29 = s_pi_over_2_q29 - atan_0_1_q29(ratio_q31);
-    }
-
+    int32_t angle = 0;
     if(x < 0)
     {
-        base_q29 = s_pi_q29 - base_q29;
+        x = -x;
+        y = -y;
+        angle = (y <= 0) ? s_pi_q29 : -s_pi_q29;
     }
 
-    return (y < 0) ? -base_q29 : base_q29;
+    x >>= 1;
+    y >>= 1;
+
+    for(int i = 0; i < 14; i++)
+    {
+        int32_t xn = x;
+        if(y >= 0)
+        {
+            x += y >> i;
+            y -= xn >> i;
+            angle += s_cordic_table[i];
+        }
+        else
+        {
+            x -= y >> i;
+            y += xn >> i;
+            angle -= s_cordic_table[i];
+        }
+    }
+
+    return angle;
 }
 
 template<fm_audio_out_mode_t MODE>
@@ -270,14 +258,13 @@ static void fm_audio_out_process_frames(const uint16_t* words, size_t frame_coun
      * doesn't reload it on every iteration. */
     uint32_t const gain_q16 = s_audio_gain_q16;
 
+    uint32_t const *words32 = (uint32_t const *)(uintptr_t)words;
     for(size_t i = 0U; i < frame_count; ++i)
     {
-        uint16_t i_hi = words[i * 4U + 0U];
-        uint16_t i_lo = words[i * 4U + 1U];
-        uint16_t q_hi = words[i * 4U + 2U];
-        uint16_t q_lo = words[i * 4U + 3U];
-        int32_t i_now = (int32_t)(((uint32_t)i_hi << 16) | (uint32_t)i_lo);
-        int32_t q_now = (int32_t)(((uint32_t)q_hi << 16) | (uint32_t)q_lo);
+        uint32_t raw_i = words32[i * 2U];
+        uint32_t raw_q = words32[i * 2U + 1U];
+        int32_t i_now = (int32_t)((raw_i << 16) | (raw_i >> 16));
+        int32_t q_now = (int32_t)((raw_q << 16) | (raw_q >> 16));
 
         int32_t i_filt;
         int32_t q_filt;

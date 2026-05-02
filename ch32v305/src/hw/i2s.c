@@ -100,10 +100,12 @@ static void i2s_hw_dma_irq_deinit(void)
 
 static void i2s_coincidence_detect(uint16_t const *src_words)
 {
+    uint32_t const *src32 = (uint32_t const *)(uintptr_t)src_words;
     uint32_t coincidences = 0;
-    for(size_t i = 0; i < I2S_RX_DMA_CHUNK_WORDS; i += 2U)
+    for(size_t i = 0; i < I2S_RX_DMA_CHUNK_WORDS / 2U; i++)
     {
-        uint32_t sample_32 = ((uint32_t)src_words[i] << 16) | src_words[i + 1U];
+        uint32_t raw = src32[i];
+        uint32_t sample_32 = (raw << 16) | (raw >> 16);
         uint32_t s31 = sample_32 >> 31;
         uint32_t s30 = (sample_32 >> 30) & 1U;
         uint32_t s0  = sample_32 & 1U;
@@ -122,9 +124,11 @@ static void i2s_process_buf(uint16_t const *src_words)
 
     uint32_t fft_idx = s_fft_sample_cnt;
     constexpr uint32_t fft_cap = I2S_HW_COMPLEX_SAMPLE_COUNT * 2U;
-    for(size_t i = 0; i < I2S_RX_DMA_CHUNK_WORDS; i += 2U)
+    uint32_t const *src32 = (uint32_t const *)(uintptr_t)src_words;
+    for(size_t i = 0; i < I2S_RX_DMA_CHUNK_WORDS / 2U; i++)
     {
-        uint32_t sample_32 = ((uint32_t)src_words[i] << 16) | src_words[i + 1U];
+        uint32_t raw = src32[i];
+        uint32_t sample_32 = (raw << 16) | (raw >> 16);
         if(fft_idx < fft_cap)
         {
             i2s_fft_sample_arr[fft_idx++] = (int32_t)sample_32;
