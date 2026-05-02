@@ -22,6 +22,7 @@ void i2s_hw_init(void);
 void i2s_hw_deinit(void);
 void i2s_hw_enable(FunctionalState state);
 [[nodiscard]] bool i2s_needs_reset(void);
+void i2s_coincidence_disable(void);
 [[nodiscard]] uint32_t i2s_hw_rx_word_count(void);
 
 

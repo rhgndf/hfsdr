@@ -322,7 +322,9 @@ int main(void)
         I2SBitslipCheck();
         tud_task();
     }
-    
+
+    i2s_coincidence_disable();
+
     UI_FFT_Init();
     UI_Init();
 

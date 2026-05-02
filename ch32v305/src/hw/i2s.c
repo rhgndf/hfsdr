@@ -39,6 +39,7 @@ static volatile uint32_t s_rx_word_count = 0U;
 static volatile uint16_t s_rx_dma_buf[I2S_RX_DMA_BUFFER_WORDS];
 static volatile uint32_t s_i2s_reset_coincidences = 0U;
 static volatile uint32_t s_i2s_coincidences_samples = 0U;
+static volatile bool s_coincidence_enabled = true;
 
 
 int32_t i2s_fft_sample_arr[I2S_HW_COMPLEX_SAMPLE_COUNT * 2];
@@ -97,33 +98,49 @@ static void i2s_hw_dma_irq_deinit(void)
     NVIC_Init(&nvic);
 }
 
-static void i2s_process_buf(uint16_t const *src_words)
+static void i2s_coincidence_detect(uint16_t const *src_words)
 {
-    // Compare the top bit with the LSB, which is effectively noise
     uint32_t coincidences = 0;
-    uint32_t fft_idx = s_fft_sample_cnt;
-    constexpr uint32_t fft_cap = I2S_HW_COMPLEX_SAMPLE_COUNT * 2U;
     for(size_t i = 0; i < I2S_RX_DMA_CHUNK_WORDS; i += 2U)
     {
         uint32_t sample_32 = ((uint32_t)src_words[i] << 16) | src_words[i + 1U];
         uint32_t s31 = sample_32 >> 31;
         uint32_t s30 = (sample_32 >> 30) & 1U;
         uint32_t s0  = sample_32 & 1U;
-        // Counts bit31 == bit30 and bit31 != bit0
         coincidences += ((s31 ^ s30) ^ 1U) & (s31 ^ s0);
+    }
+    s_i2s_reset_coincidences += coincidences;
+    s_i2s_coincidences_samples += I2S_RX_DMA_CHUNK_WORDS / 2;
+}
+
+static void i2s_process_buf(uint16_t const *src_words)
+{
+    if(s_coincidence_enabled)
+    {
+        i2s_coincidence_detect(src_words);
+    }
+
+    uint32_t fft_idx = s_fft_sample_cnt;
+    constexpr uint32_t fft_cap = I2S_HW_COMPLEX_SAMPLE_COUNT * 2U;
+    for(size_t i = 0; i < I2S_RX_DMA_CHUNK_WORDS; i += 2U)
+    {
+        uint32_t sample_32 = ((uint32_t)src_words[i] << 16) | src_words[i + 1U];
         if(fft_idx < fft_cap)
         {
             i2s_fft_sample_arr[fft_idx++] = (int32_t)sample_32;
         }
     }
     s_fft_sample_cnt = fft_idx;
-    s_i2s_reset_coincidences += coincidences;
-    s_i2s_coincidences_samples += I2S_RX_DMA_CHUNK_WORDS / 2;
 
     s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
     usb_hw_vendor_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
     audio_usb_mic_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
     fm_audio_out_process_i2s_words_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
+}
+
+void i2s_coincidence_disable(void)
+{
+    s_coincidence_enabled = false;
 }
 
 void i2s_fft_sample_arr_reset(void)
@@ -278,6 +295,7 @@ void i2s_hw_init(void)
 {
     s_rx_word_count = 0U;
     s_i2s_reset_coincidences = 0U;
+    s_coincidence_enabled = true;
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC, ENABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI2, ENABLE);
@@ -345,7 +363,6 @@ bool i2s_needs_reset(void)
     uint32_t thres = 1.2879f * sqrtf(n);
     if ((s_i2s_reset_coincidences < s_i2s_coincidences_samples / 2 - thres) ||
         (s_i2s_reset_coincidences > s_i2s_coincidences_samples / 2 + thres)) {
-        // Is bitslipped, request reset outside the ISR.
         uint32_t sample_32 = ((uint32_t)s_rx_dma_buf[0] << 16) | s_rx_dma_buf[1];
         printf("coincidences: %ld/%ld, thres: %ld, sample: %08lX\n", s_i2s_reset_coincidences, s_i2s_coincidences_samples, thres, sample_32);
         ret = true;

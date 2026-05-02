@@ -138,7 +138,6 @@ static volatile uint32_t s_audio_gain_q16 = FM_AUDIO_OUT_GAIN_DEFAULT_Q16;
 static CICFilter<int32_t, FM_AUDIO_CIC_TAPS> s_audio_cic;
 static CICComplexFilter<int32_t, FM_IQ_CIC_MAX_TAPS> s_iq_cic;
 static SinglePoleIIR<int32_t, 31> s_deemph;
-static uint8_t s_has_prev = 0U;
 static volatile fm_audio_out_mode_t s_mode = FM_AUDIO_OUT_MODE_WBFM;
 
 /* pi-domain constants in Q29 so small-angle gain matches the prior num/den path. */
@@ -257,7 +256,6 @@ extern "C" void fm_audio_out_init(void)
     s_q_prev = 0;
     s_audio_gain_q16 = FM_AUDIO_OUT_GAIN_DEFAULT_Q16;
     s_mode = FM_AUDIO_OUT_MODE_WBFM;
-    s_has_prev = 0U;
     fm_audio_out_reset_filters();
     dac_hw_stream_fm_start(192000U);
 }
@@ -293,27 +291,17 @@ static void fm_audio_out_process_frames(const uint16_t* words, size_t frame_coun
             q_filt = q_now;
         }
 
-        if(s_has_prev != 0U)
-        {
-            /* mulh-truncate each product before combining: 4 mulh + add/sub vs full 64-bit subtract with borrow.
-               on very rare cases when inputs are at the limits, num/den may overflow, but practically that won't happen
-             */
-            int32_t num = (int32_t)(((int64_t)i_filt * (int64_t)s_q_prev) >> 32)
-                        - (int32_t)(((int64_t)q_filt * (int64_t)s_i_prev) >> 32);
-            int32_t den = (int32_t)(((int64_t)i_filt * (int64_t)s_i_prev) >> 32)
-                        + (int32_t)(((int64_t)q_filt * (int64_t)s_q_prev) >> 32);
+        /* mulh-truncate each product before combining: 4 mulh + add/sub vs full 64-bit subtract with borrow.
+           on very rare cases when inputs are at the limits, num/den may overflow, but practically that won't happen
+         */
+        int32_t num = (int32_t)(((int64_t)i_filt * (int64_t)s_q_prev) >> 32)
+                    - (int32_t)(((int64_t)q_filt * (int64_t)s_i_prev) >> 32);
+        int32_t den = (int32_t)(((int64_t)i_filt * (int64_t)s_i_prev) >> 32)
+                    + (int32_t)(((int64_t)q_filt * (int64_t)s_q_prev) >> 32);
 
-            int32_t fm_q31 = -atan2_q29(num, den);
-            /* No upsampling at 192 kHz; the discriminator output is filtered by
-             * a single length-4 CIC (null at 48 kHz, ~-2.2 dB at 19 kHz)
-             * before de-emphasis. */
-            int32_t audio_cic_q31 = s_audio_cic.push(fm_q31);
-            dac_hw_stream_fm_push_sample_isr(fm_q31_to_dac12<MODE>(s_deemph.push(audio_cic_q31, deemph_alpha_q31), gain_q16));
-        }
-        else
-        {
-            s_has_prev = 1U;
-        }
+        int32_t fm_q31 = -atan2_q29(num, den);
+        int32_t audio_cic_q31 = s_audio_cic.push(fm_q31);
+        dac_hw_stream_fm_push_sample_isr(fm_q31_to_dac12<MODE>(s_deemph.push(audio_cic_q31, deemph_alpha_q31), gain_q16));
 
         s_i_prev = i_filt;
         s_q_prev = q_filt;
