@@ -16,11 +16,6 @@ constexpr uint32_t FM_AUDIO_OUT_GAIN_DEFAULT_Q16 = 0UL;
 /* alpha = exp(-1/(Fs*tau)) in Q31 at the post-upsample audio rate of 192 kHz. */
 constexpr int32_t FM_DEEMPH_ALPHA_50US_Q31  = 1935044054;  /* tau=50us,  alpha=0.901080 */
 constexpr int32_t FM_DEEMPH_ALPHA_300US_Q31 = 2100413000;  /* tau=300us, alpha=0.978078 */
-/* Single-pole pilot-rejection LPF applied between the audio CIC and the
- * deemph stage. alpha = exp(-2*pi*fc/fs) at fs=192kHz, fc=12kHz. Combined with
- * the single N=4 CIC and 50us deemph, the 19 kHz pilot lands at -23 dB while
- * pre-emphasis-compensated audio rolls off to -2.8 dB at 10 kHz. */
-constexpr int32_t FM_PILOT_LPF_ALPHA_Q31    = 1450049478;  /* fc=12kHz,  alpha=0.675232 */
 constexpr uint8_t FM_IQ_CIC_MAX_TAPS = 16U;
 constexpr uint8_t FM_AUDIO_CIC_TAPS = 4U;
 constexpr uint8_t FM_DAC_UPSAMPLE = 1U;
@@ -140,9 +135,8 @@ static int32_t s_i_prev = 0;
 static int32_t s_q_prev = 0;
 static int32_t s_dac_sd_error_q19 = 0;
 static volatile uint32_t s_audio_gain_q16 = FM_AUDIO_OUT_GAIN_DEFAULT_Q16;
-static CICFilter<int32_t, FM_AUDIO_CIC_TAPS> s_audio_cic_chain;
+static CICFilter<int32_t, FM_AUDIO_CIC_TAPS> s_audio_cic;
 static CICComplexFilter<int32_t, FM_IQ_CIC_MAX_TAPS> s_iq_cic;
-static SinglePoleIIR<int32_t, 31> s_pilot_lpf;
 static SinglePoleIIR<int32_t, 31> s_deemph;
 static uint8_t s_has_prev = 0U;
 static volatile fm_audio_out_mode_t s_mode = FM_AUDIO_OUT_MODE_WBFM;
@@ -226,9 +220,8 @@ static uint16_t fm_q31_to_dac12(int32_t y_q31, uint32_t gain_q16)
 static void fm_audio_out_reset_filters(void)
 {
     s_dac_sd_error_q19 = 0;
-    s_audio_cic_chain.reset();
+    s_audio_cic.reset();
     s_iq_cic.reset();
-    s_pilot_lpf.reset();
     s_deemph.reset();
 }
 
@@ -313,11 +306,9 @@ static void fm_audio_out_process_frames(const uint16_t* words, size_t frame_coun
             int32_t fm_q31 = -atan2_q29(num, den);
             /* No upsampling at 192 kHz; the discriminator output is filtered by
              * a single length-4 CIC (null at 48 kHz, ~-2.2 dB at 19 kHz)
-             * followed by a 1-pole IIR at fc=12 kHz to attenuate the 19 kHz
-             * pilot before deemph compensates. */
-            int32_t audio_cic_q31 = s_audio_cic_chain.push(fm_q31);
-            int32_t audio_lpf_q31 = s_pilot_lpf.push(audio_cic_q31, FM_PILOT_LPF_ALPHA_Q31);
-            dac_hw_stream_fm_push_sample_isr(fm_q31_to_dac12<MODE>(s_deemph.push(audio_lpf_q31, deemph_alpha_q31), gain_q16));
+             * before de-emphasis. */
+            int32_t audio_cic_q31 = s_audio_cic.push(fm_q31);
+            dac_hw_stream_fm_push_sample_isr(fm_q31_to_dac12<MODE>(s_deemph.push(audio_cic_q31, deemph_alpha_q31), gain_q16));
         }
         else
         {
