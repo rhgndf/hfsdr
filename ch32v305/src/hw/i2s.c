@@ -221,7 +221,7 @@ static ErrorStatus i2s_hw_clock_init_24mhz(void)
 
 /* Unfortunately we wired the clock wrong on the prototype,
    so we have to use TIM8 as a clock out instead */
-static ErrorStatus i2s_hw_alt_clock_init_24mhz(void)
+[[maybe_unused]] static ErrorStatus i2s_hw_alt_clock_init_24mhz(void)
 {
     RCC_ClocksTypeDef clocks = {0};
 
@@ -279,7 +279,7 @@ static ErrorStatus i2s_hw_alt_clock_init_24mhz(void)
     return READY;
 }
 
-static void i2s_hw_alt_clock_deinit(void)
+[[maybe_unused]] static void i2s_hw_alt_clock_deinit(void)
 {
     TIM_Cmd(TIM8, DISABLE);
     TIM_CtrlPWMOutputs(TIM8, DISABLE);
@@ -328,7 +328,6 @@ void i2s_hw_init(void)
 
     i2s_hw_dma_irq_init();
 
-    (void)i2s_hw_alt_clock_init_24mhz();
     i2s_hw_clock_init_24mhz();
 }
 
@@ -337,7 +336,6 @@ void i2s_hw_deinit(void)
     s_i2s_reset_coincidences = 0U;
     i2s_dma_rx_stop();
     i2s_hw_dma_irq_deinit();
-    i2s_hw_alt_clock_deinit();
     SPI_I2S_DeInit(SPI2);
 
     GPIO_InitTypeDef gpio_init = {0};
