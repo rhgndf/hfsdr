@@ -319,15 +319,34 @@ int main(void)
     PeriodicTrigger FFTDraw{1000U / 60U, UI_FFT_Draw};
     PeriodicTrigger ADCPoll{1000U, ADC_Poll};
     PeriodicTrigger SDCardPoll{1000U, [] {
-        if(sdcard::detect() == READY)
+        if(!sdcard::detected())
         {
-            auto& c = sdcard::cid();
-            printf("SD: %s %s MID=0x%02X PRV=%u.%u PSN=%lu %u/%02u\r\n",
-                    c.oid.data(), c.pnm.data(), c.mid,
-                    c.prv_major, c.prv_minor,
-                    (unsigned long)c.psn, c.mdt_year, c.mdt_month);
-        } else {
-            printf("SD: not detected\n");
+            if(sdcard::detect() == READY)
+            {
+                auto& c = sdcard::cid();
+                printf("SD: %s %s MID=0x%02X PRV=%u.%u PSN=%lu %u/%02u\r\n",
+                       c.oid.data(), c.pnm.data(), c.mid,
+                       c.prv_major, c.prv_minor,
+                       (unsigned long)c.psn, c.mdt_year, c.mdt_month);
+            }
+            return;
+        }
+
+        uint8_t buf[512];
+        if(sdcard::read_sector(0, buf) == READY)
+        {
+            printf("SD: sector 0:\r\n");
+            for(uint32_t row = 0; row < 2; ++row)
+            {
+                printf("%03lX:", (unsigned long)(row * 32U));
+                for(uint32_t col = 0; col < 32; ++col)
+                    printf(" %02X", buf[row * 32U + col]);
+                printf("\r\n");
+            }
+        }
+        else
+        {
+            printf("SD: sector 0 read failed\r\n");
         }
     }};
 

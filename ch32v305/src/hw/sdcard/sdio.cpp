@@ -12,8 +12,8 @@ namespace sdcard {
 namespace {
 
 constexpr uint32_t CMD_TIMEOUT    = 0x00010000U;
-constexpr uint32_t DATA_TIMEOUT   = 0xFFFFFFFFU;
-constexpr uint32_t FIFO_TIMEOUT   = 0x00100000U;
+constexpr uint32_t DATA_TIMEOUT   = 0x01000000U;
+constexpr uint32_t FIFO_TIMEOUT   = 0x01000000U;
 constexpr uint32_t ICR_ALL        = 0x00C007FFU;
 constexpr uint32_t ACMD41_RETRIES = 1000U;
 
@@ -92,7 +92,7 @@ void switch_fast()
     SDIO_ClockCmd(DISABLE);
 
     SDIO_InitTypeDef sdio = {};
-    sdio.SDIO_ClockDiv            = 4U; // 144 MHz / (4+2) = 24 MHz
+    sdio.SDIO_ClockDiv            = 22U; // 144 MHz / (22+2) = 6 MHz
     sdio.SDIO_ClockEdge           = SDIO_ClockEdge_Rising;
     sdio.SDIO_ClockBypass         = SDIO_ClockBypass_Disable;
     sdio.SDIO_ClockPowerSave      = SDIO_ClockPowerSave_Disable;
@@ -326,18 +326,9 @@ auto SDIOTransport::detect() -> std::expected<DetectResult, ErrorStatus>
     if(!cmd_r1(7, static_cast<uint32_t>(rca) << 16))
         return std::unexpected(NoREADY);
 
-    if(!cmd_r1(55, static_cast<uint32_t>(rca) << 16))
-        return std::unexpected(NoREADY);
-    if(!cmd_r1(6, 2U))
-        return std::unexpected(NoREADY);
-
-    switch_gpio_4bit();
-
     if(!sdhc)
         if(!cmd_r1(16, 512U))
             return std::unexpected(NoREADY);
-
-    switch_fast();
     return DetectResult{parse_cid(*cid_r2), sdhc};
 }
 
@@ -346,6 +337,7 @@ ErrorStatus SDIOTransport::read_blocks(uint32_t addr, std::span<uint8_t> buf)
     bool multi = buf.size() > 512U;
 
     clear_flags();
+    SDIO->DCTRL = 0x0;
 
     SDIO_DataInitTypeDef data = {};
     data.SDIO_DataTimeOut   = DATA_TIMEOUT;
