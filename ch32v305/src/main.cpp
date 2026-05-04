@@ -44,6 +44,7 @@ extern "C" {
 #include "ui/ui.h"
 }
 
+#include "hw/sdcard/sdcard.h"
 #include "tusb.h"
 
 static void SysTick_Report_USB_EverySecond(void)
@@ -307,6 +308,8 @@ int main(void)
 
     blinky_init();
 
+    sdcard::init();
+
     //watchdog_init();
 
     PeriodicTrigger I2SBitslipCheck{100U, TLV320_I2S_CheckBitslip};
@@ -315,6 +318,18 @@ int main(void)
     PeriodicTrigger SysTickReportUSB{1000U, SysTick_Report_USB_EverySecond};
     PeriodicTrigger FFTDraw{1000U / 60U, UI_FFT_Draw};
     PeriodicTrigger ADCPoll{1000U, ADC_Poll};
+    PeriodicTrigger SDCardPoll{1000U, [] {
+        if(sdcard::detect() == READY)
+        {
+            auto& c = sdcard::cid();
+            printf("SD: %s %s MID=0x%02X PRV=%u.%u PSN=%lu %u/%02u\r\n",
+                    c.oid.data(), c.pnm.data(), c.mid,
+                    c.prv_major, c.prv_minor,
+                    (unsigned long)c.psn, c.mdt_year, c.mdt_month);
+        } else {
+            printf("SD: not detected\n");
+        }
+    }};
 
     while(s_i2s_bitslip_check)
     {
@@ -340,6 +355,7 @@ int main(void)
         ADCPoll();
         cst328_hw_poll();
         blinky_task();
+        SDCardPoll();
         //watchdog_kick();
     }
 }

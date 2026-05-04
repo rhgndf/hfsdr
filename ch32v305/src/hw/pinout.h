@@ -82,4 +82,18 @@
 #define I2C_SDA_GPIO_PORT   GPIOB
 #define I2C_SDA_GPIO_PIN    GPIO_Pin_11
 
+/* SDIO - SD Card */
+#define SDIO_D0_GPIO_PORT   GPIOC
+#define SDIO_D0_GPIO_PIN    GPIO_Pin_8
+#define SDIO_D1_GPIO_PORT   GPIOC
+#define SDIO_D1_GPIO_PIN    GPIO_Pin_9
+#define SDIO_D2_GPIO_PORT   GPIOC
+#define SDIO_D2_GPIO_PIN    GPIO_Pin_10
+#define SDIO_D3_GPIO_PORT   GPIOC
+#define SDIO_D3_GPIO_PIN    GPIO_Pin_11
+#define SDIO_CLK_GPIO_PORT  GPIOC
+#define SDIO_CLK_GPIO_PIN   GPIO_Pin_12
+#define SDIO_CMD_GPIO_PORT  GPIOD
+#define SDIO_CMD_GPIO_PIN   GPIO_Pin_2
+
 #endif
