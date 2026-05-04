@@ -384,7 +384,7 @@ static void SetSysClockTo48_HSE(void)
     /* PCLK2 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;  
     /* PCLK1 = HCLK */
-    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV1;
 
     /*  PLL configuration: PLLCLK = HSE * 6 = 48 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE | RCC_PLLMULL));
@@ -456,7 +456,7 @@ static void SetSysClockTo56_HSE(void)
     /* PCLK2 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;
     /* PCLK1 = HCLK */
-    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV1;
   
     /* PLL configuration: PLLCLK = HSE * 7 = 56 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE | RCC_PLLMULL));
@@ -529,7 +529,7 @@ static void SetSysClockTo72_HSE(void)
     /* PCLK2 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1; 
     /* PCLK1 = HCLK */
-    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV1;
  
     /* PLL configuration: PLLCLK = HSE * 9 = 72 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE |
@@ -603,7 +603,7 @@ static void SetSysClockTo96_HSE(void)
     /* PCLK2 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;
     /* PCLK1 = HCLK */
-    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV1;
 
     /*  PLL configuration: PLLCLK = HSE * 12 = 96 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE |
@@ -677,7 +677,7 @@ static void SetSysClockTo120_HSE(void)
     /* PCLK2 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;
     /* PCLK1 = HCLK */
-    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV1;
 
     /*  PLL configuration: PLLCLK = HSE * 15 = 120 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE |
@@ -751,7 +751,7 @@ static void SetSysClockTo144_HSE(void)
     /* PCLK2 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;
     /* PCLK1 = HCLK */
-    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV1;
 
     /* PLL configuration: PLLCLK = 24 MHz HSE * 6 = 144 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE |
@@ -824,7 +824,7 @@ static void SetSysClockTo168_HSE(void)
     /* PCLK2 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;
     /* PCLK1 = HCLK */
-    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV1;
 
     /* PLL configuration: PLLCLK = 24 MHz HSE * 7 = 168 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE |
@@ -897,7 +897,7 @@ static void SetSysClockTo192_HSE(void)
     /* PCLK2 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;
     /* PCLK1 = HCLK */
-    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV1;
 
     /* PLL configuration: PLLCLK = 24 MHz HSE * 8 = 192 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE |
@@ -950,7 +950,7 @@ static void SetSysClockTo48_HSI(void)
     /* PCLK2 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;
     /* PCLK1 = HCLK */
-    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV1;
 
     /*  PLL configuration: PLLCLK = HSI * 6 = 48 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE | RCC_PLLMULL));
@@ -994,7 +994,7 @@ static void SetSysClockTo56_HSI(void)
     /* PCLK2 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;
     /* PCLK1 = HCLK */
-    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV1;
 
     /*  PLL configuration: PLLCLK = HSI * 7 = 56 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE | RCC_PLLMULL));
@@ -1038,7 +1038,7 @@ static void SetSysClockTo72_HSI(void)
     /* PCLK2 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;
     /* PCLK1 = HCLK */
-    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV1;
 
     /*  PLL configuration: PLLCLK = HSI * 9 = 72 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE | RCC_PLLMULL));
@@ -1083,7 +1083,7 @@ static void SetSysClockTo96_HSI(void)
     /* PCLK2 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;
     /* PCLK1 = HCLK */
-    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV1;
 
     /*  PLL configuration: PLLCLK = HSI * 12 = 96 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE | RCC_PLLMULL));
@@ -1128,7 +1128,7 @@ static void SetSysClockTo120_HSI(void)
     /* PCLK2 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;
     /* PCLK1 = HCLK */
-    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV1;
 
     /*  PLL configuration: PLLCLK = HSI * 15 = 120 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE | RCC_PLLMULL));
@@ -1173,7 +1173,7 @@ static void SetSysClockTo144_HSI(void)
     /* PCLK2 = HCLK */
     RCC->CFGR0 |= (uint32_t)RCC_PPRE2_DIV1;
     /* PCLK1 = HCLK */
-    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV2;
+    RCC->CFGR0 |= (uint32_t)RCC_PPRE1_DIV1;
 
     /*  PLL configuration: PLLCLK = HSI * 18 = 144 MHz */
     RCC->CFGR0 &= (uint32_t)((uint32_t)~(RCC_PLLSRC | RCC_PLLXTPRE | RCC_PLLMULL));
