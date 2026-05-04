@@ -23,6 +23,13 @@ struct DetectResult {
     bool sdhc;
 };
 
+struct Status {
+    bool detected;
+    uint8_t bus_width_bits;
+    uint32_t clock_hz;
+    bool high_speed;
+};
+
 inline CID parse_cid(const R2& r)
 {
     return {

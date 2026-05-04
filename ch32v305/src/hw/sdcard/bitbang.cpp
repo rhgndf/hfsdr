@@ -25,6 +25,8 @@ constexpr uint32_t CMD8_CHECK     = 0xAAU;
 constexpr uint32_t ACMD41_HCS     = 1U << 30;
 constexpr uint32_t ACMD41_VOLTAGE = 0x1FFU << 15;
 
+Status s_status = {.detected = false, .bus_width_bits = 1, .clock_hz = 400000U, .high_speed = false};
+
 void cs_low()  { GPIO_WriteBit(SDIO_D3_GPIO_PORT, SDIO_D3_GPIO_PIN, Bit_RESET); }
 void cs_high() { GPIO_WriteBit(SDIO_D3_GPIO_PORT, SDIO_D3_GPIO_PIN, Bit_SET); }
 
@@ -168,6 +170,8 @@ void init_gpio_slow()
 
     for(int i = 0; i < 10; ++i)
         spi_xfer(0xFF);
+
+    s_status = {.detected = false, .bus_width_bits = 1, .clock_hz = 400000U, .high_speed = false};
 }
 
 void switch_fast()
@@ -181,6 +185,8 @@ void switch_fast()
 
     gpio.GPIO_Pin = SDIO_CMD_GPIO_PIN;
     GPIO_Init(GPIOD, &gpio);
+
+    s_status = {.detected = false, .bus_width_bits = 1, .clock_hz = 500000U, .high_speed = false};
 }
 
 } // anonymous namespace
@@ -316,6 +322,11 @@ ErrorStatus BitbangTransport::read_blocks(uint32_t addr, std::span<uint8_t> buf)
     cs_high();
     spi_xfer(0xFF);
     return READY;
+}
+
+Status BitbangTransport::status() const
+{
+    return s_status;
 }
 
 } // namespace sdcard

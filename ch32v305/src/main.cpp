@@ -247,6 +247,12 @@ static void SDCard_PrintCIDAndSector0(void)
 {
     if(sdcard::detect() != READY)
     {
+        auto s = sdcard::status();
+        printf("SD: status=%s bus=%u-bit clk=%lu Hz hs=%u\r\n",
+               s.detected ? "detected" : "not detected",
+               s.bus_width_bits,
+               (unsigned long)s.clock_hz,
+               s.high_speed ? 1U : 0U);
         printf("SD: not detected\r\n");
         return;
     }
@@ -256,6 +262,12 @@ static void SDCard_PrintCIDAndSector0(void)
            c.oid.data(), c.pnm.data(), c.mid,
            c.prv_major, c.prv_minor,
            (unsigned long)c.psn, c.mdt_year, c.mdt_month);
+    auto s = sdcard::status();
+    printf("SD: status=%s bus=%u-bit clk=%lu Hz hs=%u\r\n",
+           s.detected ? "detected" : "not detected",
+           s.bus_width_bits,
+           (unsigned long)s.clock_hz,
+           s.high_speed ? 1U : 0U);
 
     uint8_t buf[512];
     if(sdcard::read_sector(0, buf) == READY)

@@ -5,9 +5,12 @@ extern "C" {
 #include "ch32v30x_gpio.h"
 #include "ch32v30x_rcc.h"
 #include "ch32v30x_sdio.h"
+#include "system_ch32v30x.h"
 }
 
 #include "sdio.h"
+
+#include <array>
 
 namespace sdcard {
 namespace {
@@ -21,6 +24,8 @@ constexpr uint32_t ACMD41_RETRIES = 1000U;
 
 constexpr uint32_t CMD8_ARG       = (1U << 8) | 0xAAU;
 constexpr uint32_t CMD8_CHECK     = 0xAAU;
+constexpr uint32_t CMD6_CHECK_HS  = 0x00FFFFF1U;
+constexpr uint32_t CMD6_SWITCH_HS = 0x80FFFFF1U;
 constexpr uint32_t ACMD41_HCS     = 1U << 30;
 constexpr uint32_t ACMD41_VOLTAGE = 0x1FFU << 15;
 constexpr uint32_t OCR_BUSY       = 1U << 31;
@@ -29,9 +34,16 @@ constexpr uint32_t OCR_CCS        = 1U << 30;
 constexpr uint32_t ERR_FLAGS = SDIO_FLAG_RXOVERR | SDIO_FLAG_DCRCFAIL |
                                SDIO_FLAG_DTIMEOUT | SDIO_FLAG_STBITERR;
 
+Status s_status = {.detected = false, .bus_width_bits = 1, .clock_hz = 400000U, .high_speed = false};
+
 void clear_flags()
 {
     SDIO->ICR = ICR_ALL;
+}
+
+uint32_t clock_hz_from_div(uint32_t div)
+{
+    return SystemCoreClock / (div + 2U);
 }
 
 void reset_data_path()
@@ -120,11 +132,13 @@ void switch_gpio_4bit()
 
 void reset_slow()
 {
+    constexpr uint32_t clock_div = 255U;
+
     RCC_AHBPeriphClockCmd(RCC_AHBPeriph_SDIO | RCC_AHBPeriph_DMA2, ENABLE);
     SDIO_DeInit();
 
     SDIO_InitTypeDef sdio = {};
-    sdio.SDIO_ClockDiv            = 255U; // 144 MHz / (255+2) ~ 560 kHz
+    sdio.SDIO_ClockDiv            = clock_div;
     sdio.SDIO_ClockEdge           = SDIO_ClockEdge_Rising;
     sdio.SDIO_ClockBypass         = SDIO_ClockBypass_Disable;
     sdio.SDIO_ClockPowerSave      = SDIO_ClockPowerSave_Disable;
@@ -134,15 +148,21 @@ void reset_slow()
 
     SDIO_SetPowerState(SDIO_PowerState_ON);
     SDIO_ClockCmd(ENABLE);
+    s_status = {.detected = false,
+                .bus_width_bits = 1,
+                .clock_hz = clock_hz_from_div(clock_div),
+                .high_speed = false};
     Delay_Ms(2);
 }
 
 void switch_fast()
 {
+    constexpr uint32_t clock_div = 4U;
+
     SDIO_ClockCmd(DISABLE);
 
     SDIO_InitTypeDef sdio = {};
-    sdio.SDIO_ClockDiv            = 4U; // 144 MHz / (4+2) = 24 MHz
+    sdio.SDIO_ClockDiv            = clock_div;
     sdio.SDIO_ClockEdge           = SDIO_ClockEdge_Rising;
     sdio.SDIO_ClockBypass         = SDIO_ClockBypass_Disable;
     sdio.SDIO_ClockPowerSave      = SDIO_ClockPowerSave_Disable;
@@ -151,6 +171,32 @@ void switch_fast()
     SDIO_Init(&sdio);
 
     SDIO_ClockCmd(ENABLE);
+    s_status = {.detected = false,
+                .bus_width_bits = 4,
+                .clock_hz = clock_hz_from_div(clock_div),
+                .high_speed = false};
+}
+
+void switch_high_speed_clock()
+{
+    constexpr uint32_t clock_div = 1U;
+
+    SDIO_ClockCmd(DISABLE);
+
+    SDIO_InitTypeDef sdio = {};
+    sdio.SDIO_ClockDiv            = clock_div;
+    sdio.SDIO_ClockEdge           = SDIO_ClockEdge_Rising;
+    sdio.SDIO_ClockBypass         = SDIO_ClockBypass_Disable;
+    sdio.SDIO_ClockPowerSave      = SDIO_ClockPowerSave_Disable;
+    sdio.SDIO_BusWide             = SDIO_BusWide_4b;
+    sdio.SDIO_HardwareFlowControl = SDIO_HardwareFlowControl_Disable;
+    SDIO_Init(&sdio);
+
+    SDIO_ClockCmd(ENABLE);
+    s_status = {.detected = false,
+                .bus_width_bits = 4,
+                .clock_hz = clock_hz_from_div(clock_div),
+                .high_speed = true};
 }
 
 // --- command helpers (native SD mode) -------------------------------------
@@ -332,6 +378,48 @@ ErrorStatus read_fifo(std::span<uint8_t> buf, uint32_t end_flag)
     return READY;
 }
 
+ErrorStatus read_switch_status(uint32_t arg, std::span<uint8_t, 64> status)
+{
+    clear_flags();
+    reset_data_path();
+    SDIO->DCTRL = 0x0;
+
+    SDIO_DataInitTypeDef data = {};
+    data.SDIO_DataTimeOut   = DATA_TIMEOUT;
+    data.SDIO_DataLength    = static_cast<uint32_t>(status.size());
+    data.SDIO_DataBlockSize = SDIO_DataBlockSize_512b;
+    data.SDIO_TransferDir   = SDIO_TransferDir_ToSDIO;
+    data.SDIO_TransferMode  = SDIO_TransferMode_Block;
+    data.SDIO_DPSM          = SDIO_DPSM_Disable;
+    SDIO_DataConfig(&data);
+
+    auto r = cmd_r1(6, arg);
+    if(!r)
+        return NoREADY;
+
+    SDIO->DCTRL |= SDIO_DPSM_Enable;
+    return read_fifo(status, SDIO_FLAG_DBCKEND);
+}
+
+bool switch_card_high_speed()
+{
+    std::array<uint8_t, 64> status = {};
+
+    if(read_switch_status(CMD6_CHECK_HS, status) != READY)
+        return false;
+
+    uint16_t group1_supported =
+        (static_cast<uint16_t>(status[12]) << 8) | status[13];
+    if((group1_supported & (1U << 1)) == 0U)
+        return false;
+
+    status = {};
+    if(read_switch_status(CMD6_SWITCH_HS, status) != READY)
+        return false;
+
+    return (status[16] & 0x0FU) == 1U;
+}
+
 ErrorStatus wait_dma_read(uint32_t end_flag)
 {
     uint32_t timeout = DMA_TIMEOUT;
@@ -434,6 +522,8 @@ auto SDIOTransport::detect() -> std::expected<DetectResult, ErrorStatus>
 
     switch_gpio_4bit();
     switch_fast();
+    if(switch_card_high_speed())
+        switch_high_speed_clock();
 
     if(!sdhc)
         if(!cmd_r1(16, 512U))
@@ -483,6 +573,11 @@ ErrorStatus SDIOTransport::read_blocks(uint32_t addr, std::span<uint8_t> buf)
         cmd_r1(12, 0);
 
     return result;
+}
+
+Status SDIOTransport::status() const
+{
+    return s_status;
 }
 
 } // namespace sdcard

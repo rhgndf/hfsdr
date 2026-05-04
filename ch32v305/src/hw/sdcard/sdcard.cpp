@@ -17,6 +17,7 @@ concept SDTransport = requires(T t, uint32_t u, std::span<uint8_t> buf) {
     { t.init() };
     { t.detect() } -> std::same_as<std::expected<DetectResult, ErrorStatus>>;
     { t.read_blocks(u, buf) } -> std::same_as<ErrorStatus>;
+    { t.status() } -> std::same_as<Status>;
 };
 
 template<SDTransport Transport>
@@ -37,6 +38,12 @@ public:
 
     bool detected() const { return initialized; }
     const CID& get_cid() const { return card_cid; }
+    Status status() const
+    {
+        auto s = transport.status();
+        s.detected = initialized;
+        return s;
+    }
 
     ErrorStatus read_sector(uint32_t sector, std::span<uint8_t, 512> buf)
     {
@@ -77,6 +84,7 @@ void init()                                                      { s_sd.init(); 
 ErrorStatus detect()                                             { return s_sd.detect(); }
 bool detected()                                                  { return s_sd.detected(); }
 const CID& cid()                                                 { return s_sd.get_cid(); }
+Status status()                                                  { return s_sd.status(); }
 ErrorStatus read_sector(uint32_t s, std::span<uint8_t, 512> b)   { return s_sd.read_sector(s, b); }
 ErrorStatus read_sectors(uint32_t s, std::span<uint8_t> b)        { return s_sd.read_sectors(s, b); }
 

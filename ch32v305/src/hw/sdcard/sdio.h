@@ -14,6 +14,7 @@ public:
     void init();
     auto detect() -> std::expected<DetectResult, ErrorStatus>;
     ErrorStatus read_blocks(uint32_t addr, std::span<uint8_t> buf);
+    Status status() const;
 };
 
 } // namespace sdcard
