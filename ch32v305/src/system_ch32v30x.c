@@ -137,6 +137,11 @@ void SystemInit (void)
   RCC->INTR = 0x009F0000;   
 #endif   
   SetSysClock();
+
+  /* Enable PVD brown-out detection at 2.7V (with ~200mV hysteresis per RM §2.2.2) */
+  RCC_APB1PeriphClockCmd(RCC_APB1Periph_PWR, ENABLE);
+  PWR_PVDLevelConfig(PWR_PVDLevel_2V7);
+  PWR_PVDCmd(ENABLE);
 }
 
 /*********************************************************************
