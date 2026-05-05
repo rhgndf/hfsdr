@@ -169,6 +169,8 @@ void ST7789_DrawLine(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_
 void ST7789_DrawRectangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color);
 void ST7789_DrawCircle(uint16_t x0, uint16_t y0, uint8_t r, uint16_t color);
 void ST7789_DrawImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t *data);
+void ST7789_DrawBitmap1bpp(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
+                           const uint8_t *bits, uint16_t fg, uint16_t bg);
 void ST7789_InvertColors(uint8_t invert);
 
 /* Text functions. */

@@ -30,6 +30,7 @@ extern "C" {
 #include "hw/encoder.h"
 #include "hw/display/st7789.h"
 #include "hw/display/cst328.h"
+#include "hw/display/splash.h"
 
 #include "hw/i2c.h"
 #include "hw/tlv320adc6120.h"
@@ -308,6 +309,16 @@ int main(void)
     
     printf("ST7789 init\r\n");
     ST7789_Init();
+
+    /* Splash: show the PCB silkscreen art behind the LCD in landscape, then
+     * snap back to the firmware's portrait rotation for the regular UI. */
+    ST7789_SetRotation(3);
+    ST7789_DrawBitmap1bpp(0, 0,
+                          splash_behind_screen_w, splash_behind_screen_h,
+                          splash_behind_screen, WHITE, BLACK);
+    Delay_Ms(1500);
+    ST7789_SetRotation(ST7789_ROTATION);
+    ST7789_Fill_Color(BLACK);
 
     i2c_hw_init();
 
