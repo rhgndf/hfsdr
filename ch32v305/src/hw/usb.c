@@ -17,7 +17,6 @@
 #define USB_HW_PLL_LOCK_STATE_SIZE   2U
 #define USB_VENDOR_STREAM_INDEX      0U
 
-static uint8_t usb_echo_buf[USB_ECHO_BUF_SIZE];
 static uint8_t usb_hw_clk_freq_req[USB_HW_CLK_FREQ_PAYLOAD_SIZE];
 static uint8_t usb_hw_clk_freq_state[USB_HW_CLK_FREQ_STATE_SIZE];
 static uint8_t usb_hw_tlv320_gain_req[USB_HW_TLV320_GAIN_REQ_SIZE];
@@ -377,36 +376,6 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
 void tud_cdc_rx_cb(uint8_t itf)
 {
     (void) itf;
-
-    while(1)
-    {
-        uint32_t rx_avail = tud_cdc_available();
-        uint32_t tx_avail = tud_cdc_write_available();
-        uint32_t chunk = rx_avail;
-
-        if(chunk > tx_avail)
-        {
-            chunk = tx_avail;
-        }
-
-        if(chunk > sizeof(usb_echo_buf))
-        {
-            chunk = sizeof(usb_echo_buf);
-        }
-
-        if(chunk == 0U)
-        {
-            break;
-        }
-
-        chunk = usb_receive_data(usb_echo_buf, chunk);
-        if(chunk == 0U)
-        {
-            break;
-        }
-
-        usb_send_data(usb_echo_buf, chunk);
-    }
 }
 
 void tud_vendor_tx_cb(uint8_t itf, uint32_t sent_bytes)

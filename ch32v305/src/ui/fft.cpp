@@ -88,11 +88,18 @@ static uint32_t s_last_rx_word_count = 0U;
 static uint16_t s_waterfall_line = FFT_WATERFALL_TOP;
 static riscv_cfft_instance_f32 s_fft_instance;
 static riscv_linear_interp_instance_f32 s_fft_interp_instance;
-static float32_t *fft_buf;
+static float32_t * const fft_buf = reinterpret_cast<float32_t * const>(i2s_fft_sample_arr);
 static constexpr auto fft_window = make_blackman_harris_92db_window<FFT_SAMPLE_COUNT>();
 static constexpr auto fft_color_lut = make_fft_color_lut();
-static uint16_t fft_line[FFT_DISPLAY_SAMPLE_COUNT];
+static uint16_t * const fft_line = reinterpret_cast<uint16_t *>(&fft_buf[FFT_INTERP_COL_COUNT]);
 static_assert(FFT_SAMPLE_COUNT == 256, "FFT sample count is not 256");
+static_assert(sizeof(i2s_fft_sample_arr[0]) == sizeof(float32_t),
+              "I2S and FFT buffers must use equal-width elements");
+static_assert(alignof(int32_t) >= alignof(float32_t),
+              "I2S buffer storage must satisfy float32_t alignment");
+static_assert(((FFT_COMPLEX_FLOAT_COUNT - FFT_INTERP_COL_COUNT) * sizeof(float32_t)) >=
+              (FFT_DISPLAY_SAMPLE_COUNT * sizeof(uint16_t)),
+              "FFT line does not fit in the unused FFT buffer tail");
 
 static uint16_t fft_db_to_color(float32_t db)
 {
@@ -180,7 +187,6 @@ void UI_FFT_Init(void)
         return;
     }
 
-    fft_buf = reinterpret_cast<float32_t *>(i2s_fft_sample_arr);
     s_fft_interp_instance.nValues = FFT_INTERP_COL_COUNT;
     s_fft_interp_instance.x1 = 0.0f;
     s_fft_interp_instance.xSpacing = 1.0f;
