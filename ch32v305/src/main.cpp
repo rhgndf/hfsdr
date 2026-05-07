@@ -364,7 +364,7 @@ int main(void)
     blinky_init();
 
     sdcard::init();
-
+    
     //watchdog_init();
 
     PeriodicTrigger I2SBitslipCheck{100U, TLV320_I2S_CheckBitslip};
@@ -400,6 +400,5 @@ int main(void)
         cst328_hw_poll();
         blinky_task();
         SDCardPoll();
-        //watchdog_kick();
     }
 }
