@@ -170,16 +170,12 @@ SECTIONS
 	PROVIDE( _end = _ebss);
 	PROVIDE( end = . );
 
-    .stack ORIGIN(RAM) + LENGTH(RAM) - __stack_size :
-    {
-        PROVIDE( _heap_end = . );    
-        . = ALIGN(4);
-        PROVIDE(_susrstack = . );
-        . = . + __stack_size;
-        PROVIDE( _eusrstack = .);
-    } >RAM 
+	PROVIDE( _heap_end = ORIGIN(RAM) + LENGTH(RAM) - __stack_size );
+	PROVIDE( _susrstack = _heap_end );
+	PROVIDE( _eusrstack = ORIGIN(RAM) + LENGTH(RAM) );
+
+	ASSERT( _end <= _heap_end, "RAM overflow: .data/.bss/heap overlap stack" )
 
 }
-
 
 
