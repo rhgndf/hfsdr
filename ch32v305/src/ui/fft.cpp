@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -17,15 +16,14 @@ extern "C" {
 #include "hw/display/st7789.h"
 }
 
+#include "utils/complex_dsp.h"
+
 #define FFT_SAMPLE_COUNT        I2S_HW_COMPLEX_SAMPLE_COUNT
 #define FFT_COMPLEX_FLOAT_COUNT (FFT_SAMPLE_COUNT * 2U)
 #define FFT_DISPLAY_SAMPLE_COUNT 240U
 #define FFT_INTERP_COL_COUNT    FFT_SAMPLE_COUNT
 #define FFT_INTERP_X_MAX        ((float32_t)(FFT_SAMPLE_COUNT - 1U) - 1.0e-3f)
 #define FFT_UPDATE_PERIOD_MS    80U
-#define FFT_MIN_POWER           1.0e-20f
-#define FFT_DB_FLOOR            -200.0f
-#define FFT_DB_CEILING          200.0f
 #define FFT_DISPLAY_MIN_DB      -100.0f
 #define FFT_DISPLAY_MAX_DB      -30.0f
 #define FFT_WATERFALL_TOP       80U
@@ -112,46 +110,9 @@ static uint16_t fft_db_to_color(float32_t db)
     return fft_color_lut[g];
 }
 
-/*
- * 10*log10(x) approximation via std::bit_cast log2 split.
- * - exponent extraction gives integer log2 for free.
- * - 4th-degree minimax (Remez) polynomial for log2 on [1,2], max error
- *   ~8.8e-5 -> ~0.0003 dB. Coefficients regenerable via tools/gen_log2_poly.py.
- * Handles x=0 (returns very negative; caller clamps to floor).
- */
-static constexpr float32_t fast_10log10f(float32_t x)
-{
-    uint32_t bits = std::bit_cast<uint32_t>(x);
-    int32_t e = static_cast<int32_t>((bits >> 23) & 0xFFU) - 127;
-    float32_t m = std::bit_cast<float32_t>((bits & 0x007FFFFFu) | 0x3F800000u);
-    float32_t l2m = -2.51285462f + (4.07009079f + (-2.12067513f + (0.64514236f - 0.08161581f * m) * m) * m) * m;
-    /* 10 / log2(10) = 3.01029995664f */
-    return (static_cast<float32_t>(e) + l2m) * 3.01029995664f;
-}
-
-namespace {
-/* Verify polynomial against libm at compile time. __builtin_log10f is constexpr-foldable in GCC. */
-consteval bool fast_10log10f_close(float32_t x, float32_t tol_db)
-{
-    float32_t got = fast_10log10f(x);
-    float32_t want = 10.0f * __builtin_log10f(x);
-    float32_t diff = got - want;
-    return (diff > -tol_db) && (diff < tol_db);
-}
-static_assert(fast_10log10f_close(1.0f,    0.005f));
-static_assert(fast_10log10f_close(10.0f,   0.005f));
-static_assert(fast_10log10f_close(100.0f,  0.005f));
-static_assert(fast_10log10f_close(0.1f,    0.005f));
-static_assert(fast_10log10f_close(0.5f,    0.005f));
-static_assert(fast_10log10f_close(1.5f,    0.005f));
-static_assert(fast_10log10f_close(1e-10f,  0.005f));
-static_assert(fast_10log10f_close(1e10f,   0.005f));
-}
-
 static float32_t fft_power_to_db(float32_t power)
 {
-    float32_t db = fast_10log10f(power);
-    return std::clamp(db, FFT_DB_FLOOR, FFT_DB_CEILING);
+    return complex_dsp::power_to_db(power);
 }
 
 static void fft_convert_and_window(void)

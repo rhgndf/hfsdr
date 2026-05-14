@@ -45,6 +45,7 @@ extern "C" {
 #include "ui/ui.h"
 }
 
+#include "feature/iq_calibration/iq_calibration.h"
 #include "hw/sdcard/sdcard.h"
 #include "tusb.h"
 
@@ -322,7 +323,7 @@ int main(void)
 
     i2c_hw_init();
 
-    constexpr uint64_t kInitialLoFreqHz = 93300000ULL;
+    constexpr uint64_t kInitialLoFreqHz = 144020000ULL;
     if(usb_hw_set_clk_freq_hz(kInitialLoFreqHz) == READY)
     {
         printf("Si5351: LO CLK0/CLK1 = %lu Hz, CLK1 = +90 deg\r\n",
@@ -383,6 +384,12 @@ int main(void)
     }
 
     i2s_coincidence_disable();
+
+    while(iq_calibration_run())
+    {
+        iq_calibration_display();
+        tud_task();
+    }
 
     UI_FFT_Init();
     UI_Init();
