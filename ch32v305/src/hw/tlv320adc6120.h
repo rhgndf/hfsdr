@@ -28,6 +28,8 @@
 #define TLV320ADC6120_CH_GAIN_CAL_MAX_DB_X10 7
 
 [[nodiscard]] ErrorStatus tlv320adc6120_hw_init(void);
+[[nodiscard]] ErrorStatus tlv320adc6120_hw_start(void);
+[[nodiscard]] ErrorStatus tlv320adc6120_hw_stop(void);
 [[nodiscard]] ErrorStatus tlv320adc6120_hw_set_ch_gain_raw(uint8_t gain_raw);
 [[nodiscard]] ErrorStatus tlv320adc6120_hw_set_ch_gain_db_x2(int8_t gain_db_x2);
 [[nodiscard]] ErrorStatus tlv320adc6120_hw_set_ch_calibration(int8_t ch1_gain_cal_db_x10,

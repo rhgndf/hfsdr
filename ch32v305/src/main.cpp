@@ -182,11 +182,19 @@ static void TLV320_I2S_CheckBitslip(void)
     {
         s_i2s_bitslip_false_checks_in_a_row = 0U;
         printf("bitslipped, resetting\n");
+        //if(tlv320adc6120_hw_stop() != READY)
+        {
+            //printf("TLV320 stop failed during I2S reset\r\n");
+        }
         i2s_hw_enable(DISABLE);
         i2s_hw_deinit();
         Delay_Ms(10);
         i2s_hw_init();
         i2s_hw_enable(ENABLE);
+        //if(tlv320adc6120_hw_start() != READY)
+        {
+            //printf("TLV320 start failed during I2S reset\r\n");
+        }
         s_tlv320_i2s_report_initialized = 0U;
         s_i2s_bitslip_check = 1U;
         return;

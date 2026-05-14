@@ -287,6 +287,9 @@ bool i2s_needs_reset(void)
     bool ret = false;
     float n = (float)s_i2s_coincidences_samples;
     uint32_t thres = 1.2879f * sqrtf(n);
+    if (s_i2s_coincidences_samples < 30000) {
+        return false;
+    }
     if ((s_i2s_reset_coincidences < s_i2s_coincidences_samples / 2 - thres) ||
         (s_i2s_reset_coincidences > s_i2s_coincidences_samples / 2 + thres)) {
         uint32_t sample_32 = ((uint32_t)s_rx_dma_buf[0] << 16) | s_rx_dma_buf[1];

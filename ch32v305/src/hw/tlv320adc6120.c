@@ -137,7 +137,8 @@
  * - bit3: FS_BCLK_RATIO = 0, 48-kHz family
  * - bits2:0: MCLK_FREQ_SEL = 110b, 24.000 MHz MCLK input selection
  */
-#define TLV320_MST_CFG0_CTLR_24MHZ  0x86U
+#define TLV320_MST_CFG0_CTLR_24MHZ        0x86U
+#define TLV320_MST_CFG0_CTLR_24MHZ_GATED  0x96U
 
 /*
  * MST_CFG1 (0x14):
@@ -378,4 +379,24 @@ ErrorStatus tlv320adc6120_hw_init(void)
     }
 
     return READY;
+}
+
+ErrorStatus tlv320adc6120_hw_start(void)
+{
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_PAGE_CFG, 0x00U) != READY)
+    {
+        return NoREADY;
+    }
+
+    return tlv320adc6120_hw_write_reg(TLV320_REG_MST_CFG0, TLV320_MST_CFG0_CTLR_24MHZ);
+}
+
+ErrorStatus tlv320adc6120_hw_stop(void)
+{
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_PAGE_CFG, 0x00U) != READY)
+    {
+        return NoREADY;
+    }
+
+    return tlv320adc6120_hw_write_reg(TLV320_REG_MST_CFG0, TLV320_MST_CFG0_CTLR_24MHZ_GATED);
 }
