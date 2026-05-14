@@ -18,8 +18,12 @@
 #define TLV320_REG_BIAS_CFG        0x3BU
 #define TLV320_REG_CH1_CFG0        0x3CU
 #define TLV320_REG_CH1_CFG1        0x3DU
+#define TLV320_REG_CH1_CFG3        0x3FU
+#define TLV320_REG_CH1_CFG4        0x40U
 #define TLV320_REG_CH2_CFG0        0x41U
 #define TLV320_REG_CH2_CFG1        0x42U
+#define TLV320_REG_CH2_CFG3        0x44U
+#define TLV320_REG_CH2_CFG4        0x45U
 #define TLV320_REG_IN_CH_EN        0x73U
 #define TLV320_REG_ASI_OUT_CH_EN   0x74U
 #define TLV320_REG_PWR_CFG         0x75U
@@ -114,6 +118,17 @@
 #define TLV320_CH_CFG1_GAIN_0DB        0x00U
 
 /*
+ * CHx_CFG3 (0x3F / 0x44):
+ * - bits7:4: CHx_GCAL = 0..15, -0.8 dB to +0.7 dB in 0.1-dB steps
+ * - bits3:0: reserved, write reset value
+ *
+ * CHx_CFG4 (0x40 / 0x45):
+ * - bits7:0: CHx_PCAL = phase delay in modulator-clock cycles
+ */
+#define TLV320_CH_CFG3_GAIN_CAL_0DB    0x80U
+#define TLV320_CH_CFG3_GAIN_CAL_SHIFT  4U
+
+/*
  * MST_CFG0 (0x13):
  * - bit7: MST_SLV_CFG = 1, controller mode (codec drives BCLK/FSYNC)
  * - bit6: AUTO_CLK_CFG = 0, auto clock enabled
@@ -169,6 +184,20 @@ static ErrorStatus tlv320adc6120_hw_write_reg(uint8_t reg, uint8_t value)
     return i2c_hw_write_register(TLV320ADC6120_I2C_ADDR_7BIT, reg, value);
 }
 
+static uint8_t tlv320adc6120_hw_gain_cal_db_x10_to_reg(int8_t gain_cal_db_x10)
+{
+    if(gain_cal_db_x10 < TLV320ADC6120_CH_GAIN_CAL_MIN_DB_X10)
+    {
+        gain_cal_db_x10 = TLV320ADC6120_CH_GAIN_CAL_MIN_DB_X10;
+    }
+    if(gain_cal_db_x10 > TLV320ADC6120_CH_GAIN_CAL_MAX_DB_X10)
+    {
+        gain_cal_db_x10 = TLV320ADC6120_CH_GAIN_CAL_MAX_DB_X10;
+    }
+
+    return (uint8_t)((uint8_t)(gain_cal_db_x10 - TLV320ADC6120_CH_GAIN_CAL_MIN_DB_X10) << TLV320_CH_CFG3_GAIN_CAL_SHIFT);
+}
+
 ErrorStatus tlv320adc6120_hw_set_ch_gain_raw(uint8_t gain_raw)
 {
     if(tlv320adc6120_hw_write_reg(TLV320_REG_PAGE_CFG, 0x00U) != READY)
@@ -205,6 +234,37 @@ ErrorStatus tlv320adc6120_hw_set_ch_gain_db_x2(int8_t gain_db_x2)
     magnitude_db_x2 = (uint8_t)((gain_db_x2 < 0) ? -gain_db_x2 : gain_db_x2);
 
     return tlv320adc6120_hw_set_ch_gain_raw((uint8_t)((magnitude_db_x2 << 1U) | sign_bit));
+}
+
+ErrorStatus tlv320adc6120_hw_set_ch_calibration(int8_t ch1_gain_cal_db_x10,
+                                                uint8_t ch1_phase_cal_cycles,
+                                                int8_t ch2_gain_cal_db_x10,
+                                                uint8_t ch2_phase_cal_cycles)
+{
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_PAGE_CFG, 0x00U) != READY)
+    {
+        return NoREADY;
+    }
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_CH1_CFG3,
+                                  tlv320adc6120_hw_gain_cal_db_x10_to_reg(ch1_gain_cal_db_x10)) != READY)
+    {
+        return NoREADY;
+    }
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_CH1_CFG4, ch1_phase_cal_cycles) != READY)
+    {
+        return NoREADY;
+    }
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_CH2_CFG3,
+                                  tlv320adc6120_hw_gain_cal_db_x10_to_reg(ch2_gain_cal_db_x10)) != READY)
+    {
+        return NoREADY;
+    }
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_CH2_CFG4, ch2_phase_cal_cycles) != READY)
+    {
+        return NoREADY;
+    }
+
+    return READY;
 }
 
 ErrorStatus tlv320adc6120_hw_init(void)
