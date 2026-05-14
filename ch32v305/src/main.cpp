@@ -49,6 +49,10 @@ extern "C" {
 #include "hw/sdcard/sdcard.h"
 #include "tusb.h"
 
+
+constexpr uint64_t InitialCalibrationFreq = 144020000ULL;
+constexpr uint64_t InitialFMFreq = 93300000ULL;
+
 static void SysTick_Report_USB_EverySecond(void)
 {
     static uint64_t last_report_tick = 0;
@@ -178,10 +182,25 @@ static void TLV320_I2S_CheckBitslip(void)
         return;
     }
 
-    if(i2s_needs_reset())
+    auto iq_powers = iq_calibration_measure_ready_block();
+    if(!iq_powers)
+    {
+        return;
+    }
+
+    bool i2s_reset_needed = i2s_needs_reset();
+    bool iq_inverted = false;
+    if(!i2s_reset_needed)
+    {
+        float minus_20khz_power = iq_powers->first;
+        float plus_20khz_power = iq_powers->second;
+        iq_inverted = minus_20khz_power < plus_20khz_power;
+    }
+
+    if(i2s_reset_needed || iq_inverted)
     {
         s_i2s_bitslip_false_checks_in_a_row = 0U;
-        printf("bitslipped, resetting\n");
+        printf("%s, resetting\n", i2s_reset_needed ? "bitslipped" : "IQ inverted");
         //if(tlv320adc6120_hw_stop() != READY)
         {
             //printf("TLV320 stop failed during I2S reset\r\n");
@@ -331,11 +350,10 @@ int main(void)
 
     i2c_hw_init();
 
-    constexpr uint64_t kInitialLoFreqHz = 144020000ULL;
-    if(usb_hw_set_clk_freq_hz(kInitialLoFreqHz) == READY)
+    if(usb_hw_set_clk_freq_hz(InitialCalibrationFreq) == READY)
     {
         printf("Si5351: LO CLK0/CLK1 = %lu Hz, CLK1 = +90 deg\r\n",
-               (unsigned long)kInitialLoFreqHz);
+               (unsigned long)InitialCalibrationFreq);
     }
     else
     {
@@ -399,6 +417,7 @@ int main(void)
         tud_task();
     }
 
+    usb_hw_set_clk_freq_hz(InitialFMFreq);
     UI_FFT_Init();
     UI_Init();
 

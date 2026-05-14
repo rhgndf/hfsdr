@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <optional>
+#include <utility>
 
 extern "C" {
 #include "ch32v30x.h"
@@ -16,13 +18,7 @@ extern "C" {
 
 #include "utils/complex_dsp.h"
 
-namespace {
-
-/*
- * IQ calibration uses the 144 MHz CPU clock as the calibration signal. With
- * the startup LO at 144.020 MHz, this lands at -20 kHz in complex baseband.
- */
-constexpr uint32_t kCalibrationSignalHz = 144000000U;
+constexpr uint32_t kCalibrationSignalHz = 72000000U;
 constexpr uint32_t kI2sSampleRateHz = 192000U;
 constexpr size_t kMeasureComplexSamples = 240U;
 constexpr uint8_t kBlocksPerCandidate = 4U;
@@ -85,6 +81,7 @@ static bool s_phase_found_best = false;
 static int8_t s_gain_cursor = kGainMinDbX10;
 static uint32_t s_display_version = 0U;
 static uint32_t s_drawn_display_version = UINT32_MAX;
+static bool s_calibration_signal_started = false;
 
 static void mark_display_dirty(void)
 {
@@ -174,6 +171,7 @@ static TlvCalibration make_gain_calibration(int16_t phase_cycles, int8_t gain_db
     TIM_CtrlPWMOutputs(TIM8, ENABLE);
     TIM_Cmd(TIM8, ENABLE);
 
+    s_calibration_signal_started = true;
     return READY;
 }
 
@@ -191,6 +189,7 @@ static TlvCalibration make_gain_calibration(int16_t phase_cycles, int8_t gain_db
     GPIO_Init(GPIOC, &gpio);
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_TIM8, DISABLE);
+    s_calibration_signal_started = false;
 }
 
 static ErrorStatus apply_tlv_calibration(TlvCalibration cal)
@@ -216,6 +215,10 @@ static bool finish_with_failure(char const *reason)
 {
     printf("IQ calibration failed: %s\r\n", reason);
     (void)apply_tlv_calibration(make_zero_calibration());
+    if(s_calibration_signal_started)
+    {
+        calibration_signal_deinit();
+    }
     s_display_status = DisplayStatus::Failed;
     s_state = CalibrationState::FailedPending;
     mark_display_dirty();
@@ -261,18 +264,18 @@ static void print_db_value(float db)
            static_cast<unsigned long>(mag % 10U));
 }
 
-static bool measure_ready_block(float *wanted_power, float *image_power)
+std::optional<std::pair<float, float>> iq_calibration_measure_ready_block(void)
 {
     if(!i2s_fft_sample_arr_ready())
     {
-        return false;
+        return std::nullopt;
     }
 
     if(s_discard_blocks > 0U)
     {
         --s_discard_blocks;
         i2s_fft_sample_arr_reset();
-        return false;
+        return std::nullopt;
     }
 
     auto wanted = complex_dsp::measure_interleaved_iq_tone(i2s_fft_sample_arr,
@@ -284,25 +287,21 @@ static bool measure_ready_block(float *wanted_power, float *image_power)
                                                           static_cast<float>(kI2sSampleRateHz),
                                                           -s_target_if_hz);
 
-    *wanted_power = wanted.power;
-    *image_power = image.power;
     i2s_fft_sample_arr_reset();
-    return true;
+    return std::make_pair(wanted.power, image.power);
 }
 
 static bool update_candidate_measurement(bool *candidate_done)
 {
-    float wanted_power;
-    float image_power;
-
     *candidate_done = false;
-    if(!measure_ready_block(&wanted_power, &image_power))
+    auto measurement = iq_calibration_measure_ready_block();
+    if(!measurement)
     {
         return true;
     }
 
-    s_wanted_power_acc += wanted_power;
-    s_image_power_acc += image_power;
+    s_wanted_power_acc += measurement->first;
+    s_image_power_acc += measurement->second;
     ++s_candidate_blocks;
 
     float avg_wanted_power = s_wanted_power_acc / static_cast<float>(s_candidate_blocks);
@@ -356,12 +355,17 @@ static bool calibration_start(void)
     s_phase_found_best = false;
     s_gain_cursor = kGainMinDbX10;
 
-    int64_t target_if_hz = (int64_t)kCalibrationSignalHz - (int64_t)si5351_hw_clk0_get_freq_hz();
+    int64_t target_if_hz = (int64_t)(2U * kCalibrationSignalHz) - (int64_t)si5351_hw_clk0_get_freq_hz();
     if(target_if_hz == 0)
     {
         return finish_with_failure("zero IF");
     }
     s_target_if_hz = static_cast<float>(target_if_hz);
+
+    if(calibration_signal_init() != READY)
+    {
+        return finish_with_failure("signal init");
+    }
 
     printf("IQ calibration: IF %ld Hz, measuring wanted/image\r\n", static_cast<long>(target_if_hz));
     s_state = CalibrationState::ApplyBaseline;
@@ -374,6 +378,11 @@ static bool calibration_apply_best(void)
     if(apply_tlv_calibration(s_best_cal) != READY)
     {
         return finish_with_failure("final TLV write");
+    }
+
+    if(s_calibration_signal_started)
+    {
+        calibration_signal_deinit();
     }
 
     printf("IQ calibration done: baseline ");
@@ -424,8 +433,6 @@ static char const *status_text(void)
     }
 }
 
-} // namespace
-
 bool iq_calibration_run(void)
 {
     bool candidate_done;
@@ -444,7 +451,6 @@ bool iq_calibration_run(void)
                 return true;
             }
             s_baseline_irr_db = s_current_irr_db;
-            s_best_irr_db = s_current_irr_db;
             s_best_cal = s_current_cal;
             printf("IQ calibration baseline IRR ");
             print_db_value(s_baseline_irr_db);
@@ -543,23 +549,23 @@ void iq_calibration_display(void)
 
     ST7789_WriteString(0U, 5U, "IQ Calibration", Font_11x18, WHITE, BLACK);
 
-    snprintf(line, sizeof(line), "Base %6s dB", base_db);
+    snprintf(line, sizeof(line), "Base %5s dB", base_db);
     ST7789_WriteString(0U, 27U, line, Font_11x18, WHITE, BLACK);
 
-    snprintf(line, sizeof(line), "Curr %6s dB", current_db);
+    snprintf(line, sizeof(line), "Curr %5s dB", current_db);
     ST7789_WriteString(0U, 49U, line, Font_11x18, WHITE, BLACK);
 
-    snprintf(line, sizeof(line), "Best %6s dB", best_db);
+    snprintf(line, sizeof(line), "Best %5s dB", best_db);
     ST7789_WriteString(0U, 71U, line, Font_11x18, WHITE, BLACK);
 
-    snprintf(line, sizeof(line), "Cur G %2d,%2d P %2u,%2u",
+    snprintf(line, sizeof(line), "Cur G %d,%d P %2u,%2u",
              static_cast<int>(s_current_cal.ch1_gain_db_x10),
              static_cast<int>(s_current_cal.ch2_gain_db_x10),
              static_cast<unsigned int>(s_current_cal.ch1_phase_cycles),
              static_cast<unsigned int>(s_current_cal.ch2_phase_cycles));
     ST7789_WriteString(0U, 93U, line, Font_11x18, WHITE, BLACK);
 
-    snprintf(line, sizeof(line), "BestG %2d,%2d P %2u,%2u",
+    snprintf(line, sizeof(line), "BestG %d,%d P %2u,%2u",
              static_cast<int>(s_best_cal.ch1_gain_db_x10),
              static_cast<int>(s_best_cal.ch2_gain_db_x10),
              static_cast<unsigned int>(s_best_cal.ch1_phase_cycles),
