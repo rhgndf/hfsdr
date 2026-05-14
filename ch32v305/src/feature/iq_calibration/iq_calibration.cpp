@@ -26,8 +26,10 @@ constexpr uint8_t kDiscardBlocksAfterRegisterWrite = 1U;
 constexpr uint8_t kPhaseNoBestStopCycles = 5U;
 constexpr int16_t kPhaseMinCycles = -64;
 constexpr int16_t kPhaseMaxCycles = 64;
-constexpr int8_t kGainMinDbX10 = TLV320ADC6120_CH_GAIN_CAL_MIN_DB_X10;
-constexpr int8_t kGainMaxDbX10 = TLV320ADC6120_CH_GAIN_CAL_MAX_DB_X10;
+constexpr int8_t kChannelGainMinDbX10 = TLV320ADC6120_CH_GAIN_CAL_MIN_DB_X10;
+constexpr int8_t kChannelGainMaxDbX10 = TLV320ADC6120_CH_GAIN_CAL_MAX_DB_X10;
+constexpr int8_t kRelativeGainMinDbX10 = kChannelGainMinDbX10 - kChannelGainMaxDbX10;
+constexpr int8_t kRelativeGainMaxDbX10 = kChannelGainMaxDbX10 - kChannelGainMinDbX10;
 
 struct TlvCalibration
 {
@@ -78,7 +80,7 @@ static uint8_t s_discard_blocks = 0U;
 static int16_t s_phase_cursor = kPhaseMinCycles;
 static uint8_t s_phase_cycles_without_best = 0U;
 static bool s_phase_found_best = false;
-static int8_t s_gain_cursor = kGainMinDbX10;
+static int8_t s_gain_cursor = kRelativeGainMinDbX10;
 static uint32_t s_display_version = 0U;
 static uint32_t s_drawn_display_version = UINT32_MAX;
 static bool s_calibration_signal_started = false;
@@ -112,7 +114,26 @@ static TlvCalibration make_gain_calibration(int16_t phase_cycles, int8_t gain_db
 {
     TlvCalibration cal = make_phase_calibration(phase_cycles);
     cal.relative_gain_db_x10 = gain_db_x10;
-    cal.ch2_gain_db_x10 = gain_db_x10;
+
+    int16_t ch2_gain_db_x10 = static_cast<int16_t>(gain_db_x10) / 2;
+    int16_t ch1_gain_db_x10 = ch2_gain_db_x10 - static_cast<int16_t>(gain_db_x10);
+
+    if(ch1_gain_db_x10 < kChannelGainMinDbX10)
+    {
+        ch1_gain_db_x10 = kChannelGainMinDbX10;
+        ch2_gain_db_x10 = ch1_gain_db_x10 + gain_db_x10;
+    }
+    else if(ch1_gain_db_x10 > kChannelGainMaxDbX10)
+    {
+        ch1_gain_db_x10 = kChannelGainMaxDbX10;
+        ch2_gain_db_x10 = ch1_gain_db_x10 + gain_db_x10;
+    }
+
+    ch2_gain_db_x10 = std::clamp<int16_t>(ch2_gain_db_x10,
+                                          kChannelGainMinDbX10,
+                                          kChannelGainMaxDbX10);
+    cal.ch1_gain_db_x10 = static_cast<int8_t>(ch1_gain_db_x10);
+    cal.ch2_gain_db_x10 = static_cast<int8_t>(ch2_gain_db_x10);
     return cal;
 }
 
@@ -353,7 +374,7 @@ static bool calibration_start(void)
     s_phase_cursor = kPhaseMinCycles;
     s_phase_cycles_without_best = 0U;
     s_phase_found_best = false;
-    s_gain_cursor = kGainMinDbX10;
+    s_gain_cursor = kRelativeGainMinDbX10;
 
     int64_t target_if_hz = (int64_t)(2U * kCalibrationSignalHz) - (int64_t)si5351_hw_clk0_get_freq_hz();
     if(target_if_hz == 0)
@@ -462,7 +483,7 @@ bool iq_calibration_run(void)
         case CalibrationState::ApplyPhase:
             if(s_phase_cursor > kPhaseMaxCycles)
             {
-                s_gain_cursor = kGainMinDbX10;
+                s_gain_cursor = kRelativeGainMinDbX10;
                 s_state = CalibrationState::ApplyGain;
                 return true;
             }
@@ -483,7 +504,7 @@ bool iq_calibration_run(void)
                 ++s_phase_cycles_without_best;
                 if(s_phase_cycles_without_best >= kPhaseNoBestStopCycles)
                 {
-                    s_gain_cursor = kGainMinDbX10;
+                    s_gain_cursor = kRelativeGainMinDbX10;
                     s_state = CalibrationState::ApplyGain;
                     return true;
                 }
@@ -493,7 +514,7 @@ bool iq_calibration_run(void)
             return true;
 
         case CalibrationState::ApplyGain:
-            if(s_gain_cursor > kGainMaxDbX10)
+            if(s_gain_cursor > kRelativeGainMaxDbX10)
             {
                 s_state = CalibrationState::ApplyBest;
                 return true;
