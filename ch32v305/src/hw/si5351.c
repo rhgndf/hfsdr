@@ -324,36 +324,12 @@ static ErrorStatus si5351_hw_clk0_quadrature_set_freq_hz(uint64_t hz)
         return NoREADY;
     }
 
-    if(SI5351_XTAL_FREQ_HZ != 24000000UL)
-    {
-        return NoREADY;
-    }
-
     if(hz < SI5351_MIN_OUTPUT_HZ)
     {
         return NoREADY;
     }
 
     if(hz > SI5351_CLKOUT_MAX_HZ)
-    {
-        return NoREADY;
-    }
-
-    if(si5351_wait_sys_init() != READY)
-    {
-        return NoREADY;
-    }
-
-    if(i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_CRYSTAL_LOAD, 0xD2U) != READY)
-    {
-        return NoREADY;
-    }
-
-    if(i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_CLK0_CTRL, 0x80U) != READY)
-    {
-        return NoREADY;
-    }
-    if(i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_CLK1_CTRL, 0x80U) != READY)
     {
         return NoREADY;
     }
@@ -411,7 +387,7 @@ static ErrorStatus si5351_hw_clk0_quadrature_set_freq_hz(uint64_t hz)
     {
         return NoREADY;
     }
-    Delay_Ms(2U);
+    Delay_Ms(1U);
 
     if(si5351_enable_clk_output(0U) != READY)
     {
@@ -425,9 +401,39 @@ static ErrorStatus si5351_hw_clk0_quadrature_set_freq_hz(uint64_t hz)
     return READY;
 }
 
+ErrorStatus si5351_init()
+{
+    if(si5351_wait_sys_init() != READY)
+    {
+        return NoREADY;
+    }
+
+    if(i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_CRYSTAL_LOAD, 0xD2U) != READY)
+    {
+        return NoREADY;
+    }
+
+    if(i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_CLK0_CTRL, 0x80U) != READY)
+    {
+        return NoREADY;
+    }
+    if(i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_CLK1_CTRL, 0x80U) != READY)
+    {
+        return NoREADY;
+    }
+}
+
 ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz)
 {
-    return si5351_hw_clk0_quadrature_set_freq_hz(hz);
+    // I2C will randomly fail, quick hack to make it working
+    // We should actually reduce clock speed though
+    for(int i = 0;i < 3;i++) {
+        bool ret = si5351_hw_clk0_quadrature_set_freq_hz(hz);
+        if (ret) {
+            return true;
+        }
+    }
+    return false;
 }
 
 uint64_t si5351_hw_clk0_get_freq_hz()

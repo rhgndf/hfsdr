@@ -419,8 +419,9 @@ int main(void)
     ST7789_Fill_Color(BLACK);
 
     i2c_hw_init();
+    si5351_init();
     
-    if(usb_hw_set_clk_freq_hz(InitialCalibrationFreq) == READY)
+    if(si5351_hw_clk0_set_freq_hz(InitialCalibrationFreq) == READY)
     {
         printf("Si5351: LO CLK0/CLK1 = %lu Hz, CLK1 = +90 deg\r\n",
                (unsigned long)InitialCalibrationFreq);
@@ -473,6 +474,7 @@ int main(void)
     PeriodicTrigger SDCardPoll{1000U, SDCard_PrintCIDAndSector0};
 
     // Set to min gain to allow calibration to take place
+    si5351_hw_clk0_set_freq_hz(InitialCalibrationFreq);
     tlv320adc6120_hw_set_ch_gain_db_x2(-100);
     while(s_i2s_bitslip_check)
     {
