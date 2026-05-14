@@ -253,7 +253,7 @@ static void TLV320_I2S_CheckBitslip(void)
         }
         i2s_hw_enable(DISABLE);
         i2s_hw_deinit();
-        Delay_Ms(10);
+        Delay_Ms(40);
         i2s_hw_init();
         i2s_hw_enable(ENABLE);
         //if(tlv320adc6120_hw_start() != READY)
@@ -465,7 +465,6 @@ int main(void)
     
     //watchdog_init();
 
-    PeriodicTrigger I2SBitslipCheck{100U, TLV320_I2S_CheckBitslip};
     PeriodicTrigger I2SPoll{1000U, TLV320_I2S_Poll};
     PeriodicTrigger I2CBusScan{1000U, Scan_I2CBus_EverySecond};
     PeriodicTrigger SysTickReportUSB{1000U, SysTick_Report_USB_EverySecond};
@@ -478,7 +477,7 @@ int main(void)
     tlv320adc6120_hw_set_ch_gain_db_x2(-100);
     while(s_i2s_bitslip_check)
     {
-        I2SBitslipCheck();
+        TLV320_I2S_CheckBitslip();
         tud_task();
     }
 
@@ -498,7 +497,6 @@ int main(void)
 
     while(1)
     {
-        I2SBitslipCheck();
         I2SPoll();
         //I2CBusScan();
         //SysTickReportUSB();
