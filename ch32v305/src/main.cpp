@@ -52,6 +52,7 @@ extern "C" {
 
 constexpr uint64_t InitialCalibrationFreq = 144020000ULL;
 constexpr uint64_t InitialFMFreq = 93300000ULL;
+static void Draw_I2S_Sync_Status(void);
 
 static void SysTick_Report_USB_EverySecond(void)
 {
@@ -174,6 +175,40 @@ static uint8_t s_i2s_bitslip_check = 1U;
 static uint8_t s_i2s_bitslip_false_checks_in_a_row = 0U;
 static uint8_t s_i2s_bitslip_sync_displayed_count = UINT8_MAX;
 
+static uint16_t I2S_Sync_Bar_X(uint32_t value, uint32_t samples)
+{
+    constexpr uint16_t bar_x = 18U;
+    constexpr uint16_t bar_width = ST7789_WIDTH - (bar_x * 2U);
+
+    if(samples == 0U)
+    {
+        return (uint16_t)(bar_x + (bar_width / 2U));
+    }
+
+    if(value > samples)
+    {
+        value = samples;
+    }
+
+    return (uint16_t)(bar_x + (((uint64_t)value * (bar_width - 1U)) / samples));
+}
+
+static void Draw_I2S_Sync_Marker(uint16_t x, uint16_t center_y, uint16_t height, uint16_t color)
+{
+    constexpr uint16_t marker_width = 3U;
+    uint16_t x0 = (x > 0U) ? (uint16_t)(x - 1U) : 0U;
+    uint16_t x1 = (uint16_t)(x0 + marker_width - 1U);
+    uint16_t y0 = (uint16_t)(center_y - (height / 2U));
+    uint16_t y1 = (uint16_t)(y0 + height - 1U);
+
+    if(x1 >= ST7789_WIDTH)
+    {
+        x1 = ST7789_WIDTH - 1U;
+    }
+
+    ST7789_Fill(x0, y0, x1, y1, color);
+}
+
 static void TLV320_I2S_CheckBitslip(void)
 {
 
@@ -182,16 +217,27 @@ static void TLV320_I2S_CheckBitslip(void)
         return;
     }
 
-    auto iq_powers = iq_calibration_measure_ready_block();
-    if(!iq_powers)
+    if(!i2s_fft_sample_arr_ready())
     {
         return;
     }
 
+    const uint32_t sample_threshold = s_i2s_bitslip_false_checks_in_a_row > 0 ? 60000 : 20000;
+    if(i2s_coincidence_status().samples < sample_threshold)
+    {
+        return;
+    }
+
+    Draw_I2S_Sync_Status();
     bool i2s_reset_needed = i2s_needs_reset();
     bool iq_inverted = false;
     if(!i2s_reset_needed)
     {
+        auto iq_powers = iq_calibration_measure_ready_block();
+        // Should never happen
+        if(!iq_powers) {
+            return;
+        }
         float minus_20khz_power = iq_powers->first;
         float plus_20khz_power = iq_powers->second;
         iq_inverted = minus_20khz_power < plus_20khz_power;
@@ -229,19 +275,43 @@ static void TLV320_I2S_CheckBitslip(void)
 static void Draw_I2S_Sync_Status(void)
 {
     char sync_text[24];
+    char coincidence_text[32];
+    i2s_coincidence_status_t coincidence_status = i2s_coincidence_status();
+    uint64_t now_tick = SysTick->CNT;
+    static uint64_t last_draw_tick = 0U;
+    constexpr uint16_t bar_x = 18U;
+    constexpr uint16_t bar_y = 86U;
+    constexpr uint16_t bar_width = ST7789_WIDTH - (bar_x * 2U);
+    constexpr uint16_t orange = 0xFD20;
 
-    if(s_i2s_bitslip_sync_displayed_count == s_i2s_bitslip_false_checks_in_a_row)
+    if((s_i2s_bitslip_sync_displayed_count == s_i2s_bitslip_false_checks_in_a_row) &&
+       ((now_tick - last_draw_tick) < ticks_from_ms(100U)))
     {
         return;
     }
 
+    last_draw_tick = now_tick;
     s_i2s_bitslip_sync_displayed_count = s_i2s_bitslip_false_checks_in_a_row;
     snprintf(sync_text, sizeof(sync_text),
              "Synced: %2u/20",
              (unsigned int)s_i2s_bitslip_false_checks_in_a_row);
+    snprintf(coincidence_text, sizeof(coincidence_text),
+             "Coinc: %5lu/%5lu",
+             (unsigned long)coincidence_status.coincidences,
+             (unsigned long)coincidence_status.samples);
 
     ST7789_WriteString(0U, 5U, "Initializing...", Font_11x18, WHITE, BLACK);
     ST7789_WriteString(0U, 27U, sync_text, Font_11x18, WHITE, BLACK);
+    ST7789_WriteString(0U, 49U, coincidence_text, Font_11x18, WHITE, BLACK);
+    ST7789_Fill((uint16_t)(bar_x - 1U),
+                (uint16_t)(bar_y - 14U),
+                (uint16_t)(bar_x + bar_width),
+                (uint16_t)(bar_y + 13U),
+                BLACK);
+    ST7789_Fill(bar_x, bar_y, (uint16_t)(bar_x + bar_width - 1U), (uint16_t)(bar_y + 1U), GRAY);
+    Draw_I2S_Sync_Marker(I2S_Sync_Bar_X(coincidence_status.acceptable_min, coincidence_status.samples), bar_y, 14U, orange);
+    Draw_I2S_Sync_Marker(I2S_Sync_Bar_X(coincidence_status.acceptable_max, coincidence_status.samples), bar_y, 14U, orange);
+    Draw_I2S_Sync_Marker(I2S_Sync_Bar_X(coincidence_status.coincidences, coincidence_status.samples), bar_y, 28U, WHITE);
 }
 
 static void ADC_Poll(void)
@@ -349,7 +419,7 @@ int main(void)
     ST7789_Fill_Color(BLACK);
 
     i2c_hw_init();
-
+    
     if(usb_hw_set_clk_freq_hz(InitialCalibrationFreq) == READY)
     {
         printf("Si5351: LO CLK0/CLK1 = %lu Hz, CLK1 = +90 deg\r\n",
@@ -402,13 +472,15 @@ int main(void)
     PeriodicTrigger ADCPoll{1000U, ADC_Poll};
     PeriodicTrigger SDCardPoll{1000U, SDCard_PrintCIDAndSector0};
 
+    // Set to min gain to allow calibration to take place
+    tlv320adc6120_hw_set_ch_gain_db_x2(-100);
     while(s_i2s_bitslip_check)
     {
-        Draw_I2S_Sync_Status();
         I2SBitslipCheck();
         tud_task();
     }
 
+    ST7789_Fill_Color(BLACK);
     i2s_coincidence_disable();
 
     while(iq_calibration_run())
@@ -417,6 +489,7 @@ int main(void)
         tud_task();
     }
 
+    tlv320adc6120_hw_set_ch_gain_db_x2(0);
     usb_hw_set_clk_freq_hz(InitialFMFreq);
     UI_FFT_Init();
     UI_Init();

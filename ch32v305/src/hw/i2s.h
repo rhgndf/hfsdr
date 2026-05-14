@@ -25,6 +25,15 @@ void i2s_hw_enable(FunctionalState state);
 void i2s_coincidence_disable(void);
 [[nodiscard]] uint32_t i2s_hw_rx_word_count(void);
 
+typedef struct
+{
+    uint32_t coincidences;
+    uint32_t samples;
+    uint32_t acceptable_min;
+    uint32_t acceptable_max;
+} i2s_coincidence_status_t;
+
+[[nodiscard]] i2s_coincidence_status_t i2s_coincidence_status(void);
 
 #define I2S_HW_COMPLEX_SAMPLE_COUNT 256U
 

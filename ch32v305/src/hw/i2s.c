@@ -115,6 +115,11 @@ static void i2s_coincidence_detect(uint16_t const *src_words)
     s_i2s_coincidences_samples += I2S_RX_DMA_CHUNK_WORDS / 2;
 }
 
+static uint32_t i2s_coincidence_threshold(uint32_t samples)
+{
+    return (uint32_t)(1.2879f * sqrtf((float)samples));
+}
+
 static void i2s_process_buf(uint16_t const *src_words)
 {
     if(s_coincidence_enabled)
@@ -145,6 +150,26 @@ static void i2s_process_buf(uint16_t const *src_words)
 void i2s_coincidence_disable(void)
 {
     s_coincidence_enabled = false;
+}
+
+i2s_coincidence_status_t i2s_coincidence_status(void)
+{
+    i2s_coincidence_status_t status;
+    uint32_t center;
+    uint32_t threshold;
+
+    status.coincidences = s_i2s_reset_coincidences;
+    status.samples = s_i2s_coincidences_samples;
+    center = status.samples / 2U;
+    threshold = i2s_coincidence_threshold(status.samples);
+    status.acceptable_min = (threshold < center) ? (center - threshold) : 0U;
+    status.acceptable_max = center + threshold;
+    if(status.acceptable_max > status.samples)
+    {
+        status.acceptable_max = status.samples;
+    }
+
+    return status;
 }
 
 void i2s_fft_sample_arr_reset(void)
@@ -223,6 +248,7 @@ void i2s_hw_init(void)
 {
     s_rx_word_count = 0U;
     s_i2s_reset_coincidences = 0U;
+    s_i2s_coincidences_samples = 0U;
     s_coincidence_enabled = true;
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC, ENABLE);
@@ -258,6 +284,7 @@ void i2s_hw_init(void)
 void i2s_hw_deinit(void)
 {
     s_i2s_reset_coincidences = 0U;
+    s_i2s_coincidences_samples = 0U;
     i2s_dma_rx_stop();
     i2s_hw_dma_irq_deinit();
     SPI_I2S_DeInit(SPI2);
@@ -284,16 +311,17 @@ bool i2s_needs_reset(void)
 {
     // If i2s is not bitslipped, we expect coincidences to be random with 50% probability
     // We do a two sided Z-test here
+    i2s_coincidence_status_t status = i2s_coincidence_status();
     bool ret = false;
-    float n = (float)s_i2s_coincidences_samples;
-    uint32_t thres = 1.2879f * sqrtf(n);
-    if (s_i2s_coincidences_samples < 30000) {
-        return false;
-    }
-    if ((s_i2s_reset_coincidences < s_i2s_coincidences_samples / 2 - thres) ||
-        (s_i2s_reset_coincidences > s_i2s_coincidences_samples / 2 + thres)) {
+    if ((status.coincidences < status.acceptable_min) ||
+        (status.coincidences > status.acceptable_max)) {
         uint32_t sample_32 = ((uint32_t)s_rx_dma_buf[0] << 16) | s_rx_dma_buf[1];
-        printf("coincidences: %ld/%ld, thres: %ld, sample: %08lX\n", s_i2s_reset_coincidences, s_i2s_coincidences_samples, thres, sample_32);
+        printf("coincidences: %ld/%ld, acceptable: %ld..%ld, sample: %08lX\n",
+               status.coincidences,
+               status.samples,
+               status.acceptable_min,
+               status.acceptable_max,
+               sample_32);
         ret = true;
     }
     s_i2s_coincidences_samples = 0;
