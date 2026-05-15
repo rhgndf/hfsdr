@@ -27,6 +27,12 @@ fm_audio_out_mode_t fm_audio_out_get_mode(void);
  */
 bool fm_audio_out_process_i2s_words_isr(volatile uint16_t const *src_words, size_t word_count);
 
+/* Splash waveform ring depth; max count for fm_audio_waveform_copy_recent. */
+#define FM_AUDIO_WAVEFORM_RING_MAX_SAMPLES 1024U
+
+/* Splash / UI: recent post-demod 12-bit samples (same as DAC mono value), oldest first. */
+size_t fm_audio_waveform_copy_recent(uint16_t *dst, size_t max_samples);
+
 #ifdef __cplusplus
 }
 #endif
