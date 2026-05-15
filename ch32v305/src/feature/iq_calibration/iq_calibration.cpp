@@ -568,33 +568,43 @@ void iq_calibration_display(void)
     format_db(current_db, sizeof(current_db), s_current_irr_db);
     format_db(best_db, sizeof(best_db), s_best_irr_db);
 
-    ST7789_WriteString(0U, 5U, "IQ Calibration", Font_11x18, WHITE, BLACK);
+    uint16_t const text_x = 24U;
+    uint16_t y = 28U;
+    uint16_t const line_step = 26U;
+
+    ST7789_WriteString(text_x, y, "IQ Calibration", Font_11x18, WHITE, BLACK);
+    y = (uint16_t)(y + line_step);
 
     snprintf(line, sizeof(line), "Base %5s dB", base_db);
-    ST7789_WriteString(0U, 27U, line, Font_11x18, WHITE, BLACK);
+    ST7789_WriteString(text_x, y, line, Font_11x18, WHITE, BLACK);
+    y = (uint16_t)(y + line_step);
 
     snprintf(line, sizeof(line), "Curr %5s dB", current_db);
-    ST7789_WriteString(0U, 49U, line, Font_11x18, WHITE, BLACK);
+    ST7789_WriteString(text_x, y, line, Font_11x18, WHITE, BLACK);
+    y = (uint16_t)(y + line_step);
 
     snprintf(line, sizeof(line), "Best %5s dB", best_db);
-    ST7789_WriteString(0U, 71U, line, Font_11x18, WHITE, BLACK);
+    ST7789_WriteString(text_x, y, line, Font_11x18, WHITE, BLACK);
+    y = (uint16_t)(y + line_step);
 
     snprintf(line, sizeof(line), "Cur G %d,%d P %2u,%2u",
              static_cast<int>(s_current_cal.ch1_gain_db_x10),
              static_cast<int>(s_current_cal.ch2_gain_db_x10),
              static_cast<unsigned int>(s_current_cal.ch1_phase_cycles),
              static_cast<unsigned int>(s_current_cal.ch2_phase_cycles));
-    ST7789_WriteString(0U, 93U, line, Font_11x18, WHITE, BLACK);
+    ST7789_WriteString(text_x, y, line, Font_11x18, WHITE, BLACK);
+    y = (uint16_t)(y + line_step);
 
     snprintf(line, sizeof(line), "BestG %d,%d P %2u,%2u",
              static_cast<int>(s_best_cal.ch1_gain_db_x10),
              static_cast<int>(s_best_cal.ch2_gain_db_x10),
              static_cast<unsigned int>(s_best_cal.ch1_phase_cycles),
              static_cast<unsigned int>(s_best_cal.ch2_phase_cycles));
-    ST7789_WriteString(0U, 115U, line, Font_11x18, WHITE, BLACK);
+    ST7789_WriteString(text_x, y, line, Font_11x18, WHITE, BLACK);
+    y = (uint16_t)(y + line_step);
 
     snprintf(line, sizeof(line), "%-10s", status_text());
-    ST7789_WriteString(0U, 137U, line, Font_11x18,
+    ST7789_WriteString(text_x, y, line, Font_11x18,
                        (s_display_status == DisplayStatus::Failed) ? RED : CYAN,
                        BLACK);
 }

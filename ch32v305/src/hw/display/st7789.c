@@ -12,6 +12,17 @@
 static uint16_t s_scroll_top = 0U;
 static uint16_t s_scroll_bottom = ST7789_HEIGHT;
 static uint16_t s_scroll_offset = 0U;
+static uint8_t s_rotation = ST7789_ROTATION;
+
+static uint16_t ST7789_ActiveWidth(void)
+{
+	return ((s_rotation & 1U) != 0U) ? 320U : 240U;
+}
+
+static uint16_t ST7789_ActiveHeight(void)
+{
+	return ((s_rotation & 1U) != 0U) ? 240U : 320U;
+}
 
 static uint16_t ST7789_ScrollYToLogicalY(uint16_t y)
 {
@@ -134,6 +145,8 @@ static void ST7789_WriteSmallData(uint8_t data)
  */
 void ST7789_SetRotation(uint8_t m)
 {
+	s_rotation = m;
+
 	ST7789_WriteCommand(ST7789_MADCTL);	// MADCTL
 	switch (m) {
 	case 0:
@@ -258,10 +271,23 @@ void ST7789_Init(void)
  * @param color -> color to Fill with
  * @return none
  */
+uint16_t ST7789_GetWidth(void)
+{
+	return ST7789_ActiveWidth();
+}
+
+uint16_t ST7789_GetHeight(void)
+{
+	return ST7789_ActiveHeight();
+}
+
 void ST7789_Fill_Color(uint16_t color)
 {
-	ST7789_SetAddressWindow(0, 0, ST7789_WIDTH - 1, ST7789_HEIGHT - 1);
-	ST7789_WriteRepeatedPixel(color, (uint32_t)ST7789_WIDTH * (uint32_t)ST7789_HEIGHT);
+	uint16_t const w = ST7789_ActiveWidth();
+	uint16_t const h = ST7789_ActiveHeight();
+
+	ST7789_SetAddressWindow(0U, 0U, (uint16_t)(w - 1U), (uint16_t)(h - 1U));
+	ST7789_WriteRepeatedPixel(color, (uint32_t)w * (uint32_t)h);
 }
 
 /**
@@ -272,8 +298,10 @@ void ST7789_Fill_Color(uint16_t color)
  */
 void ST7789_DrawPixel(uint16_t x, uint16_t y, uint16_t color)
 {
-	if ((x < 0) || (x >= ST7789_WIDTH) ||
-		 (y < 0) || (y >= ST7789_HEIGHT))	return;
+	if((x >= ST7789_ActiveWidth()) || (y >= ST7789_ActiveHeight()))
+	{
+		return;
+	}
 	
 	ST7789_SetAddressWindow(x, y, x, y);
 	uint8_t data[] = {color >> 8, color & 0xFF};
@@ -401,8 +429,11 @@ void ST7789_VerticalScrollDisable(void)
  */
 void ST7789_Fill(uint16_t xSta, uint16_t ySta, uint16_t xEnd, uint16_t yEnd, uint16_t color)
 {
-	if ((xEnd >= ST7789_WIDTH) || (yEnd >= ST7789_HEIGHT) ||
-	    (xSta > xEnd) || (ySta > yEnd))	return;
+	if((xEnd >= ST7789_ActiveWidth()) || (yEnd >= ST7789_ActiveHeight()) ||
+	    (xSta > xEnd) || (ySta > yEnd))
+	{
+		return;
+	}
 
 	ST7789_SetAddressWindow(xSta, ySta, xEnd, yEnd);
 	uint32_t pixel_count = (uint32_t)(xEnd - xSta + 1U) * (uint32_t)(yEnd - ySta + 1U);

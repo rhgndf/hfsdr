@@ -157,6 +157,8 @@
 /* Basic functions. */
 void ST7789_Init(void);
 void ST7789_SetRotation(uint8_t m);
+uint16_t ST7789_GetWidth(void);
+uint16_t ST7789_GetHeight(void);
 void ST7789_Fill_Color(uint16_t color);
 void ST7789_DrawPixel(uint16_t x, uint16_t y, uint16_t color);
 void ST7789_DrawColorLine(uint16_t x, uint16_t y, const uint16_t *colors, uint16_t width);

@@ -52,6 +52,7 @@ extern "C" {
 constexpr uint64_t InitialCalibrationFreq = 144020000ULL;
 constexpr uint64_t InitialFMFreq = 93300000ULL;
 static void Draw_I2S_Sync_Status(void);
+static void Boot_Display_InitLandscape(void);
 
 static void SysTick_Report_USB_EverySecond(void)
 {
@@ -174,10 +175,17 @@ static uint8_t s_i2s_bitslip_check = 1U;
 static uint8_t s_i2s_bitslip_false_checks_in_a_row = 0U;
 static uint8_t s_i2s_bitslip_sync_displayed_count = UINT8_MAX;
 
+static void Boot_Display_InitLandscape(void)
+{
+    ST7789_SetRotation(3U);
+    ST7789_VerticalScrollDisable();
+    ST7789_Fill_Color(BLACK);
+}
+
 static uint16_t I2S_Sync_Bar_X(uint32_t value, uint32_t samples)
 {
     constexpr uint16_t bar_x = 18U;
-    constexpr uint16_t bar_width = ST7789_WIDTH - (bar_x * 2U);
+    const uint16_t bar_width = (uint16_t)(ST7789_GetWidth() - (bar_x * 2U));
 
     if(samples == 0U)
     {
@@ -200,9 +208,9 @@ static void Draw_I2S_Sync_Marker(uint16_t x, uint16_t center_y, uint16_t height,
     uint16_t y0 = (uint16_t)(center_y - (height / 2U));
     uint16_t y1 = (uint16_t)(y0 + height - 1U);
 
-    if(x1 >= ST7789_WIDTH)
+    if(x1 >= ST7789_GetWidth())
     {
-        x1 = ST7789_WIDTH - 1U;
+        x1 = (uint16_t)(ST7789_GetWidth() - 1U);
     }
 
     ST7789_Fill(x0, y0, x1, y1, color);
@@ -279,8 +287,8 @@ static void Draw_I2S_Sync_Status(void)
     uint64_t now_tick = SysTick->CNT;
     static uint64_t last_draw_tick = 0U;
     constexpr uint16_t bar_x = 18U;
-    constexpr uint16_t bar_y = 86U;
-    constexpr uint16_t bar_width = ST7789_WIDTH - (bar_x * 2U);
+    constexpr uint16_t bar_y = 120U;
+    const uint16_t bar_width = (uint16_t)(ST7789_GetWidth() - (bar_x * 2U));
     constexpr uint16_t orange = 0xFD20;
 
     if((s_i2s_bitslip_sync_displayed_count == s_i2s_bitslip_false_checks_in_a_row) &&
@@ -406,6 +414,7 @@ int main(void)
     
     printf("ST7789 init\r\n");
     ST7789_Init();
+    Boot_Display_InitLandscape();
 
     i2c_hw_init();
     si5351_init();
@@ -486,7 +495,6 @@ int main(void)
 
     tlv320adc6120_hw_set_ch_gain_db_x2(0);
     usb_hw_set_clk_freq_hz(InitialFMFreq);
-    UI_FFT_Init();
     UI_Init();
 
     while(1)
