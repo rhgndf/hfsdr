@@ -72,7 +72,7 @@
 #define UI_SPLASH_WAVE_PERIOD_MS     33U
 #define UI_SPLASH_WAVE_MIN_PEAK_ABS  120
 #define UI_SPLASH_WAVE_PEAK_CEILING 2400 /* cap AGC so loud FM does not flatten trace */
-#define UI_SPLASH_WAVE_DEFLECT_MUL   320 /* with /DIV below along (nx,ny) */
+#define UI_SPLASH_WAVE_DEFLECT_MUL   1600 /* 10x vs 320; paired with DIV along thickness vector */
 #define UI_SPLASH_WAVE_DEFLECT_DIV   3072
 
 typedef struct
@@ -108,6 +108,9 @@ static uint8_t s_splash_button_phase = 0U;
 static uint64_t s_displayed_splash_freq_hz = UINT64_MAX;
 static uint64_t s_last_splash_wave_tick = 0ULL;
 static int32_t s_splash_wave_display_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS;
+static uint16_t s_splash_wave_prev_x[UI_SPLASH_WAVE_DISPLAY_COLS];
+static uint16_t s_splash_wave_prev_y[UI_SPLASH_WAVE_DISPLAY_COLS];
+static bool s_splash_wave_poly_valid = false;
 /* Last MADCTL value applied by UI (0xFF = never synced this session). */
 static uint8_t s_hw_madctl = 0xFFU;
 
@@ -237,6 +240,7 @@ static void ui_splash_exit_to_waterfall(void)
     s_displayed_active_control = UI_CONTROL_COUNT;
     s_last_splash_wave_tick = 0ULL;
     s_splash_wave_display_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS;
+    s_splash_wave_poly_valid = false;
 }
 
 static void ui_handle_button_press(void)
@@ -689,10 +693,11 @@ static uint16_t ui_splash_clamp_u16(int32_t v, uint16_t max_u)
 static void ui_draw_splash_waveform(void)
 {
     uint16_t buf[FM_AUDIO_WAVEFORM_RING_MAX_SAMPLES];
+    uint16_t px_col[UI_SPLASH_WAVE_DISPLAY_COLS];
+    uint16_t py_col[UI_SPLASH_WAVE_DISPLAY_COLS];
     size_t const display_cols = (size_t)UI_SPLASH_WAVE_DISPLAY_COLS;
     size_t n;
     size_t i;
-    uint16_t line_color;
     int32_t frame_peak;
     int32_t raw_smoothed;
     int32_t raw;
@@ -716,16 +721,13 @@ static void ui_draw_splash_waveform(void)
     int32_t const dy_bot = (int32_t)UI_SPLASH_WAVE_Y2 - (int32_t)UI_SPLASH_WAVE_Y1;
     uint16_t trace_color;
     uint16_t scope_fill;
-    uint16_t prev_x;
-    uint16_t prev_y;
 
     ui_splash_colors(&scope_fill, &trace_color);
-
-    ui_splash_fill_quad(&s_splash_quad_wave, scope_fill);
 
     n = fm_audio_waveform_copy_recent(buf, FM_AUDIO_WAVEFORM_RING_MAX_SAMPLES);
     if((n < 2U) || (display_cols < 2U))
     {
+        s_splash_wave_poly_valid = false;
         return;
     }
 
@@ -766,8 +768,6 @@ static void ui_draw_splash_waveform(void)
         s_splash_wave_display_peak = (int32_t)UI_SPLASH_WAVE_PEAK_CEILING;
     }
 
-    line_color = trace_color;
-
     w_lim = (uint16_t)(ST7789_GetWidth() - 1U);
     h_lim = (uint16_t)(ST7789_GetHeight() - 1U);
 
@@ -801,18 +801,38 @@ static void ui_draw_splash_waveform(void)
         px = x_center + ((vx * amp) / (int32_t)UI_SPLASH_WAVE_DEFLECT_DIV);
         py = y_center + ((vy * amp) / (int32_t)UI_SPLASH_WAVE_DEFLECT_DIV);
 
-        if(i > 0U)
-        {
-            ST7789_DrawLine(prev_x,
-                            prev_y,
-                            ui_splash_clamp_u16(px, w_lim),
-                            ui_splash_clamp_u16(py, h_lim),
-                            line_color);
-        }
-
-        prev_x = ui_splash_clamp_u16(px, w_lim);
-        prev_y = ui_splash_clamp_u16(py, h_lim);
+        px_col[i] = ui_splash_clamp_u16(px, w_lim);
+        py_col[i] = ui_splash_clamp_u16(py, h_lim);
     }
+
+    if(s_splash_wave_poly_valid)
+    {
+        for(i = 1U; i < display_cols; ++i)
+        {
+            ST7789_DrawLineFills(s_splash_wave_prev_x[i - 1U],
+                                 s_splash_wave_prev_y[i - 1U],
+                                 s_splash_wave_prev_x[i],
+                                 s_splash_wave_prev_y[i],
+                                 scope_fill);
+        }
+    }
+    else
+    {
+        ui_splash_fill_quad(&s_splash_quad_wave, scope_fill);
+    }
+
+    for(i = 1U; i < display_cols; ++i)
+    {
+        ST7789_DrawLineFills(px_col[i - 1U], py_col[i - 1U], px_col[i], py_col[i], trace_color);
+    }
+
+    for(i = 0U; i < display_cols; ++i)
+    {
+        s_splash_wave_prev_x[i] = px_col[i];
+        s_splash_wave_prev_y[i] = py_col[i];
+    }
+
+    s_splash_wave_poly_valid = true;
 }
 
 static void ui_draw_splash_freq_overlay(uint64_t freq_hz)
@@ -862,6 +882,8 @@ static void ui_draw_splash_fullscreen_landscape(uint64_t freq_hz)
 {
     uint16_t bitmap_fg;
     uint16_t bitmap_bg;
+
+    s_splash_wave_poly_valid = false;
 
     ui_splash_colors(&bitmap_fg, &bitmap_bg);
 

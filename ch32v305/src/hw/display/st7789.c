@@ -3,6 +3,7 @@
 #include "debug.h"
 #include "hw/spi.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -515,6 +516,135 @@ void ST7789_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
             err += dx;
         }
     }
+}
+
+/*
+ * Rasterize line with Bresenham; consecutive pixels on same row (non-steep) or same
+ * column (steep swapped case) merged into ST7789_Fill for SPI efficiency.
+ */
+void ST7789_DrawLineFills(uint16_t xl0,
+                          uint16_t yl0,
+                          uint16_t xl1,
+                          uint16_t yl1,
+                          uint16_t color)
+{
+	uint16_t swap;
+	uint16_t steep = ABS(yl1 - yl0) > ABS(xl1 - xl0);
+
+	if (steep)
+	{
+		swap = xl0;
+		xl0 = yl0;
+		yl0 = swap;
+
+		swap = xl1;
+		xl1 = yl1;
+		yl1 = swap;
+	}
+
+	if(xl0 > xl1)
+	{
+		swap = xl0;
+		xl0 = xl1;
+		xl1 = swap;
+
+		swap = yl0;
+		yl0 = yl1;
+		yl1 = swap;
+	}
+
+	int16_t dx = (int16_t)(xl1 - xl0);
+	int16_t dy = ABS((int16_t)(yl1 - yl0));
+
+	int16_t err = dx / 2;
+	int16_t ystep = ((int16_t)yl0 < (int16_t)yl1) ? 1 : -1;
+
+	if(steep)
+	{
+		/* Screen (sx,sy)=(yl, xl); xl advances each step → merge columns on fixed sx */
+		bool have_run = false;
+		uint16_t sx_col = 0U;
+		uint16_t ys_lo = 0U;
+		uint16_t ys_hi = 0U;
+
+		for(; xl0 <= xl1; ++xl0)
+		{
+			uint16_t const sx_run = yl0;
+			uint16_t const sy_run = xl0;
+
+			if(!have_run)
+			{
+				sx_col = sx_run;
+				ys_lo = sy_run;
+				ys_hi = sy_run;
+				have_run = true;
+			}
+			else if(sx_run != sx_col || sy_run != (uint16_t)(ys_hi + 1U))
+			{
+				ST7789_Fill(sx_col, ys_lo, sx_col, ys_hi, color);
+				sx_col = sx_run;
+				ys_lo = sy_run;
+				ys_hi = sy_run;
+			}
+			else
+			{
+				ys_hi = sy_run;
+			}
+
+			err -= dy;
+			if(err < 0)
+			{
+				yl0 += ystep;
+				err += dx;
+			}
+		}
+
+		if(have_run)
+		{
+			ST7789_Fill(sx_col, ys_lo, sx_col, ys_hi, color);
+		}
+	}
+	else
+	{
+		bool have_run = false;
+		uint16_t row_y = 0U;
+		uint16_t xs_lo = 0U;
+		uint16_t xs_hi = 0U;
+
+		for(; xl0 <= xl1; ++xl0)
+		{
+			if(!have_run)
+			{
+				row_y = yl0;
+				xs_lo = xl0;
+				xs_hi = xl0;
+				have_run = true;
+			}
+			else if((yl0 != row_y) || (xl0 != (uint16_t)(xs_hi + 1U)))
+			{
+				ST7789_Fill(xs_lo, row_y, xs_hi, row_y, color);
+				row_y = yl0;
+				xs_lo = xl0;
+				xs_hi = xl0;
+			}
+			else
+			{
+				xs_hi = xl0;
+			}
+
+			err -= dy;
+			if(err < 0)
+			{
+				yl0 += ystep;
+				err += dx;
+			}
+		}
+
+		if(have_run)
+		{
+			ST7789_Fill(xs_lo, row_y, xs_hi, row_y, color);
+		}
+	}
 }
 
 /**
