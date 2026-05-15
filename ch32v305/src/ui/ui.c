@@ -69,7 +69,7 @@
 #define UI_SPLASH_WAVE_X3    319U
 #define UI_SPLASH_WAVE_Y3    48U
 #define UI_SPLASH_WAVE_DISPLAY_COLS  128U
-#define UI_SPLASH_WAVE_PERIOD_MS     33U
+#define UI_SPLASH_WAVE_PERIOD_MS     36U
 #define UI_SPLASH_WAVE_MIN_PEAK_ABS  120
 #define UI_SPLASH_WAVE_PEAK_CEILING 2400 /* cap AGC so loud FM does not flatten trace */
 #define UI_SPLASH_WAVE_DEFLECT_MUL   1600 /* 10x vs 320; paired with DIV along thickness vector */
