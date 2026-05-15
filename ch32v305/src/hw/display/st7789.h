@@ -177,6 +177,10 @@ void ST7789_InvertColors(uint8_t invert);
 /* Text functions. */
 void ST7789_WriteChar(uint16_t x, uint16_t y, char ch, FontDef font, uint16_t color, uint16_t bgcolor);
 void ST7789_WriteString(uint16_t x, uint16_t y, const char *str, FontDef font, uint16_t color, uint16_t bgcolor);
+void ST7789_FillQuad(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
+                     uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, uint16_t color);
+void ST7789_WriteStringSlanted(int16_t x0, int16_t y0, const char *str, FontDef font, uint16_t color,
+                               int16_t along_dx, int16_t along_dy, int16_t shear_num, int16_t shear_den);
 
 /* Extented Graphical functions. */
 void ST7789_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color);

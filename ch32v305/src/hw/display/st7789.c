@@ -653,6 +653,60 @@ void ST7789_WriteChar(uint16_t x, uint16_t y, char ch, FontDef font, uint16_t co
  * @param bgcolor -> background color of the string
  * @return  none
  */
+void ST7789_FillQuad(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
+                    uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, uint16_t color)
+{
+	ST7789_DrawFilledTriangle(x0, y0, x1, y1, x2, y2, color);
+	ST7789_DrawFilledTriangle(x0, y0, x2, y2, x3, y3, color);
+}
+
+void ST7789_WriteStringSlanted(int16_t x0, int16_t y0, const char *str, FontDef font, uint16_t color,
+                               int16_t along_dx, int16_t along_dy, int16_t shear_num, int16_t shear_den)
+{
+	int32_t cx;
+	int32_t cy;
+
+	if((str == NULL) || (shear_den == 0))
+	{
+		return;
+	}
+
+	cx = x0;
+	cy = y0;
+
+	while(*str != '\0')
+	{
+		char ch = *str++;
+
+		if((ch < 32) || (ch > 126))
+		{
+			continue;
+		}
+
+		for(uint32_t row = 0U; row < font.height; ++row)
+		{
+			uint16_t bits = font.data[((uint32_t)ch - 32U) * font.height + row];
+
+			for(uint32_t col = 0U; col < font.width; ++col)
+			{
+				if((bits << col) & 0x8000U)
+				{
+					int32_t sx = cx + (int32_t)col + ((int32_t)row * shear_num) / shear_den;
+					int32_t sy = cy + (int32_t)row;
+
+					if((sx >= 0) && (sy >= 0))
+					{
+						ST7789_DrawPixel((uint16_t)sx, (uint16_t)sy, color);
+					}
+				}
+			}
+		}
+
+		cx += along_dx;
+		cy += along_dy;
+	}
+}
+
 void ST7789_WriteString(uint16_t x, uint16_t y, const char *str, FontDef font, uint16_t color, uint16_t bgcolor)
 {
 	ST7789_Select();

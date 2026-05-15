@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "feature/fm_audio_out/fm_audio_out.h"
 #include "hw/display/st7789.h"
@@ -40,6 +41,28 @@
 #define UI_WATERFALL_TOP     80U
 #define UI_WATERFALL_BOTTOM  320U
 
+/* Landscape splash_freq.png MHz readout quad (clockwise from top-left). */
+#define UI_SPLASH_TEXT_X0    77U
+#define UI_SPLASH_TEXT_Y0    24U
+#define UI_SPLASH_TEXT_X1    167U
+#define UI_SPLASH_TEXT_Y1    33U
+#define UI_SPLASH_TEXT_X2    166U
+#define UI_SPLASH_TEXT_Y2    74U
+#define UI_SPLASH_TEXT_X3    76U
+#define UI_SPLASH_TEXT_Y3    60U
+#define UI_SPLASH_TEXT_BASELINE_DX  6
+#define UI_SPLASH_TEXT_BASELINE_DY  1
+#define UI_SPLASH_TEXT_SHEAR_NUM   (-1)
+#define UI_SPLASH_TEXT_SHEAR_DEN   36
+#define UI_SPLASH_FREQ_STEP_HZ 1000000ULL
+
+typedef enum
+{
+    UI_SPLASH_APPEARANCE_NORMAL,
+    UI_SPLASH_APPEARANCE_INVERTED,
+    UI_SPLASH_APPEARANCE_COUNT
+} ui_splash_appearance_t;
+
 typedef enum
 {
     UI_DISPLAY_SPLASH,
@@ -48,6 +71,10 @@ typedef enum
 
 static ui_display_mode_t s_display_mode = UI_DISPLAY_SPLASH;
 static bool s_splash_band_dirty = true;
+static ui_splash_appearance_t s_splash_appearance = UI_SPLASH_APPEARANCE_NORMAL;
+static ui_splash_appearance_t s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
+static uint8_t s_splash_button_phase = 0U;
+static uint64_t s_displayed_splash_freq_hz = UINT64_MAX;
 /* Last MADCTL value applied by UI (0xFF = never synced this session). */
 static uint8_t s_hw_madctl = 0xFFU;
 
@@ -165,15 +192,35 @@ static uint32_t ui_volume_gain_q16(uint8_t volume)
     return (uint32_t)(((uint64_t)UI_AUDIO_GAIN_MAX_Q16 * volume_squared) / max_squared);
 }
 
+static void ui_splash_exit_to_waterfall(void)
+{
+    s_display_mode = UI_DISPLAY_WATERFALL;
+    s_active_control = UI_CONTROL_FREQ_10_MHZ;
+    s_splash_band_dirty = false;
+    s_splash_button_phase = 0U;
+    s_displayed_splash_freq_hz = UINT64_MAX;
+    s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
+    s_redraw_all = true;
+    s_displayed_active_control = UI_CONTROL_COUNT;
+}
+
 static void ui_handle_button_press(void)
 {
     if(s_display_mode == UI_DISPLAY_SPLASH)
     {
-        s_display_mode = UI_DISPLAY_WATERFALL;
-        s_active_control = UI_CONTROL_FREQ_10_MHZ;
-        s_splash_band_dirty = false;
-        s_redraw_all = true;
-        s_displayed_active_control = UI_CONTROL_COUNT;
+        s_splash_button_phase = (uint8_t)((s_splash_button_phase + 1U) % 3U);
+
+        if(s_splash_button_phase == 0U)
+        {
+            ui_splash_exit_to_waterfall();
+            return;
+        }
+
+        s_splash_appearance = (s_splash_button_phase == 1U) ? UI_SPLASH_APPEARANCE_INVERTED
+                                                            : UI_SPLASH_APPEARANCE_NORMAL;
+        s_splash_band_dirty = true;
+        s_displayed_splash_freq_hz = UINT64_MAX;
+        s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
         return;
     }
 
@@ -181,6 +228,9 @@ static void ui_handle_button_press(void)
     {
         s_display_mode = UI_DISPLAY_SPLASH;
         s_splash_band_dirty = true;
+        s_splash_button_phase = 0U;
+        s_displayed_splash_freq_hz = UINT64_MAX;
+        s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
         return;
     }
 
@@ -346,16 +396,86 @@ static void ui_sync_display_hw_for_mode(void)
     s_redraw_all = true;
 }
 
-static void ui_draw_splash_fullscreen_landscape(void)
+static void ui_splash_colors(uint16_t *fg, uint16_t *bg)
 {
-    ST7789_Fill_Color(BLACK);
+    if(s_splash_appearance == UI_SPLASH_APPEARANCE_INVERTED)
+    {
+        *fg = BLACK;
+        *bg = WHITE;
+    }
+    else
+    {
+        *fg = WHITE;
+        *bg = BLACK;
+    }
+}
+
+static void ui_draw_splash_freq_overlay(uint64_t freq_hz)
+{
+    char text[20];
+    unsigned long mhz = (unsigned long)(freq_hz / 1000000ULL);
+    unsigned long mhz_frac = (unsigned long)((freq_hz % 1000000ULL) / 10000ULL);
+    uint16_t text_fg;
+    uint16_t text_bg;
+    size_t text_len;
+    int32_t top_span_x;
+    int32_t text_span_x;
+    int32_t start_x;
+    int32_t start_y;
+
+    snprintf(text, sizeof(text), "%lu.%02lu MHz", mhz, mhz_frac);
+
+    ui_splash_colors(&text_fg, &text_bg);
+
+    ST7789_FillQuad(UI_SPLASH_TEXT_X0,
+                    UI_SPLASH_TEXT_Y0,
+                    UI_SPLASH_TEXT_X1,
+                    UI_SPLASH_TEXT_Y1,
+                    UI_SPLASH_TEXT_X2,
+                    UI_SPLASH_TEXT_Y2,
+                    UI_SPLASH_TEXT_X3,
+                    UI_SPLASH_TEXT_Y3,
+                    text_bg);
+
+    text_len = strlen(text);
+    top_span_x = (int32_t)UI_SPLASH_TEXT_X1 - (int32_t)UI_SPLASH_TEXT_X0;
+    text_span_x = (int32_t)text_len * UI_SPLASH_TEXT_BASELINE_DX;
+    start_x = (int32_t)UI_SPLASH_TEXT_X0 + ((top_span_x - text_span_x) / 2);
+    start_y = (int32_t)UI_SPLASH_TEXT_Y0 + 8;
+
+    if(top_span_x > 0)
+    {
+        start_y += (((top_span_x - text_span_x) / 2) * ((int32_t)UI_SPLASH_TEXT_Y1 - (int32_t)UI_SPLASH_TEXT_Y0)) /
+                   top_span_x;
+    }
+
+    ST7789_WriteStringSlanted(start_x,
+                              start_y,
+                              text,
+                              Font_7x10,
+                              text_fg,
+                              UI_SPLASH_TEXT_BASELINE_DX,
+                              UI_SPLASH_TEXT_BASELINE_DY,
+                              UI_SPLASH_TEXT_SHEAR_NUM,
+                              UI_SPLASH_TEXT_SHEAR_DEN);
+}
+
+static void ui_draw_splash_fullscreen_landscape(uint64_t freq_hz)
+{
+    uint16_t bitmap_fg;
+    uint16_t bitmap_bg;
+
+    ui_splash_colors(&bitmap_fg, &bitmap_bg);
+
+    ST7789_Fill_Color(bitmap_bg);
     ST7789_DrawBitmap1bpp(0U,
                           0U,
-                          splash_behind_screen_w,
-                          splash_behind_screen_h,
-                          splash_behind_screen,
-                          WHITE,
-                          BLACK);
+                          splash_freq_screen_w,
+                          splash_freq_screen_h,
+                          splash_freq_screen,
+                          bitmap_fg,
+                          bitmap_bg);
+    ui_draw_splash_freq_overlay(freq_hz);
 }
 
 static void ui_apply_encoder_delta(int16_t delta, uint64_t freq_hz, uint64_t *next_freq_hz)
@@ -442,6 +562,9 @@ void UI_Init(void)
     s_redraw_all = true;
     s_display_mode = UI_DISPLAY_SPLASH;
     s_splash_band_dirty = true;
+    s_splash_button_phase = 0U;
+    s_displayed_splash_freq_hz = UINT64_MAX;
+    s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
     fm_audio_out_set_mode(FM_AUDIO_OUT_MODE_WBFM);
     fm_audio_out_set_gain(ui_volume_gain_q16(s_volume));
     UI_Draw();
@@ -468,6 +591,15 @@ void UI_Draw(void)
     {
         ui_apply_encoder_delta(encoder_delta, freq_hz, &freq_hz);
     }
+    else if(encoder_delta != 0)
+    {
+        uint64_t requested_freq_hz = ui_apply_frequency_delta(freq_hz, encoder_delta, UI_SPLASH_FREQ_STEP_HZ);
+
+        if(usb_hw_set_clk_freq_hz(requested_freq_hz) == READY)
+        {
+            freq_hz = si5351_hw_clk0_get_freq_hz();
+        }
+    }
 
     if((s_display_mode == UI_DISPLAY_WATERFALL) &&
        (s_redraw_all ||
@@ -480,9 +612,19 @@ void UI_Draw(void)
         ui_draw_header(freq_hz);
     }
 
-    if((s_display_mode == UI_DISPLAY_SPLASH) && s_splash_band_dirty)
+    if(s_display_mode == UI_DISPLAY_SPLASH)
     {
-        ui_draw_splash_fullscreen_landscape();
-        s_splash_band_dirty = false;
+        if(s_splash_band_dirty || (s_splash_appearance != s_displayed_splash_appearance))
+        {
+            ui_draw_splash_fullscreen_landscape(freq_hz);
+            s_splash_band_dirty = false;
+            s_displayed_splash_freq_hz = freq_hz;
+            s_displayed_splash_appearance = s_splash_appearance;
+        }
+        else if(freq_hz != s_displayed_splash_freq_hz)
+        {
+            ui_draw_splash_freq_overlay(freq_hz);
+            s_displayed_splash_freq_hz = freq_hz;
+        }
     }
 }
