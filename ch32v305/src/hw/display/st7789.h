@@ -179,8 +179,14 @@ void ST7789_WriteChar(uint16_t x, uint16_t y, char ch, FontDef font, uint16_t co
 void ST7789_WriteString(uint16_t x, uint16_t y, const char *str, FontDef font, uint16_t color, uint16_t bgcolor);
 void ST7789_FillQuad(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
                      uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, uint16_t color);
+void ST7789_BlitBitmap1bppRow(uint16_t x, uint16_t y, uint16_t w, uint16_t bitmap_w,
+                              const uint8_t *bits, uint16_t fg, uint16_t bg);
 void ST7789_WriteStringSlanted(int16_t x0, int16_t y0, const char *str, FontDef font, uint16_t color,
                                int16_t along_dx, int16_t along_dy, int16_t shear_num, int16_t shear_den);
+void ST7789_WriteStringSlantedInQuad(int16_t x0, int16_t y0, const char *str, FontDef font, uint16_t color,
+                                     int16_t along_dx, int16_t along_dy, int16_t shear_num, int16_t shear_den,
+                                     uint16_t qx0, uint16_t qy0, uint16_t qx1, uint16_t qy1,
+                                     uint16_t qx2, uint16_t qy2, uint16_t qx3, uint16_t qy3);
 
 /* Extented Graphical functions. */
 void ST7789_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color);

@@ -660,6 +660,56 @@ void ST7789_FillQuad(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
 	ST7789_DrawFilledTriangle(x0, y0, x2, y2, x3, y3, color);
 }
 
+void ST7789_BlitBitmap1bppRow(uint16_t x, uint16_t y, uint16_t w, uint16_t bitmap_w,
+                              const uint8_t *bits, uint16_t fg, uint16_t bg)
+{
+	static uint8_t row_buf[320U * 2U];
+	const uint16_t row_bytes = (bitmap_w + 7U) / 8U;
+	const uint8_t fg_hi = (uint8_t)(fg >> 8);
+	const uint8_t fg_lo = (uint8_t)(fg & 0xFFU);
+	const uint8_t bg_hi = (uint8_t)(bg >> 8);
+	const uint8_t bg_lo = (uint8_t)(bg & 0xFFU);
+
+	if((bits == NULL) || (w == 0U) || (w > 320U))
+	{
+		return;
+	}
+
+	const uint8_t *row_bits = bits + (uint32_t)y * (uint32_t)row_bytes;
+
+	ST7789_SetAddressWindow(x, y, (uint16_t)(x + w - 1U), y);
+
+	for(uint16_t col = 0U; col < w; ++col)
+	{
+		uint16_t px = (uint16_t)(x + col);
+		uint8_t bit = (row_bits[px >> 3] >> (7U - (px & 7U))) & 1U;
+
+		row_buf[2U * col]      = bit ? fg_hi : bg_hi;
+		row_buf[2U * col + 1U] = bit ? fg_lo : bg_lo;
+	}
+
+	ST7789_WriteData(row_buf, (size_t)w * 2U);
+}
+
+static int32_t ST7789_QuadCross(int32_t ax, int32_t ay, int32_t bx, int32_t by, int32_t px, int32_t py)
+{
+	return ((bx - ax) * (py - ay)) - ((by - ay) * (px - ax));
+}
+
+static bool ST7789_PointInQuad(int32_t px, int32_t py,
+                               uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
+                               uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3)
+{
+	int32_t c0 = ST7789_QuadCross((int32_t)x0, (int32_t)y0, (int32_t)x1, (int32_t)y1, px, py);
+	int32_t c1 = ST7789_QuadCross((int32_t)x1, (int32_t)y1, (int32_t)x2, (int32_t)y2, px, py);
+	int32_t c2 = ST7789_QuadCross((int32_t)x2, (int32_t)y2, (int32_t)x3, (int32_t)y3, px, py);
+	int32_t c3 = ST7789_QuadCross((int32_t)x3, (int32_t)y3, (int32_t)x0, (int32_t)y0, px, py);
+	bool has_neg = (c0 < 0) || (c1 < 0) || (c2 < 0) || (c3 < 0);
+	bool has_pos = (c0 > 0) || (c1 > 0) || (c2 > 0) || (c3 > 0);
+
+	return !(has_neg && has_pos);
+}
+
 void ST7789_WriteStringSlanted(int16_t x0, int16_t y0, const char *str, FontDef font, uint16_t color,
                                int16_t along_dx, int16_t along_dy, int16_t shear_num, int16_t shear_den)
 {
@@ -695,6 +745,56 @@ void ST7789_WriteStringSlanted(int16_t x0, int16_t y0, const char *str, FontDef 
 					int32_t sy = cy + (int32_t)row;
 
 					if((sx >= 0) && (sy >= 0))
+					{
+						ST7789_DrawPixel((uint16_t)sx, (uint16_t)sy, color);
+					}
+				}
+			}
+		}
+
+		cx += along_dx;
+		cy += along_dy;
+	}
+}
+
+void ST7789_WriteStringSlantedInQuad(int16_t x0, int16_t y0, const char *str, FontDef font, uint16_t color,
+                                     int16_t along_dx, int16_t along_dy, int16_t shear_num, int16_t shear_den,
+                                     uint16_t qx0, uint16_t qy0, uint16_t qx1, uint16_t qy1,
+                                     uint16_t qx2, uint16_t qy2, uint16_t qx3, uint16_t qy3)
+{
+	int32_t cx;
+	int32_t cy;
+
+	if((str == NULL) || (shear_den == 0))
+	{
+		return;
+	}
+
+	cx = x0;
+	cy = y0;
+
+	while(*str != '\0')
+	{
+		char ch = *str++;
+
+		if((ch < 32) || (ch > 126))
+		{
+			continue;
+		}
+
+		for(uint32_t row = 0U; row < font.height; ++row)
+		{
+			uint16_t bits = font.data[((uint32_t)ch - 32U) * font.height + row];
+
+			for(uint32_t col = 0U; col < font.width; ++col)
+			{
+				if((bits << col) & 0x8000U)
+				{
+					int32_t sx = cx + (int32_t)col + ((int32_t)row * shear_num) / shear_den;
+					int32_t sy = cy + (int32_t)row;
+
+					if((sx >= 0) && (sy >= 0) &&
+					   ST7789_PointInQuad(sx, sy, qx0, qy0, qx1, qy1, qx2, qy2, qx3, qy3))
 					{
 						ST7789_DrawPixel((uint16_t)sx, (uint16_t)sy, color);
 					}

@@ -50,11 +50,11 @@
 #define UI_SPLASH_TEXT_Y2    74U
 #define UI_SPLASH_TEXT_X3    76U
 #define UI_SPLASH_TEXT_Y3    60U
-#define UI_SPLASH_TEXT_BASELINE_DX  6
+#define UI_SPLASH_TEXT_BASELINE_DX  10
 #define UI_SPLASH_TEXT_BASELINE_DY  1
 #define UI_SPLASH_TEXT_SHEAR_NUM   (-1)
 #define UI_SPLASH_TEXT_SHEAR_DEN   36
-#define UI_SPLASH_FREQ_STEP_HZ 1000000ULL
+#define UI_SPLASH_FREQ_STEP_HZ 100000ULL
 
 typedef enum
 {
@@ -410,11 +410,143 @@ static void ui_splash_colors(uint16_t *fg, uint16_t *bg)
     }
 }
 
+static int32_t ui_splash_edge_x_at_y(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t y, bool *valid)
+{
+    int32_t y_min;
+    int32_t y_max;
+
+    *valid = false;
+
+    if(y0 == y1)
+    {
+        if(y == y0)
+        {
+            *valid = true;
+            return x0;
+        }
+
+        return 0;
+    }
+
+    y_min = (y0 < y1) ? y0 : y1;
+    y_max = (y0 > y1) ? y0 : y1;
+
+    if((y < y_min) || (y > y_max))
+    {
+        return 0;
+    }
+
+    *valid = true;
+    return x0 + ((y - y0) * (x1 - x0)) / (y1 - y0);
+}
+
+static void ui_splash_quad_scanline_bounds(int32_t y, int32_t *x_lo, int32_t *x_hi)
+{
+    int32_t xs[4];
+    int32_t n = 0;
+    bool valid;
+    int32_t x;
+    int32_t i;
+    int32_t j;
+    int32_t tmp;
+
+    x = ui_splash_edge_x_at_y((int32_t)UI_SPLASH_TEXT_X0,
+                              (int32_t)UI_SPLASH_TEXT_Y0,
+                              (int32_t)UI_SPLASH_TEXT_X1,
+                              (int32_t)UI_SPLASH_TEXT_Y1,
+                              y,
+                              &valid);
+    if(valid)
+    {
+        xs[n++] = x;
+    }
+
+    x = ui_splash_edge_x_at_y((int32_t)UI_SPLASH_TEXT_X1,
+                              (int32_t)UI_SPLASH_TEXT_Y1,
+                              (int32_t)UI_SPLASH_TEXT_X2,
+                              (int32_t)UI_SPLASH_TEXT_Y2,
+                              y,
+                              &valid);
+    if(valid)
+    {
+        xs[n++] = x;
+    }
+
+    x = ui_splash_edge_x_at_y((int32_t)UI_SPLASH_TEXT_X2,
+                              (int32_t)UI_SPLASH_TEXT_Y2,
+                              (int32_t)UI_SPLASH_TEXT_X3,
+                              (int32_t)UI_SPLASH_TEXT_Y3,
+                              y,
+                              &valid);
+    if(valid)
+    {
+        xs[n++] = x;
+    }
+
+    x = ui_splash_edge_x_at_y((int32_t)UI_SPLASH_TEXT_X3,
+                              (int32_t)UI_SPLASH_TEXT_Y3,
+                              (int32_t)UI_SPLASH_TEXT_X0,
+                              (int32_t)UI_SPLASH_TEXT_Y0,
+                              y,
+                              &valid);
+    if(valid)
+    {
+        xs[n++] = x;
+    }
+
+    if(n < 2)
+    {
+        *x_lo = 0;
+        *x_hi = -1;
+        return;
+    }
+
+    for(i = 0; i < (n - 1); ++i)
+    {
+        for(j = (i + 1); j < n; ++j)
+        {
+            if(xs[j] < xs[i])
+            {
+                tmp = xs[i];
+                xs[i] = xs[j];
+                xs[j] = tmp;
+            }
+        }
+    }
+
+    *x_lo = xs[0];
+    *x_hi = xs[n - 1];
+}
+
+static void ui_splash_fill_quad(uint16_t color)
+{
+    int32_t y;
+    int32_t x_lo;
+    int32_t x_hi;
+
+    for(y = (int32_t)UI_SPLASH_TEXT_Y0; y <= (int32_t)UI_SPLASH_TEXT_Y2; ++y)
+    {
+        ui_splash_quad_scanline_bounds(y, &x_lo, &x_hi);
+
+        if(x_hi < x_lo)
+        {
+            continue;
+        }
+
+        if(x_lo < 0)
+        {
+            x_lo = 0;
+        }
+
+        ST7789_Fill((uint16_t)x_lo, (uint16_t)y, (uint16_t)x_hi, (uint16_t)y, color);
+    }
+}
+
 static void ui_draw_splash_freq_overlay(uint64_t freq_hz)
 {
     char text[20];
     unsigned long mhz = (unsigned long)(freq_hz / 1000000ULL);
-    unsigned long mhz_frac = (unsigned long)((freq_hz % 1000000ULL) / 10000ULL);
+    unsigned long mhz_frac = (unsigned long)((freq_hz % 1000000ULL) / 100000ULL);
     uint16_t text_fg;
     uint16_t text_bg;
     size_t text_len;
@@ -423,25 +555,18 @@ static void ui_draw_splash_freq_overlay(uint64_t freq_hz)
     int32_t start_x;
     int32_t start_y;
 
-    snprintf(text, sizeof(text), "%lu.%02lu MHz", mhz, mhz_frac);
+    snprintf(text, sizeof(text), "%lu.%lu MHz", mhz, mhz_frac);
 
-    ui_splash_colors(&text_fg, &text_bg);
+    text_fg = (s_splash_appearance == UI_SPLASH_APPEARANCE_INVERTED) ? BLACK : WHITE;
+    text_bg = (s_splash_appearance == UI_SPLASH_APPEARANCE_INVERTED) ? WHITE : BLACK;
 
-    ST7789_FillQuad(UI_SPLASH_TEXT_X0,
-                    UI_SPLASH_TEXT_Y0,
-                    UI_SPLASH_TEXT_X1,
-                    UI_SPLASH_TEXT_Y1,
-                    UI_SPLASH_TEXT_X2,
-                    UI_SPLASH_TEXT_Y2,
-                    UI_SPLASH_TEXT_X3,
-                    UI_SPLASH_TEXT_Y3,
-                    text_bg);
+    ui_splash_fill_quad(text_bg);
 
     text_len = strlen(text);
     top_span_x = (int32_t)UI_SPLASH_TEXT_X1 - (int32_t)UI_SPLASH_TEXT_X0;
     text_span_x = (int32_t)text_len * UI_SPLASH_TEXT_BASELINE_DX;
     start_x = (int32_t)UI_SPLASH_TEXT_X0 + ((top_span_x - text_span_x) / 2);
-    start_y = (int32_t)UI_SPLASH_TEXT_Y0 + 8;
+    start_y = (int32_t)UI_SPLASH_TEXT_Y0 + 12;
 
     if(top_span_x > 0)
     {
@@ -452,7 +577,7 @@ static void ui_draw_splash_freq_overlay(uint64_t freq_hz)
     ST7789_WriteStringSlanted(start_x,
                               start_y,
                               text,
-                              Font_7x10,
+                              Font_11x18,
                               text_fg,
                               UI_SPLASH_TEXT_BASELINE_DX,
                               UI_SPLASH_TEXT_BASELINE_DY,
