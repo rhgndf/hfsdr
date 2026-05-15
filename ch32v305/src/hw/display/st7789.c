@@ -369,6 +369,29 @@ uint16_t ST7789_ScrollRows(uint16_t top, uint16_t bottom, int16_t rows)
 	return ST7789_ScrollYToLogicalY(write_scroll_y);
 }
 
+void ST7789_VerticalScrollDisable(void)
+{
+	uint16_t const height = ST7789_HEIGHT;
+	uint16_t const scroll_top = 0U;
+	uint16_t const bottom_fixed = (uint16_t)(ST7789_HEIGHT - height);
+	uint8_t data[] = {
+		(uint8_t)(scroll_top >> 8), (uint8_t)(scroll_top & 0xFFU),
+		(uint8_t)(height >> 8), (uint8_t)(height & 0xFFU),
+		(uint8_t)(bottom_fixed >> 8), (uint8_t)(bottom_fixed & 0xFFU),
+	};
+
+	s_scroll_top = 0U;
+	s_scroll_bottom = height;
+	s_scroll_offset = 0U;
+
+	ST7789_WriteCommand(ST7789_VSCRDEF);
+	ST7789_WriteData(data, sizeof(data));
+
+	uint8_t vscsad[] = {0U, 0U};
+	ST7789_WriteCommand(ST7789_VSCSAD);
+	ST7789_WriteData(vscsad, sizeof(vscsad));
+}
+
 /**
  * @brief Fill an Area with single color
  * @param xSta&ySta -> coordinate of the start point
@@ -554,7 +577,7 @@ void ST7789_DrawImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint
 void ST7789_DrawBitmap1bpp(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                            const uint8_t *bits, uint16_t fg, uint16_t bg)
 {
-	uint8_t row_buf[320U * 2U];
+	static uint8_t row_buf[320U * 2U];
 
 	if ((bits == NULL) || (w == 0U) || (h == 0U) || (w > 320U))
 		return;

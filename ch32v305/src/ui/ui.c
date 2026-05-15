@@ -6,10 +6,12 @@
 
 #include "feature/fm_audio_out/fm_audio_out.h"
 #include "hw/display/st7789.h"
+#include "hw/display/splash.h"
 #include "hw/encoder.h"
 #include "hw/si5351.h"
 #include "hw/tlv320adc6120.h"
 #include "hw/usb.h"
+#include "ui/fft.h"
 
 #define UI_HEADER_BOTTOM_Y 79U
 #define UI_FREQ_TEXT_Y     10U
@@ -33,6 +35,21 @@
 #define UI_TLV320_GAIN_MIN_DB_X2     TLV320ADC6120_CH_GAIN_MIN_DB_X2
 #define UI_TLV320_GAIN_MAX_DB_X2     ((int8_t)TLV320ADC6120_CH_GAIN_MAX_DB_X2)
 #define UI_TLV320_GAIN_DEFAULT_DB_X2 0
+
+/* Match fft.cpp waterfall band (portrait). */
+#define UI_WATERFALL_TOP     80U
+#define UI_WATERFALL_BOTTOM  320U
+
+typedef enum
+{
+    UI_DISPLAY_SPLASH,
+    UI_DISPLAY_WATERFALL
+} ui_display_mode_t;
+
+static ui_display_mode_t s_display_mode = UI_DISPLAY_SPLASH;
+static bool s_splash_band_dirty = true;
+/* Last MADCTL value applied by UI (0xFF = never synced this session). */
+static uint8_t s_hw_madctl = 0xFFU;
 
 static uint64_t s_displayed_freq_hz = UINT64_MAX;
 static uint8_t s_displayed_volume = UINT8_MAX;
@@ -148,9 +165,26 @@ static uint32_t ui_volume_gain_q16(uint8_t volume)
     return (uint32_t)(((uint64_t)UI_AUDIO_GAIN_MAX_Q16 * volume_squared) / max_squared);
 }
 
-static void ui_cycle_active_control(void)
+static void ui_handle_button_press(void)
 {
-    s_active_control = (ui_control_t)(((uint32_t)s_active_control + 1U) % (uint32_t)UI_CONTROL_COUNT);
+    if(s_display_mode == UI_DISPLAY_SPLASH)
+    {
+        s_display_mode = UI_DISPLAY_WATERFALL;
+        s_active_control = UI_CONTROL_FREQ_10_MHZ;
+        s_splash_band_dirty = false;
+        s_redraw_all = true;
+        s_displayed_active_control = UI_CONTROL_COUNT;
+        return;
+    }
+
+    if(s_active_control == UI_CONTROL_TLV320_GAIN)
+    {
+        s_display_mode = UI_DISPLAY_SPLASH;
+        s_splash_band_dirty = true;
+        return;
+    }
+
+    s_active_control = (ui_control_t)((uint32_t)s_active_control + 1U);
 }
 
 static void ui_draw_selected_frequency_digit(uint64_t freq_hz)
@@ -277,6 +311,53 @@ static void ui_draw_header(uint64_t freq_hz)
     s_redraw_all = false;
 }
 
+static void ui_sync_display_hw_for_mode(void)
+{
+    uint8_t const want_madctl = (s_display_mode == UI_DISPLAY_SPLASH) ? 3U : (uint8_t)ST7789_ROTATION;
+
+    if(s_hw_madctl == want_madctl)
+    {
+        return;
+    }
+
+    uint8_t const prev_madctl = s_hw_madctl;
+
+    s_hw_madctl = want_madctl;
+    ST7789_SetRotation(want_madctl);
+
+    if(want_madctl == 3U)
+    {
+        /* Landscape: full-screen PCB splash; turn off FFT scroll window first. */
+        ST7789_VerticalScrollDisable();
+        s_splash_band_dirty = true;
+        return;
+    }
+
+    /* Portrait: radio header + waterfall. */
+    UI_FFT_Init();
+    if(prev_madctl == 3U)
+    {
+        ST7789_Fill(0U,
+                    UI_WATERFALL_TOP,
+                    ST7789_WIDTH - 1U,
+                    (uint16_t)(UI_WATERFALL_BOTTOM - 1U),
+                    BLACK);
+    }
+    s_redraw_all = true;
+}
+
+static void ui_draw_splash_fullscreen_landscape(void)
+{
+    ST7789_Fill_Color(BLACK);
+    ST7789_DrawBitmap1bpp(0U,
+                          0U,
+                          splash_behind_screen_w,
+                          splash_behind_screen_h,
+                          splash_behind_screen,
+                          WHITE,
+                          BLACK);
+}
+
 static void ui_apply_encoder_delta(int16_t delta, uint64_t freq_hz, uint64_t *next_freq_hz)
 {
     *next_freq_hz = freq_hz;
@@ -359,9 +440,16 @@ void UI_Init(void)
     s_volume = UI_VOLUME_DEFAULT;
     s_tlv320_gain_db_x2 = UI_TLV320_GAIN_DEFAULT_DB_X2;
     s_redraw_all = true;
+    s_display_mode = UI_DISPLAY_SPLASH;
+    s_splash_band_dirty = true;
     fm_audio_out_set_mode(FM_AUDIO_OUT_MODE_WBFM);
     fm_audio_out_set_gain(ui_volume_gain_q16(s_volume));
     UI_Draw();
+}
+
+bool UI_ShouldDrawFft(void)
+{
+    return (bool)(s_display_mode == UI_DISPLAY_WATERFALL);
 }
 
 void UI_Draw(void)
@@ -371,18 +459,30 @@ void UI_Draw(void)
 
     if(encoder_take_button_press())
     {
-        ui_cycle_active_control();
+        ui_handle_button_press();
     }
 
-    ui_apply_encoder_delta(encoder_delta, freq_hz, &freq_hz);
+    ui_sync_display_hw_for_mode();
 
-    if(s_redraw_all ||
-       (freq_hz != s_displayed_freq_hz) ||
-       (s_volume != s_displayed_volume) ||
-       (s_tlv320_gain_db_x2 != s_displayed_tlv320_gain_db_x2) ||
-       (fm_audio_out_get_mode() != s_displayed_fm_mode) ||
-       (s_active_control != s_displayed_active_control))
+    if(s_display_mode == UI_DISPLAY_WATERFALL)
+    {
+        ui_apply_encoder_delta(encoder_delta, freq_hz, &freq_hz);
+    }
+
+    if((s_display_mode == UI_DISPLAY_WATERFALL) &&
+       (s_redraw_all ||
+        (freq_hz != s_displayed_freq_hz) ||
+        (s_volume != s_displayed_volume) ||
+        (s_tlv320_gain_db_x2 != s_displayed_tlv320_gain_db_x2) ||
+        (fm_audio_out_get_mode() != s_displayed_fm_mode) ||
+        (s_active_control != s_displayed_active_control)))
     {
         ui_draw_header(freq_hz);
+    }
+
+    if((s_display_mode == UI_DISPLAY_SPLASH) && s_splash_band_dirty)
+    {
+        ui_draw_splash_fullscreen_landscape();
+        s_splash_band_dirty = false;
     }
 }

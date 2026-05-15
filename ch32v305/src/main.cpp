@@ -30,7 +30,6 @@ extern "C" {
 #include "hw/encoder.h"
 #include "hw/display/st7789.h"
 #include "hw/display/cst328.h"
-#include "hw/display/splash.h"
 
 #include "hw/i2c.h"
 #include "hw/tlv320adc6120.h"
@@ -408,16 +407,6 @@ int main(void)
     printf("ST7789 init\r\n");
     ST7789_Init();
 
-    /* Splash: show the PCB silkscreen art behind the LCD in landscape, then
-     * snap back to the firmware's portrait rotation for the regular UI. */
-    ST7789_SetRotation(3);
-    ST7789_DrawBitmap1bpp(0, 0,
-                          splash_behind_screen_w, splash_behind_screen_h,
-                          splash_behind_screen, WHITE, BLACK);
-    Delay_Ms(1500);
-    ST7789_SetRotation(ST7789_ROTATION);
-    ST7789_Fill_Color(BLACK);
-
     i2c_hw_init();
     si5351_init();
     
@@ -468,7 +457,12 @@ int main(void)
     PeriodicTrigger I2SPoll{1000U, TLV320_I2S_Poll};
     PeriodicTrigger I2CBusScan{1000U, Scan_I2CBus_EverySecond};
     PeriodicTrigger SysTickReportUSB{1000U, SysTick_Report_USB_EverySecond};
-    PeriodicTrigger FFTDraw{1000U / 60U, UI_FFT_Draw};
+    PeriodicTrigger FFTDraw{1000U / 60U, []() {
+        if(UI_ShouldDrawFft())
+        {
+            UI_FFT_Draw();
+        }
+    }};
     PeriodicTrigger ADCPoll{1000U, ADC_Poll};
     PeriodicTrigger SDCardPoll{1000U, SDCard_PrintCIDAndSector0};
 

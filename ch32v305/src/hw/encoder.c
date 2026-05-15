@@ -18,6 +18,9 @@
 #define ENCODER_COUNTS_PER_DETENT 4
 #define ENCODER_BUTTON_DEBOUNCE_MS 30U
 
+/* Encoder switch: IPD, high when pressed (tied to VCC). */
+#define ENC_BTN_PRESSED(st) ((st) != 0U)
+
 static volatile uint16_t s_encoder_last_counter = ENCODER_COUNTER_MIDPOINT;
 static atomic_int_fast32_t s_encoder_pending_raw_delta = 0;
 static volatile int32_t s_encoder_raw_position = 0;
@@ -69,10 +72,14 @@ static void encoder_poll_button(void)
         return;
     }
 
-    s_button_stable_state = s_button_raw_state;
-    if(s_button_stable_state != 0U)
     {
-        s_button_pressed = true;
+        uint8_t const prev_stable = s_button_stable_state;
+
+        s_button_stable_state = s_button_raw_state;
+        if(!ENC_BTN_PRESSED(prev_stable) && ENC_BTN_PRESSED(s_button_stable_state))
+        {
+            s_button_pressed = true;
+        }
     }
 }
 
@@ -130,7 +137,6 @@ void encoder_init(void)
     tim.TIM_CounterMode = TIM_CounterMode_Up;
     TIM_TimeBaseInit(ENCODER_TIMER, &tim);
 
-    /* Filter both phases to suppress switch bounce from a mechanical encoder. */
     TIM_ICStructInit(&ic);
     ic.TIM_ICPolarity = TIM_ICPolarity_Falling;
     ic.TIM_ICSelection = TIM_ICSelection_DirectTI;
@@ -194,12 +200,10 @@ int16_t encoder_take_delta(void)
 
 bool encoder_take_button_press(void)
 {
-    bool pressed;
-
     encoder_poll_button();
-    pressed = s_button_pressed;
-    s_button_pressed = false;
+    bool pressed = s_button_pressed;
 
+    s_button_pressed = false;
     return pressed;
 }
 
