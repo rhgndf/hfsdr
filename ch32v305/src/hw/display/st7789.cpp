@@ -3,9 +3,16 @@
 #include "debug.h"
 #include "hw/spi.h"
 
-#include <stdbool.h>
+#include <algorithm>
+#include <array>
 #include <stddef.h>
 #include <stdint.h>
+#include <cstdlib>
+#include <utility>
+
+static constexpr uint16_t ST7789_PANEL_LONG_SIDE = 320U;
+static constexpr uint16_t ST7789_PANEL_SHORT_SIDE = 240U;
+static constexpr size_t ST7789_RGB565_BYTES_PER_PIXEL = 2U;
 
 static uint16_t s_scroll_top = 0U;
 static uint16_t s_scroll_bottom = ST7789_HEIGHT;
@@ -23,8 +30,11 @@ class ST7789TransactionGuard
 public:
 	explicit ST7789TransactionGuard(ST7789TransactionKind kind)
 	{
+		// Wait for the previous transaction to finish, we launch all DMA async
 		spi_hw_wait_dma();
+		// Do a SET/RESET to reset the SPI state machine on the display
 		GPIO_WriteBit(ST7789_CS_GPIO_PORT, ST7789_CS_GPIO_PIN, Bit_SET);
+		// TODO: should there be a delay here?
 		GPIO_WriteBit(ST7789_CS_GPIO_PORT, ST7789_CS_GPIO_PIN, Bit_RESET);
 		if(kind == ST7789TransactionKind::Command)
 		{
@@ -46,12 +56,12 @@ public:
 
 static uint16_t ST7789_ActiveWidth(void)
 {
-	return ((s_rotation & 1U) != 0U) ? 320U : 240U;
+	return ((s_rotation & 1U) != 0U) ? ST7789_PANEL_LONG_SIDE : ST7789_PANEL_SHORT_SIDE;
 }
 
 static uint16_t ST7789_ActiveHeight(void)
 {
-	return ((s_rotation & 1U) != 0U) ? 240U : 320U;
+	return ((s_rotation & 1U) != 0U) ? ST7789_PANEL_SHORT_SIDE : ST7789_PANEL_LONG_SIDE;
 }
 
 static uint16_t ST7789_ScrollYToLogicalY(uint16_t y)
@@ -66,6 +76,37 @@ static uint16_t ST7789_ScrollYToLogicalY(uint16_t y)
 static void ST7789_SPI_TxU8(uint8_t v)
 {
 	(void)spi_hw_transfer_u8(v);
+}
+
+static std::array<uint8_t, 2U> ST7789_U16Bytes(uint16_t value)
+{
+	return {
+		(uint8_t)(value >> 8),
+		(uint8_t)(value & 0xFFU),
+	};
+}
+
+static std::array<uint8_t, 4U> ST7789_U16RangeBytes(uint16_t start, uint16_t end)
+{
+	return {
+		(uint8_t)(start >> 8), (uint8_t)(start & 0xFFU),
+		(uint8_t)(end >> 8), (uint8_t)(end & 0xFFU),
+	};
+}
+
+static uint16_t ST7789_ClipExtent(uint16_t start, uint16_t extent, uint16_t limit)
+{
+	if(start >= limit)
+	{
+		return 0U;
+	}
+
+	return std::clamp<uint16_t>(extent, 0U, (uint16_t)(limit - start));
+}
+
+static bool ST7789_ReadBitmap1bppBit(const uint8_t *row_bits, uint16_t x)
+{
+	return (((row_bits[x >> 3U] >> (7U - (x & 7U))) & 1U) != 0U);
 }
 
 static void ST7789_HW_Init(void)
@@ -114,14 +155,25 @@ static void ST7789_WriteCommand(uint8_t cmd)
  * @param buff_size -> size of the data buffer
  * @return none
  */
-static void ST7789_WriteData(uint8_t *buff, size_t buff_size)
+static void ST7789_WriteData(const uint8_t *buff, size_t buff_size)
 {
-	if ((buff == NULL) || (buff_size == 0U)) {
+	if ((buff == nullptr) || (buff_size == 0U)) {
 		return;
 	}
 
 	ST7789TransactionGuard guard{ST7789TransactionKind::Data};
 	spi_hw_transfer_dma(buff, buff_size);
+}
+
+template<size_t N>
+static void ST7789_WriteDataArray(const std::array<uint8_t, N> &data)
+{
+	ST7789_WriteData(data.data(), data.size());
+}
+
+static void ST7789_WritePixelData(uint16_t color)
+{
+	ST7789_WriteDataArray(ST7789_U16Bytes(color));
 }
 
 /* Stream a single RGB565 pixel value to the panel pixel_count times via DMA. */
@@ -187,23 +239,12 @@ static void ST7789_SetAddressWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint1
 	
 	/* Column Address set */
 	ST7789_WriteCommand(ST7789_CASET); 
-	{
-		uint8_t data[] = {
-			(uint8_t)(x_start >> 8), (uint8_t)(x_start & 0xFFU),
-			(uint8_t)(x_end >> 8), (uint8_t)(x_end & 0xFFU),
-		};
-		ST7789_WriteData(data, sizeof(data));
-	}
+	ST7789_WriteDataArray(ST7789_U16RangeBytes(x_start, x_end));
 
 	/* Row Address set */
 	ST7789_WriteCommand(ST7789_RASET);
-	{
-		uint8_t data[] = {
-			(uint8_t)(y_start >> 8), (uint8_t)(y_start & 0xFFU),
-			(uint8_t)(y_end >> 8), (uint8_t)(y_end & 0xFFU),
-		};
-		ST7789_WriteData(data, sizeof(data));
-	}
+	ST7789_WriteDataArray(ST7789_U16RangeBytes(y_start, y_end));
+
 	/* Write to RAM */
 	ST7789_WriteCommand(ST7789_RAMWR);
 }
@@ -254,14 +295,22 @@ void ST7789_Init(void)
     ST7789_WriteSmallData (0xA4);			//	Default value
     ST7789_WriteSmallData (0xA1);			//	Default value
 
+	/* PVGAMCTRL (E0h): positive-polarity gamma curve.
+	 * The 14 parameters tune the source-driver gray-scale voltage points
+	 * VP0..VP63 plus interpolation controls JP0/JP1 for the panel. */
 	ST7789_WriteCommand(0xE0);
 	{
+		// TODO: find out what actual gamma values we need
 		uint8_t data[] = {0xD0, 0x04, 0x0D, 0x11, 0x13, 0x2B, 0x3F, 0x54, 0x4C, 0x18, 0x0D, 0x0B, 0x1F, 0x23};
 		ST7789_WriteData(data, sizeof(data));
 	}
 
+	/* NVGAMCTRL (E1h): negative-polarity gamma curve.
+	 * Same layout as PVGAMCTRL, but sets VN0..VN63 and JN0/JN1 to balance
+	 * the panel response on the opposite drive polarity. */
     ST7789_WriteCommand(0xE1);
 	{
+		// TODO: same here
 		uint8_t data[] = {0xD0, 0x04, 0x0C, 0x11, 0x13, 0x2C, 0x3F, 0x44, 0x51, 0x2F, 0x1F, 0x1F, 0x20, 0x23};
 		ST7789_WriteData(data, sizeof(data));
 	}
@@ -314,20 +363,16 @@ void ST7789_DrawPixel(uint16_t x, uint16_t y, uint16_t color)
 	}
 	
 	ST7789_SetAddressWindow(x, y, x, y);
-	uint8_t data[] = {(uint8_t)(color >> 8), (uint8_t)(color & 0xFFU)};
-	ST7789_WriteData(data, sizeof(data));
+	ST7789_WritePixelData(color);
 }
 
 void ST7789_DrawColorLine(uint16_t x, uint16_t y, const uint16_t *colors, uint16_t width)
 {
-	if ((colors == NULL) || (width == 0U) || (x >= ST7789_WIDTH) || (y >= ST7789_HEIGHT)) {
+	if ((colors == nullptr) || (width == 0U) || (x >= ST7789_WIDTH) || (y >= ST7789_HEIGHT)) {
 		return;
 	}
 
-	uint16_t visible_width = width;
-	if(((uint32_t)x + (uint32_t)visible_width) > ST7789_WIDTH) {
-		visible_width = ST7789_WIDTH - x;
-	}
+	uint16_t const visible_width = ST7789_ClipExtent(x, width, ST7789_WIDTH);
 
 	ST7789_SetAddressWindow(x, y, x + visible_width - 1U, y);
 	ST7789TransactionGuard guard{ST7789TransactionKind::Data};
@@ -353,7 +398,7 @@ uint16_t ST7789_ScrollRows(uint16_t top, uint16_t bottom, int16_t rows)
 
 	if((top != s_scroll_top) || (bottom != s_scroll_bottom) || (rows == 0)) {
 		uint16_t bottom_fixed = ST7789_HEIGHT - scroll_top - height;
-		uint8_t data[] = {
+		std::array<uint8_t, 6U> data = {
 			(uint8_t)(scroll_top >> 8), (uint8_t)(scroll_top & 0xFFU),
 			(uint8_t)(height >> 8), (uint8_t)(height & 0xFFU),
 			(uint8_t)(bottom_fixed >> 8), (uint8_t)(bottom_fixed & 0xFFU),
@@ -364,7 +409,7 @@ uint16_t ST7789_ScrollRows(uint16_t top, uint16_t bottom, int16_t rows)
 		s_scroll_offset = 0U;
 
 		ST7789_WriteCommand(ST7789_VSCRDEF);
-		ST7789_WriteData(data, sizeof(data));
+		ST7789_WriteDataArray(data);
 	}
 
 	int32_t offset = (int32_t)s_scroll_offset + (int32_t)scroll_rows;
@@ -375,9 +420,8 @@ uint16_t ST7789_ScrollRows(uint16_t top, uint16_t bottom, int16_t rows)
 	s_scroll_offset = (uint16_t)offset;
 
 	uint16_t scroll_start = scroll_top + s_scroll_offset;
-	uint8_t data[] = {(uint8_t)(scroll_start >> 8), (uint8_t)(scroll_start & 0xFFU)};
 	ST7789_WriteCommand(ST7789_VSCSAD);
-	ST7789_WriteData(data, sizeof(data));
+	ST7789_WriteDataArray(ST7789_U16Bytes(scroll_start));
 
 	uint16_t write_scroll_y;
 	if(scroll_rows >= 0) {
@@ -393,7 +437,7 @@ void ST7789_VerticalScrollDisable(void)
 	uint16_t const height = ST7789_HEIGHT;
 	uint16_t const scroll_top = 0U;
 	uint16_t const bottom_fixed = (uint16_t)(ST7789_HEIGHT - height);
-	uint8_t data[] = {
+	std::array<uint8_t, 6U> data = {
 		(uint8_t)(scroll_top >> 8), (uint8_t)(scroll_top & 0xFFU),
 		(uint8_t)(height >> 8), (uint8_t)(height & 0xFFU),
 		(uint8_t)(bottom_fixed >> 8), (uint8_t)(bottom_fixed & 0xFFU),
@@ -404,11 +448,10 @@ void ST7789_VerticalScrollDisable(void)
 	s_scroll_offset = 0U;
 
 	ST7789_WriteCommand(ST7789_VSCRDEF);
-	ST7789_WriteData(data, sizeof(data));
+	ST7789_WriteDataArray(data);
 
-	uint8_t vscsad[] = {0U, 0U};
 	ST7789_WriteCommand(ST7789_VSCSAD);
-	ST7789_WriteData(vscsad, sizeof(vscsad));
+	ST7789_WriteDataArray(ST7789_U16Bytes(0U));
 }
 
 /**
@@ -452,58 +495,43 @@ void ST7789_DrawPixel_4px(uint16_t x, uint16_t y, uint16_t color)
  * @return none
  */
 void ST7789_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
-        uint16_t color) {
-	uint16_t swap;
-    uint16_t steep = ABS(y1 - y0) > ABS(x1 - x0);
-    if (steep) {
-		swap = x0;
-		x0 = y0;
-		y0 = swap;
+                     uint16_t color)
+{
+	bool const steep = std::abs(y1 - y0) > std::abs(x1 - x0);
+	if(steep)
+	{
+		std::swap(x0, y0);
+		std::swap(x1, y1);
+	}
 
-		swap = x1;
-		x1 = y1;
-		y1 = swap;
-        //_swap_int16_t(x0, y0);
-        //_swap_int16_t(x1, y1);
-    }
+	if(x0 > x1)
+	{
+		std::swap(x0, x1);
+		std::swap(y0, y1);
+	}
 
-    if (x0 > x1) {
-		swap = x0;
-		x0 = x1;
-		x1 = swap;
+	int16_t const dx = (int16_t)(x1 - x0);
+	int16_t const dy = std::abs(y1 - y0);
+	int16_t const ystep = (y0 < y1) ? 1 : -1;
+	int16_t err = dx / 2;
 
-		swap = y0;
-		y0 = y1;
-		y1 = swap;
-        //_swap_int16_t(x0, x1);
-        //_swap_int16_t(y0, y1);
-    }
-
-    int16_t dx, dy;
-    dx = x1 - x0;
-    dy = ABS(y1 - y0);
-
-    int16_t err = dx / 2;
-    int16_t ystep;
-
-    if (y0 < y1) {
-        ystep = 1;
-    } else {
-        ystep = -1;
-    }
-
-    for (; x0<=x1; x0++) {
-        if (steep) {
-            ST7789_DrawPixel(y0, x0, color);
-        } else {
-            ST7789_DrawPixel(x0, y0, color);
-        }
-        err -= dy;
-        if (err < 0) {
-            y0 += ystep;
-            err += dx;
-        }
-    }
+	for(; x0 <= x1; ++x0)
+	{
+		if(steep)
+		{
+			ST7789_DrawPixel(y0, x0, color);
+		}
+		else
+		{
+			ST7789_DrawPixel(x0, y0, color);
+		}
+		err -= dy;
+		if(err < 0)
+		{
+			y0 += ystep;
+			err += dx;
+		}
+	}
 }
 
 /*
@@ -516,33 +544,22 @@ void ST7789_DrawLineFills(uint16_t xl0,
                           uint16_t yl1,
                           uint16_t color)
 {
-	uint16_t swap;
-	uint16_t steep = ABS(yl1 - yl0) > ABS(xl1 - xl0);
+	uint16_t steep = std::abs(yl1 - yl0) > std::abs(xl1 - xl0);
 
 	if (steep)
 	{
-		swap = xl0;
-		xl0 = yl0;
-		yl0 = swap;
-
-		swap = xl1;
-		xl1 = yl1;
-		yl1 = swap;
+		std::swap(xl0, yl0);
+		std::swap(xl1, yl1);
 	}
 
 	if(xl0 > xl1)
 	{
-		swap = xl0;
-		xl0 = xl1;
-		xl1 = swap;
-
-		swap = yl0;
-		yl0 = yl1;
-		yl1 = swap;
+		std::swap(xl0, xl1);
+		std::swap(yl0, yl1);
 	}
 
 	int16_t dx = (int16_t)(xl1 - xl0);
-	int16_t dy = ABS((int16_t)(yl1 - yl0));
+	int16_t dy = std::abs((int16_t)(yl1 - yl0));
 
 	int16_t err = dx / 2;
 	int16_t ystep = ((int16_t)yl0 < (int16_t)yl1) ? 1 : -1;
@@ -721,9 +738,9 @@ void ST7789_DrawImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint
 void ST7789_DrawBitmap1bpp(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                            const uint8_t *bits, uint16_t fg, uint16_t bg)
 {
-	static uint8_t row_buf[320U * 2U];
+	static uint8_t row_buf[ST7789_PANEL_LONG_SIDE * ST7789_RGB565_BYTES_PER_PIXEL];
 
-	if ((bits == NULL) || (w == 0U) || (h == 0U) || (w > 320U))
+	if ((bits == nullptr) || (w == 0U) || (h == 0U) || (w > ST7789_PANEL_LONG_SIDE))
 		return;
 
 	const uint16_t row_bytes = (w + 7U) / 8U;
@@ -737,11 +754,11 @@ void ST7789_DrawBitmap1bpp(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
 	for (uint16_t row = 0U; row < h; ++row) {
 		const uint8_t *row_bits = bits + (uint32_t)row * (uint32_t)row_bytes;
 		for (uint16_t col = 0U; col < w; ++col) {
-			uint8_t bit = (row_bits[col >> 3] >> (7U - (col & 7U))) & 1U;
+			bool const bit = ST7789_ReadBitmap1bppBit(row_bits, col);
 			row_buf[2U * col]      = bit ? fg_hi : bg_hi;
 			row_buf[2U * col + 1U] = bit ? fg_lo : bg_lo;
 		}
-		ST7789_WriteData(row_buf, (size_t)w * 2U);
+		ST7789_WriteData(row_buf, (size_t)w * ST7789_RGB565_BYTES_PER_PIXEL);
 	}
 }
 
@@ -766,20 +783,13 @@ void ST7789_InvertColors(uint8_t invert)
  */
 void ST7789_WriteChar(uint16_t x, uint16_t y, char ch, FontDef font, uint16_t color, uint16_t bgcolor)
 {
-	uint32_t i, b, j;
 	ST7789_SetAddressWindow(x, y, x + font.width - 1, y + font.height - 1);
 
-	for (i = 0; i < font.height; i++) {
-		b = font.data[(ch - 32) * font.height + i];
-		for (j = 0; j < font.width; j++) {
-			if ((b << j) & 0x8000) {
-				uint8_t data[] = {(uint8_t)(color >> 8), (uint8_t)(color & 0xFFU)};
-				ST7789_WriteData(data, sizeof(data));
-			}
-			else {
-				uint8_t data[] = {(uint8_t)(bgcolor >> 8), (uint8_t)(bgcolor & 0xFFU)};
-				ST7789_WriteData(data, sizeof(data));
-			}
+	for (uint32_t row = 0U; row < font.height; ++row) {
+		uint32_t const bits = font.data[((uint32_t)ch - 32U) * font.height + row];
+		for (uint32_t col = 0U; col < font.width; ++col) {
+			uint16_t const pixel_color = ((bits << col) & 0x8000U) ? color : bgcolor;
+			ST7789_WritePixelData(pixel_color);
 		}
 	}
 }
@@ -803,14 +813,14 @@ void ST7789_FillQuad(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
 void ST7789_BlitBitmap1bppRow(uint16_t x, uint16_t y, uint16_t w, uint16_t bitmap_w,
                               const uint8_t *bits, uint16_t fg, uint16_t bg)
 {
-	static uint8_t row_buf[320U * 2U];
+	static uint8_t row_buf[ST7789_PANEL_LONG_SIDE * ST7789_RGB565_BYTES_PER_PIXEL];
 	const uint16_t row_bytes = (bitmap_w + 7U) / 8U;
 	const uint8_t fg_hi = (uint8_t)(fg >> 8);
 	const uint8_t fg_lo = (uint8_t)(fg & 0xFFU);
 	const uint8_t bg_hi = (uint8_t)(bg >> 8);
 	const uint8_t bg_lo = (uint8_t)(bg & 0xFFU);
 
-	if((bits == NULL) || (w == 0U) || (w > 320U))
+	if((bits == nullptr) || (w == 0U) || (w > ST7789_PANEL_LONG_SIDE))
 	{
 		return;
 	}
@@ -822,13 +832,13 @@ void ST7789_BlitBitmap1bppRow(uint16_t x, uint16_t y, uint16_t w, uint16_t bitma
 	for(uint16_t col = 0U; col < w; ++col)
 	{
 		uint16_t px = (uint16_t)(x + col);
-		uint8_t bit = (row_bits[px >> 3] >> (7U - (px & 7U))) & 1U;
+		bool const bit = ST7789_ReadBitmap1bppBit(row_bits, px);
 
 		row_buf[2U * col]      = bit ? fg_hi : bg_hi;
 		row_buf[2U * col + 1U] = bit ? fg_lo : bg_lo;
 	}
 
-	ST7789_WriteData(row_buf, (size_t)w * 2U);
+	ST7789_WriteData(row_buf, (size_t)w * ST7789_RGB565_BYTES_PER_PIXEL);
 }
 
 static int32_t ST7789_QuadCross(int32_t ax, int32_t ay, int32_t bx, int32_t by, int32_t px, int32_t py)
@@ -856,7 +866,7 @@ void ST7789_WriteStringSlanted(int16_t x0, int16_t y0, const char *str, FontDef 
 	int32_t cx;
 	int32_t cy;
 
-	if((str == NULL) || (shear_den == 0))
+	if((str == nullptr) || (shear_den == 0))
 	{
 		return;
 	}
@@ -905,7 +915,7 @@ void ST7789_WriteStringSlantedInQuad(int16_t x0, int16_t y0, const char *str, Fo
 	int32_t cx;
 	int32_t cy;
 
-	if((str == NULL) || (shear_den == 0))
+	if((str == nullptr) || (shear_den == 0))
 	{
 		return;
 	}
@@ -982,12 +992,8 @@ void ST7789_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, 
 		return;
 	}
 
-	if ((x + w) >= ST7789_WIDTH) {
-		w = ST7789_WIDTH - x;
-	}
-	if ((y + h) >= ST7789_HEIGHT) {
-		h = ST7789_HEIGHT - y;
-	}
+	w = ST7789_ClipExtent(x, w, ST7789_WIDTH);
+	h = ST7789_ClipExtent(y, h, ST7789_HEIGHT);
 
 	ST7789_Fill(x, y, (uint16_t)(x + w - 1U), (uint16_t)(y + h - 1U), color);
 }
@@ -1014,32 +1020,18 @@ void ST7789_DrawTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uin
  */
 void ST7789_DrawFilledTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, uint16_t color)
 {
-	int16_t deltax = 0, deltay = 0, x = 0, y = 0, xinc1 = 0, xinc2 = 0,
-			yinc1 = 0, yinc2 = 0, den = 0, num = 0, numadd = 0, numpixels = 0,
-			curpixel = 0;
-
-	deltax = ABS(x2 - x1);
-	deltay = ABS(y2 - y1);
-	x = x1;
-	y = y1;
-
-	if (x2 >= x1) {
-		xinc1 = 1;
-		xinc2 = 1;
-	}
-	else {
-		xinc1 = -1;
-		xinc2 = -1;
-	}
-
-	if (y2 >= y1) {
-		yinc1 = 1;
-		yinc2 = 1;
-	}
-	else {
-		yinc1 = -1;
-		yinc2 = -1;
-	}
+	int16_t const deltax = std::abs(x2 - x1);
+	int16_t const deltay = std::abs(y2 - y1);
+	int16_t x = (int16_t)x1;
+	int16_t y = (int16_t)y1;
+	int16_t xinc1 = (x2 >= x1) ? 1 : -1;
+	int16_t xinc2 = xinc1;
+	int16_t yinc1 = (y2 >= y1) ? 1 : -1;
+	int16_t yinc2 = yinc1;
+	int16_t den;
+	int16_t num;
+	int16_t numadd;
+	int16_t numpixels;
 
 	if (deltax >= deltay) {
 		xinc1 = 0;
@@ -1058,7 +1050,7 @@ void ST7789_DrawFilledTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y
 		numpixels = deltay;
 	}
 
-	for (curpixel = 0; curpixel <= numpixels; curpixel++) {
+	for (int16_t curpixel = 0; curpixel <= numpixels; ++curpixel) {
 		ST7789_DrawLine(x, y, x3, y3, color);
 
 		num += numadd;
