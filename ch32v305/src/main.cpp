@@ -445,9 +445,9 @@ int main(void)
         //I2CBusScan();
         //SysTickReportUSB();
         UI_Draw();
-        ADCPoll();
-        cst328_hw_poll();
+        //ADCPoll();
+        //cst328_hw_poll();
         blinky_task();
-        SDCardPoll();
+        //SDCardPoll();
     }
 }
