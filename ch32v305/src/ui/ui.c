@@ -616,38 +616,6 @@ static void ui_splash_fill_quad(const ui_splash_quad_t *quad, uint16_t color)
     }
 }
 
-static void ui_splash_restore_quad_bitmap(const ui_splash_quad_t *quad, uint16_t fg, uint16_t bg)
-{
-    uint16_t y_min = ui_splash_quad_y_min(quad);
-    uint16_t y_max = ui_splash_quad_y_max(quad);
-
-    for(int32_t y = (int32_t)y_min; y <= (int32_t)y_max; ++y)
-    {
-        int32_t x_lo;
-        int32_t x_hi;
-
-        ui_splash_quad_scanline_bounds(quad, y, &x_lo, &x_hi);
-
-        if(x_hi < x_lo)
-        {
-            continue;
-        }
-
-        if(x_lo < 0)
-        {
-            x_lo = 0;
-        }
-
-        ST7789_BlitBitmap1bppRow((uint16_t)x_lo,
-                                 (uint16_t)y,
-                                 (uint16_t)(x_hi - x_lo + 1),
-                                 splash_freq_screen_w,
-                                 splash_freq_screen,
-                                 fg,
-                                 bg);
-    }
-}
-
 static const ui_splash_quad_t s_splash_quad_mhz = {
     UI_SPLASH_TEXT_X0, UI_SPLASH_TEXT_Y0,
     UI_SPLASH_TEXT_X1, UI_SPLASH_TEXT_Y1,
@@ -693,8 +661,6 @@ static int32_t ui_waveform_get(size_t idx)
 
 static void ui_draw_splash_waveform(void)
 {
-    uint16_t px_col[UI_SPLASH_WAVE_DISPLAY_COLS];
-    uint16_t py_col[UI_SPLASH_WAVE_DISPLAY_COLS];
     size_t const display_cols = (size_t)UI_SPLASH_WAVE_DISPLAY_COLS;
     uint16_t trace_color;
     uint16_t scope_fill;
@@ -754,6 +720,24 @@ static void ui_draw_splash_waveform(void)
     int32_t const dx_bot = (int32_t)UI_SPLASH_WAVE_X2 - (int32_t)UI_SPLASH_WAVE_X1;
     int32_t const dy_bot = (int32_t)UI_SPLASH_WAVE_Y2 - (int32_t)UI_SPLASH_WAVE_Y1;
 
+    if(s_splash_wave_poly_valid)
+    {
+        for(size_t i = 1U; i < display_cols; ++i)
+        {
+            ST7789_DrawLineFills(s_splash_wave_prev_x[i - 1U],
+                                 s_splash_wave_prev_y[i - 1U],
+                                 s_splash_wave_prev_x[i],
+                                 s_splash_wave_prev_y[i],
+                                 scope_fill);
+        }
+    }
+    else
+    {
+        ui_splash_fill_quad(&s_splash_quad_wave, scope_fill);
+    }
+
+    uint16_t prev_px = 0U;
+    uint16_t prev_py = 0U;
     for(size_t i = 0U; i < display_cols; ++i)
     {
         int32_t j = ((int32_t)i * (int32_t)(n - 1U)) / den_plot;
@@ -775,35 +759,16 @@ static void ui_draw_splash_waveform(void)
         int32_t px = x_center + ((vx * amp) / (int32_t)UI_SPLASH_WAVE_DEFLECT_DIV);
         int32_t py = y_center + ((vy * amp) / (int32_t)UI_SPLASH_WAVE_DEFLECT_DIV);
 
-        px_col[i] = ui_splash_clamp_u16(px, w_lim);
-        py_col[i] = ui_splash_clamp_u16(py, h_lim);
-    }
-
-    if(s_splash_wave_poly_valid)
-    {
-        for(size_t i = 1U; i < display_cols; ++i)
+        uint16_t curr_px = ui_splash_clamp_u16(px, w_lim);
+        uint16_t curr_py = ui_splash_clamp_u16(py, h_lim);
+        if(i > 0U)
         {
-            ST7789_DrawLineFills(s_splash_wave_prev_x[i - 1U],
-                                 s_splash_wave_prev_y[i - 1U],
-                                 s_splash_wave_prev_x[i],
-                                 s_splash_wave_prev_y[i],
-                                 scope_fill);
+            ST7789_DrawLineFills(prev_px, prev_py, curr_px, curr_py, trace_color);
         }
-    }
-    else
-    {
-        ui_splash_fill_quad(&s_splash_quad_wave, scope_fill);
-    }
-
-    for(size_t i = 1U; i < display_cols; ++i)
-    {
-        ST7789_DrawLineFills(px_col[i - 1U], py_col[i - 1U], px_col[i], py_col[i], trace_color);
-    }
-
-    for(size_t i = 0U; i < display_cols; ++i)
-    {
-        s_splash_wave_prev_x[i] = px_col[i];
-        s_splash_wave_prev_y[i] = py_col[i];
+        s_splash_wave_prev_x[i] = curr_px;
+        s_splash_wave_prev_y[i] = curr_py;
+        prev_px = curr_px;
+        prev_py = curr_py;
     }
 
     s_splash_wave_poly_valid = true;
