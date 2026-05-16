@@ -1,23 +1,27 @@
 #include "ui/ui.h"
 
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <string.h>
-
-#include "feature/fm_audio_out/fm_audio_out.h"
+extern "C" {
 #include "hw/dac.h"
-#include "hw/display/st7789.h"
 #include "hw/display/splash.h"
 #include "hw/encoder.h"
 #include "hw/i2s.h"
 #include "hw/si5351.h"
 #include "hw/tlv320adc6120.h"
 #include "hw/usb.h"
+}
+
+#include "feature/fm_audio_out/fm_audio_out.h"
+#include "hw/display/st7789.h"
 #include "ui/fft.h"
+#include "utils/utils.h"
 
 #include "ch32v30x.h"
 #include "system_ch32v30x.h"
+
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
 
 #define UI_HEADER_BOTTOM_Y 79U
 #define UI_FREQ_TEXT_Y     10U
@@ -124,7 +128,6 @@ static ui_splash_appearance_t s_splash_appearance = UI_SPLASH_APPEARANCE_NORMAL;
 static ui_splash_appearance_t s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
 static uint8_t s_splash_button_phase = 0U;
 static uint64_t s_displayed_splash_freq_hz = UINT64_MAX;
-static uint64_t s_last_splash_wave_tick = 0ULL;
 static int32_t s_splash_wave_display_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS;
 static uint16_t s_splash_wave_prev_x[UI_SPLASH_WAVE_DISPLAY_COLS];
 static uint16_t s_splash_wave_prev_y[UI_SPLASH_WAVE_DISPLAY_COLS];
@@ -259,7 +262,6 @@ static void ui_splash_exit_to_waterfall(void)
     s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
     s_redraw_all = true;
     s_displayed_active_control = UI_CONTROL_COUNT;
-    s_last_splash_wave_tick = 0ULL;
     s_splash_wave_display_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS;
     s_splash_wave_poly_valid = false;
     s_splash_spec_poly_valid = false;
@@ -658,13 +660,6 @@ static const ui_splash_quad_t s_splash_quad_spec = {
     UI_SPLASH_SPEC_X3, UI_SPLASH_SPEC_Y3
 };
 
-static uint64_t ui_splash_ticks_from_ms(uint32_t ms)
-{
-    uint64_t ticks = ((uint64_t)SystemCoreClock * (uint64_t)ms) / 1000ULL;
-
-    return (ticks == 0ULL) ? 1ULL : ticks;
-}
-
 static uint16_t ui_splash_clamp_u16(int32_t v, uint16_t max_u)
 {
     if(v < 0)
@@ -859,7 +854,7 @@ static void ui_draw_splash_spectrum(void)
 
     const float *fft_buf = UI_FFT_Buffer();
     uint32_t const bin_count = UI_FFT_BinCount();
-    if((fft_buf == NULL) || (bin_count < 2U))
+    if((fft_buf == nullptr) || (bin_count < 2U))
     {
         s_splash_spec_poly_valid = false;
         return;
@@ -1066,7 +1061,6 @@ void UI_Init(void)
     s_splash_button_phase = 0U;
     s_displayed_splash_freq_hz = UINT64_MAX;
     s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
-    s_last_splash_wave_tick = 0ULL;
     s_splash_spec_poly_valid = false;
     UI_FFT_Init();
     fm_audio_out_set_mode(FM_AUDIO_OUT_MODE_WBFM);
@@ -1105,24 +1099,33 @@ void UI_Draw(void)
         }
     }
 
-    if((s_display_mode == UI_DISPLAY_WATERFALL) &&
-       (s_redraw_all ||
-        (freq_hz != s_displayed_freq_hz) ||
-        (s_volume != s_displayed_volume) ||
-        (s_tlv320_gain_db_x2 != s_displayed_tlv320_gain_db_x2) ||
-        (fm_audio_out_get_mode() != s_displayed_fm_mode) ||
-        (s_active_control != s_displayed_active_control)))
+    if(s_display_mode == UI_DISPLAY_WATERFALL)
     {
-        ui_draw_header(freq_hz);
+        if(s_redraw_all ||
+            (freq_hz != s_displayed_freq_hz) ||
+            (s_volume != s_displayed_volume) ||
+            (s_tlv320_gain_db_x2 != s_displayed_tlv320_gain_db_x2) ||
+            (fm_audio_out_get_mode() != s_displayed_fm_mode) ||
+            (s_active_control != s_displayed_active_control))
+        {
+            ui_draw_header(freq_hz);
+        }
+        
+        static PeriodicTrigger FFTDraw{1000U / 60U, []() {
+            UI_FFT_Compute();
+            UI_FFT_Draw();
+        }};
+        FFTDraw();
     }
 
     if(s_display_mode == UI_DISPLAY_SPLASH)
     {
+        static PeriodicTrigger s_splash_wave_trigger{UI_SPLASH_WAVE_PERIOD_MS, []() {
+            ui_draw_splash_waveform();
+            ui_draw_splash_spectrum();
+        }};
+
         bool const full_splash = (s_splash_band_dirty || (s_splash_appearance != s_displayed_splash_appearance));
-        uint64_t const now_tick = SysTick->CNT;
-        uint64_t const wave_period = ui_splash_ticks_from_ms(UI_SPLASH_WAVE_PERIOD_MS);
-        bool wave_due = (s_last_splash_wave_tick == 0ULL) ||
-                        ((now_tick - s_last_splash_wave_tick) >= wave_period);
 
         if(full_splash)
         {
@@ -1130,7 +1133,7 @@ void UI_Draw(void)
             s_splash_band_dirty = false;
             s_displayed_splash_freq_hz = freq_hz;
             s_displayed_splash_appearance = s_splash_appearance;
-            s_last_splash_wave_tick = now_tick;
+            s_splash_wave_trigger.reset();
         }
         else
         {
@@ -1140,12 +1143,7 @@ void UI_Draw(void)
                 s_displayed_splash_freq_hz = freq_hz;
             }
 
-            if(wave_due)
-            {
-                ui_draw_splash_waveform();
-                ui_draw_splash_spectrum();
-                s_last_splash_wave_tick = now_tick;
-            }
+            s_splash_wave_trigger();
         }
     }
 }

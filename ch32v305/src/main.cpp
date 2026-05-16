@@ -20,9 +20,6 @@
 
 #include "debug.h"
 #include <stddef.h>
-#include <functional>
-#include <type_traits>
-#include <utility>
 
 extern "C" {
 #include "hw/pinout.h"
@@ -40,12 +37,12 @@ extern "C" {
 #include "hw/adc.h"
 #include "feature/blinky/blinky.h"
 #include "feature/fm_audio_out/fm_audio_out.h"
-#include "ui/fft.h"
 #include "ui/ui.h"
 }
 
 #include "feature/iq_calibration/iq_calibration.h"
 #include "hw/sdcard/sdcard.h"
+#include "utils/utils.h"
 #include "tusb.h"
 
 
@@ -93,42 +90,6 @@ static void Scan_I2CBus_EverySecond(void)
 }
 
 static uint8_t s_tlv320_i2s_report_initialized = 0U;
-static uint64_t ticks_from_ms(uint32_t ms);
-
-template<typename Callable>
-class PeriodicTrigger
-{
-public:
-    template<typename F>
-    constexpr PeriodicTrigger(uint32_t trigger_ms, F&& f) :
-        trigger_ms(trigger_ms),
-        f(std::forward<F>(f))
-    {
-    }
-
-    void operator()()
-    {
-        uint64_t now_tick = SysTick->CNT;
-        uint64_t trigger_period_ticks = ticks_from_ms(trigger_ms);
-
-        if((now_tick - last_trigger_tick) < trigger_period_ticks)
-        {
-            return;
-        }
-
-        last_trigger_tick = now_tick;
-        std::invoke(f);
-        return;
-    }
-
-private:
-    const uint32_t trigger_ms;
-    uint64_t last_trigger_tick = 0U;
-    Callable f;
-};
-
-template<typename F>
-PeriodicTrigger(uint32_t, F&&) -> PeriodicTrigger<std::decay_t<F>>;
 
 static void TLV320_I2S_Poll(void)
 {
@@ -331,16 +292,6 @@ static void ADC_Poll(void)
            temp_raw, (long)temp_c);
 }
 
-static uint64_t ticks_from_ms(uint32_t ms)
-{
-    uint64_t ticks = ((uint64_t)SystemCoreClock * (uint64_t)ms) / 1000ULL;
-    if(ticks == 0U)
-    {
-        ticks = 1U;
-    }
-    return ticks;
-}
-
 static void SDCard_PrintCIDAndSector0(void)
 {
     if(sdcard::detect() != READY)
@@ -367,7 +318,7 @@ static void SDCard_PrintCIDAndSector0(void)
            (unsigned long)s.clock_hz,
            s.high_speed ? 1U : 0U);
 
-    uint8_t buf[512];
+    alignas(4) static uint8_t buf[512];
     if(sdcard::read_sector(0, buf) == READY)
     {
         printf("SD: sector 0:\r\n");
@@ -458,19 +409,12 @@ int main(void)
     PeriodicTrigger I2SPoll{1000U, TLV320_I2S_Poll};
     PeriodicTrigger I2CBusScan{1000U, Scan_I2CBus_EverySecond};
     PeriodicTrigger SysTickReportUSB{1000U, SysTick_Report_USB_EverySecond};
-    PeriodicTrigger FFTDraw{1000U / 60U, []() {
-        if(UI_ShouldDrawFft())
-        {
-            UI_FFT_Compute();
-            UI_FFT_Draw();
-        }
-    }};
     PeriodicTrigger ADCPoll{1000U, ADC_Poll};
     PeriodicTrigger SDCardPoll{1000U, SDCard_PrintCIDAndSector0};
 
     // Set to min gain to allow calibration to take place
     si5351_hw_clk0_set_freq_hz(InitialCalibrationFreq);
-    tlv320adc6120_hw_set_ch_gain_db_x2(-100);
+    (void)tlv320adc6120_hw_set_ch_gain_db_x2(-100);
     while(s_i2s_bitslip_check)
     {
         TLV320_I2S_CheckBitslip();
@@ -486,7 +430,7 @@ int main(void)
         tud_task();
     }
 
-    tlv320adc6120_hw_set_ch_gain_db_x2(0);
+    (void)tlv320adc6120_hw_set_ch_gain_db_x2(0);
     usb_hw_set_clk_freq_hz(InitialFMFreq);
     UI_Init();
 
@@ -497,7 +441,6 @@ int main(void)
         //SysTickReportUSB();
         UI_Draw();
         tud_task();
-        FFTDraw();
         ADCPoll();
         cst328_hw_poll();
         blinky_task();
