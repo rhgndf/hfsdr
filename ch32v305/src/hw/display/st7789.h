@@ -4,21 +4,9 @@
 #include "fonts.h"
 #include "hw/pinout.h"
 
+#include <stdint.h>
+
 /* SPI: use spi_hw (SPI3). Init from ST7789_Init() via spi_hw_init(). */
-
-/* If u need CS control, comment below*/
-//#define CFG_NO_CS
-
-/* Pin connection (hfsdr badge: RS = register select, same as DC) */
-#define ST7789_RST_PORT ST7789_RST_GPIO_PORT
-#define ST7789_RST_PIN  ST7789_RST_GPIO_PIN
-#define ST7789_DC_PORT  ST7789_RS_GPIO_PORT
-#define ST7789_DC_PIN   ST7789_RS_GPIO_PIN
-
-#ifndef CFG_NO_CS
-#define ST7789_CS_PORT  ST7789_CS_GPIO_PORT
-#define ST7789_CS_PIN   ST7789_CS_GPIO_PIN
-#endif
 
 /* Choose a display rotation you want to use: (0-3) */
 #define ST7789_ROTATION 0
@@ -139,20 +127,14 @@
 #define ST7789_COLOR_MODE_18bit 0x66    //  RGB666 (18bit)
 
 /* Basic operations — RST active-low (LOW = in reset, HIGH = run / released). */
-#define ST7789_RST_Assert()  GPIO_WriteBit(ST7789_RST_PORT, ST7789_RST_PIN, Bit_RESET)
-#define ST7789_RST_Release() GPIO_WriteBit(ST7789_RST_PORT, ST7789_RST_PIN, Bit_SET)
-
-#define ST7789_DC_Clr() GPIO_WriteBit(ST7789_DC_PORT, ST7789_DC_PIN, Bit_RESET)
-#define ST7789_DC_Set() GPIO_WriteBit(ST7789_DC_PORT, ST7789_DC_PIN, Bit_SET)
-#ifndef CFG_NO_CS
-#define ST7789_Select() GPIO_WriteBit(ST7789_CS_PORT, ST7789_CS_PIN, Bit_RESET)
-#define ST7789_UnSelect() GPIO_WriteBit(ST7789_CS_PORT, ST7789_CS_PIN, Bit_SET)
-#else
-#define ST7789_Select() asm("nop")
-#define ST7789_UnSelect() asm("nop")
-#endif
+#define ST7789_RST_Assert()  GPIO_WriteBit(ST7789_RST_GPIO_PORT, ST7789_RST_GPIO_PIN, Bit_RESET)
+#define ST7789_RST_Release() GPIO_WriteBit(ST7789_RST_GPIO_PORT, ST7789_RST_GPIO_PIN, Bit_SET)
 
 #define ABS(x) ((x) > 0 ? (x) : -(x))
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Basic functions. */
 void ST7789_Init(void);
@@ -202,6 +184,10 @@ void ST7789_TearEffect(uint8_t tear);
 
 /* Simple test function. */
 void ST7789_Test(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #ifndef ST7789_ROTATION
     #error You should at least choose a display rotation!
