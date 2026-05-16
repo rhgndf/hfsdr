@@ -14,8 +14,12 @@
 
 #define DAC_DMA_CHANNEL        DMA2_Channel3
 #define DAC_STREAM_BUF_SAMPLES 2048U
+#define DAC_STREAM_BUF_MASK    (DAC_STREAM_BUF_SAMPLES - 1U)
+#define DAC_STREAM_BUF_LOW     (DAC_STREAM_BUF_SAMPLES / 4U)
+#define DAC_STREAM_BUF_TARGET  (DAC_STREAM_BUF_SAMPLES / 2U)
+#define DAC_STREAM_BUF_HIGH    ((DAC_STREAM_BUF_SAMPLES * 3U) / 4U)
 
-static_assert((DAC_STREAM_BUF_SAMPLES & (DAC_STREAM_BUF_SAMPLES - 1U)) == 0U,
+static_assert((DAC_STREAM_BUF_SAMPLES & DAC_STREAM_BUF_MASK) == 0U,
               "DAC stream buffer size must be a power of two");
 
 /* The DMA target IS the producer/consumer ring: the I2S ISR writes packed
@@ -230,12 +234,28 @@ void dac_hw_stream_fm_push_sample_isr(uint16_t sample)
 {
     uint32_t idx = s_write_idx;
     s_dac_stream_buf[idx] = dac_pack_dual_12(sample);
-    s_write_idx = (idx + 1U) & (DAC_STREAM_BUF_SAMPLES - 1U);
+    s_write_idx = (idx + 1U) & DAC_STREAM_BUF_MASK;
 }
 
 volatile uint32_t const *dac_hw_stream_ring_samples(void)
 {
     return s_dac_stream_buf;
+}
+
+void dac_hw_stream_adjust_buffer(void)
+{
+    uint32_t remaining = DMA_GetCurrDataCounter(DAC_DMA_CHANNEL);
+    uint32_t dma_idx = (DAC_STREAM_BUF_SAMPLES - remaining) & DAC_STREAM_BUF_MASK;
+    uint32_t write_idx = s_write_idx;
+    uint32_t buffered_samples = (write_idx - dma_idx) & DAC_STREAM_BUF_MASK;
+
+    if((buffered_samples >= DAC_STREAM_BUF_LOW) && (buffered_samples <= DAC_STREAM_BUF_HIGH))
+    {
+        return;
+    }
+
+    uint32_t adjusted_write_idx = (dma_idx - DAC_STREAM_BUF_TARGET) & DAC_STREAM_BUF_MASK;
+    s_write_idx = adjusted_write_idx;
 }
 
 void dac_hw_stream_stop(void)

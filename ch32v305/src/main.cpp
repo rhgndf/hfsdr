@@ -418,6 +418,7 @@ int main(void)
     PeriodicTrigger SysTickReportUSB{1000U, SysTick_Report_USB_EverySecond};
     PeriodicTrigger ADCPoll{1000U, ADC_Poll};
     PeriodicTrigger SDCardPoll{1000U, SDCard_PrintCIDAndSector0};
+    PeriodicTrigger DACBufferAdjust{1000U, dac_hw_stream_adjust_buffer};
 
     // Set to min gain to allow calibration to take place
     si5351_hw_clk0_set_freq_hz(InitialCalibrationFreq);
@@ -442,6 +443,7 @@ int main(void)
     while(1)
     {
         I2SPoll();
+        DACBufferAdjust();
         //I2CBusScan();
         //SysTickReportUSB();
         UI_Draw();
