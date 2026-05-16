@@ -11,8 +11,9 @@
 *******************************************************************************/
 #include "ch32v30x_it.h"
 
-void NMI_Handler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
-void HardFault_Handler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
+void NMI_Handler(void) __attribute__((interrupt));
+void HardFault_Handler(void) __attribute__((interrupt));
+void SW_Handler(void) __attribute__((interrupt));
 
 /*********************************************************************
  * @fn      NMI_Handler
@@ -45,6 +46,12 @@ void HardFault_Handler(void)
 
 #include "tusb.h"
 
+void SW_Handler(void) {
+  NVIC_ClearPendingIRQ(Software_IRQn);
+  tud_task();
+}
+
 __attribute__((interrupt)) void USBHS_IRQHandler(void) {
   tud_int_handler(0);
+  NVIC_SetPendingIRQ(Software_IRQn);
 }

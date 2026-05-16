@@ -43,7 +43,6 @@ extern "C" {
 #include "feature/iq_calibration/iq_calibration.h"
 #include "hw/sdcard/sdcard.h"
 #include "utils/utils.h"
-#include "tusb.h"
 
 
 constexpr uint64_t InitialCalibrationFreq = 144020000ULL;
@@ -346,6 +345,14 @@ static void SDCard_PrintCIDAndSector0(void)
 int main(void)
 {
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
+    NVIC_ClearPendingIRQ(Software_IRQn);
+    NVIC_InitTypeDef software_irq{};
+    software_irq.NVIC_IRQChannel = Software_IRQn;
+    software_irq.NVIC_IRQChannelPreemptionPriority = 3;
+    software_irq.NVIC_IRQChannelSubPriority = 1;
+    software_irq.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&software_irq);
+
     SystemCoreClockUpdate();
     Delay_Init();
 
@@ -418,7 +425,6 @@ int main(void)
     while(s_i2s_bitslip_check)
     {
         TLV320_I2S_CheckBitslip();
-        tud_task();
     }
 
     ST7789_Fill_Color(BLACK);
@@ -427,7 +433,6 @@ int main(void)
     while(iq_calibration_run())
     {
         iq_calibration_display();
-        tud_task();
     }
 
     (void)tlv320adc6120_hw_set_ch_gain_db_x2(0);
@@ -440,7 +445,6 @@ int main(void)
         //I2CBusScan();
         //SysTickReportUSB();
         UI_Draw();
-        tud_task();
         ADCPoll();
         cst328_hw_poll();
         blinky_task();
