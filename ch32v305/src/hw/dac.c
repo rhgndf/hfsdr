@@ -233,6 +233,11 @@ void dac_hw_stream_fm_push_sample_isr(uint16_t sample)
     s_write_idx = (idx + 1U) & (DAC_STREAM_BUF_SAMPLES - 1U);
 }
 
+volatile uint32_t const *dac_hw_stream_ring_samples(void)
+{
+    return s_dac_stream_buf;
+}
+
 void dac_hw_stream_stop(void)
 {
     dac_stream_dma_stop();

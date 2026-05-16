@@ -6,7 +6,6 @@ extern "C" {
 
 #include "utils/dsp.h"
 
-#include <cstring>
 #include <numbers>
 #include <tuple>
 
@@ -27,13 +26,6 @@ static CICFilter<int32_t, FM_AUDIO_CIC_TAPS> s_audio_cic;
 static CICComplexFilter<int32_t, FM_IQ_CIC_MAX_TAPS> s_iq_cic;
 static SinglePoleIIR<int32_t, 31> s_deemph;
 static volatile fm_audio_out_mode_t s_mode = FM_AUDIO_OUT_MODE_WBFM;
-
-/* ~10–20 ms history at ~48–96 kHz equivalent (one sample per IQ frame). Power of two. */
-constexpr size_t FM_WAVE_RING_WORDS = FM_AUDIO_WAVEFORM_RING_MAX_SAMPLES;
-static_assert((FM_WAVE_RING_WORDS & (FM_WAVE_RING_WORDS - 1U)) == 0U,
-              "wave ring size must be power of two");
-static uint16_t s_wave_ring[FM_WAVE_RING_WORDS];
-static volatile uint32_t s_wave_writes;
 
 static constexpr int32_t s_pi_q29 = static_cast<int32_t>(std::numbers::pi_v<double> * (1LL << 29) + 0.5);
 
@@ -139,8 +131,6 @@ extern "C" void fm_audio_out_init(void)
     s_q_prev = 0;
     s_audio_gain_q16 = FM_AUDIO_OUT_GAIN_DEFAULT_Q16;
     s_mode = FM_AUDIO_OUT_MODE_WBFM;
-    (void)std::memset(s_wave_ring, 0, sizeof(s_wave_ring));
-    s_wave_writes = 0U;
     fm_audio_out_reset_filters();
     dac_hw_stream_fm_start(192000U);
 }
@@ -187,11 +177,6 @@ static void fm_audio_out_process_frames(const uint16_t* words, size_t frame_coun
         int32_t audio_cic_q31 = s_audio_cic.push(fm_q31);
         uint16_t const dac12 = fm_q31_to_dac12<MODE>(s_deemph.push(audio_cic_q31, deemph_alpha_q31), gain_q16);
         dac_hw_stream_fm_push_sample_isr(dac12);
-        {
-            uint32_t const w = s_wave_writes;
-            s_wave_ring[w & (FM_WAVE_RING_WORDS - 1U)] = dac12;
-            s_wave_writes = w + 1U;
-        }
 
         s_i_prev = i_filt;
         s_q_prev = q_filt;
@@ -218,29 +203,4 @@ extern "C" bool fm_audio_out_process_i2s_words_isr(volatile uint16_t const *src_
     }
 
     return true;
-}
-
-extern "C" size_t fm_audio_waveform_copy_recent(uint16_t *dst, size_t max_samples)
-{
-    if((dst == nullptr) || (max_samples == 0U))
-    {
-        return 0U;
-    }
-
-    uint32_t const w = s_wave_writes;
-    if(w == 0U)
-    {
-        return 0U;
-    }
-
-    size_t const cap = (w < FM_WAVE_RING_WORDS) ? static_cast<size_t>(w) : FM_WAVE_RING_WORDS;
-    size_t const count = (cap < max_samples) ? cap : max_samples;
-
-    uint32_t const idx0 = w - static_cast<uint32_t>(count);
-    for(size_t k = 0U; k < count; ++k)
-    {
-        dst[k] = s_wave_ring[(idx0 + static_cast<uint32_t>(k)) & (FM_WAVE_RING_WORDS - 1U)];
-    }
-
-    return count;
 }

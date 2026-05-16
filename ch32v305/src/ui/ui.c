@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "feature/fm_audio_out/fm_audio_out.h"
+#include "hw/dac.h"
 #include "hw/display/st7789.h"
 #include "hw/display/splash.h"
 #include "hw/encoder.h"
@@ -682,9 +683,16 @@ static uint16_t ui_splash_clamp_u16(int32_t v, uint16_t max_u)
     return (uint16_t)v;
 }
 
+
+static int32_t ui_waveform_get(size_t idx)
+{
+    const volatile uint32_t* buf = dac_hw_stream_ring_samples();
+    const volatile uint16_t* buf_idx = (const volatile uint16_t*)&buf[idx];
+    return *buf_idx;
+}
+
 static void ui_draw_splash_waveform(void)
 {
-    uint16_t buf[FM_AUDIO_WAVEFORM_RING_MAX_SAMPLES];
     uint16_t px_col[UI_SPLASH_WAVE_DISPLAY_COLS];
     uint16_t py_col[UI_SPLASH_WAVE_DISPLAY_COLS];
     size_t const display_cols = (size_t)UI_SPLASH_WAVE_DISPLAY_COLS;
@@ -693,7 +701,7 @@ static void ui_draw_splash_waveform(void)
 
     ui_splash_colors(&scope_fill, &trace_color);
 
-    size_t n = fm_audio_waveform_copy_recent(buf, FM_AUDIO_WAVEFORM_RING_MAX_SAMPLES);
+    size_t n = 2048;
     if((n < 2U) || (display_cols < 2U))
     {
         s_splash_wave_poly_valid = false;
@@ -703,7 +711,7 @@ static void ui_draw_splash_waveform(void)
     int32_t frame_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS;
     for(size_t i = 0U; i < n; ++i)
     {
-        int32_t raw = (int32_t)buf[i] - 2048;
+        int32_t raw = (int32_t)ui_waveform_get(i) - 2048;
         if(raw < 0)
         {
             raw = -raw;
@@ -751,7 +759,7 @@ static void ui_draw_splash_waveform(void)
         int32_t j = ((int32_t)i * (int32_t)(n - 1U)) / den_plot;
         uint32_t jm = (uint32_t)j > 0U ? (uint32_t)j - 1U : 0U;
         uint32_t jp = (uint32_t)j + 1U < n ? (uint32_t)j + 1U : (uint32_t)(n - 1U);
-        int32_t sum3 = (int32_t)buf[jm] + (int32_t)buf[(uint32_t)j] + (int32_t)buf[jp];
+        int32_t sum3 = (int32_t)ui_waveform_get(jm) + (int32_t)ui_waveform_get(j) + (int32_t)ui_waveform_get(jp);
         int32_t raw = (sum3 / 3) - 2048;
         int32_t amp = (raw * (int32_t)UI_SPLASH_WAVE_DEFLECT_MUL) / s_splash_wave_display_peak;
 
