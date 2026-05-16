@@ -50,7 +50,7 @@ extern "C" {
 
 
 constexpr uint64_t InitialCalibrationFreq = 144020000ULL;
-constexpr uint64_t InitialFMFreq = 93300000ULL;
+constexpr uint64_t InitialFMFreq = 92400000ULL;
 static void Draw_I2S_Sync_Status(void);
 static void Boot_Display_InitLandscape(void);
 
