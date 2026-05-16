@@ -280,11 +280,10 @@ static void ui_draw_selected_frequency_digit(uint64_t freq_hz)
 {
     uint8_t digit_power = ui_frequency_digit_power(s_active_control);
     uint16_t digit_index = (uint16_t)(UI_FREQ_DIGITS - 1U - digit_power);
-    uint16_t center_x;
 
     (void)freq_hz;
 
-    center_x = (uint16_t)((digit_index * Font_16x26.width) + (Font_16x26.width / 2U));
+    uint16_t center_x = (uint16_t)((digit_index * Font_16x26.width) + (Font_16x26.width / 2U));
     ST7789_DrawFilledTriangle((uint16_t)(center_x - 5U), UI_TRIANGLE_Y,
                               (uint16_t)(center_x + 5U), UI_TRIANGLE_Y,
                               center_x, (uint16_t)(UI_TRIANGLE_Y + 7U),
@@ -451,9 +450,6 @@ static void ui_splash_colors(uint16_t *fg, uint16_t *bg)
 
 static int32_t ui_splash_edge_x_at_y(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t y, bool *valid)
 {
-    int32_t y_min;
-    int32_t y_max;
-
     *valid = false;
 
     if(y0 == y1)
@@ -467,8 +463,8 @@ static int32_t ui_splash_edge_x_at_y(int32_t x0, int32_t y0, int32_t x1, int32_t
         return 0;
     }
 
-    y_min = (y0 < y1) ? y0 : y1;
-    y_max = (y0 > y1) ? y0 : y1;
+    int32_t y_min = (y0 < y1) ? y0 : y1;
+    int32_t y_max = (y0 > y1) ? y0 : y1;
 
     if((y < y_min) || (y > y_max))
     {
@@ -483,18 +479,14 @@ static void ui_splash_quad_scanline_bounds(const ui_splash_quad_t *quad, int32_t
 {
     int32_t xs[4];
     int32_t n = 0;
-    bool valid;
-    int32_t x;
-    int32_t i;
-    int32_t j;
-    int32_t tmp;
 
-    x = ui_splash_edge_x_at_y((int32_t)quad->x0,
-                              (int32_t)quad->y0,
-                              (int32_t)quad->x1,
-                              (int32_t)quad->y1,
-                              y,
-                              &valid);
+    bool valid;
+    int32_t x = ui_splash_edge_x_at_y((int32_t)quad->x0,
+                                      (int32_t)quad->y0,
+                                      (int32_t)quad->x1,
+                                      (int32_t)quad->y1,
+                                      y,
+                                      &valid);
     if(valid)
     {
         xs[n++] = x;
@@ -540,13 +532,13 @@ static void ui_splash_quad_scanline_bounds(const ui_splash_quad_t *quad, int32_t
         return;
     }
 
-    for(i = 0; i < (n - 1); ++i)
+    for(int32_t i = 0; i < (n - 1); ++i)
     {
-        for(j = (i + 1); j < n; ++j)
+        for(int32_t j = (i + 1); j < n; ++j)
         {
             if(xs[j] < xs[i])
             {
-                tmp = xs[i];
+                int32_t tmp = xs[i];
                 xs[i] = xs[j];
                 xs[j] = tmp;
             }
@@ -599,14 +591,14 @@ static uint16_t ui_splash_quad_y_max(const ui_splash_quad_t *quad)
 
 static void ui_splash_fill_quad(const ui_splash_quad_t *quad, uint16_t color)
 {
-    int32_t y;
-    int32_t x_lo;
-    int32_t x_hi;
     uint16_t y_min = ui_splash_quad_y_min(quad);
     uint16_t y_max = ui_splash_quad_y_max(quad);
 
-    for(y = (int32_t)y_min; y <= (int32_t)y_max; ++y)
+    for(int32_t y = (int32_t)y_min; y <= (int32_t)y_max; ++y)
     {
+        int32_t x_lo;
+        int32_t x_hi;
+
         ui_splash_quad_scanline_bounds(quad, y, &x_lo, &x_hi);
 
         if(x_hi < x_lo)
@@ -625,14 +617,14 @@ static void ui_splash_fill_quad(const ui_splash_quad_t *quad, uint16_t color)
 
 static void ui_splash_restore_quad_bitmap(const ui_splash_quad_t *quad, uint16_t fg, uint16_t bg)
 {
-    int32_t y;
-    int32_t x_lo;
-    int32_t x_hi;
     uint16_t y_min = ui_splash_quad_y_min(quad);
     uint16_t y_max = ui_splash_quad_y_max(quad);
 
-    for(y = (int32_t)y_min; y <= (int32_t)y_max; ++y)
+    for(int32_t y = (int32_t)y_min; y <= (int32_t)y_max; ++y)
     {
+        int32_t x_lo;
+        int32_t x_hi;
+
         ui_splash_quad_scanline_bounds(quad, y, &x_lo, &x_hi);
 
         if(x_hi < x_lo)
@@ -696,45 +688,22 @@ static void ui_draw_splash_waveform(void)
     uint16_t px_col[UI_SPLASH_WAVE_DISPLAY_COLS];
     uint16_t py_col[UI_SPLASH_WAVE_DISPLAY_COLS];
     size_t const display_cols = (size_t)UI_SPLASH_WAVE_DISPLAY_COLS;
-    size_t n;
-    size_t i;
-    int32_t frame_peak;
-    int32_t raw_smoothed;
-    int32_t raw;
-    int32_t amp;
-    int32_t den_plot;
-    int32_t x_top;
-    int32_t y_top;
-    int32_t x_bot;
-    int32_t y_bot;
-    int32_t x_center;
-    int32_t y_center;
-    int32_t vx;
-    int32_t vy;
-    int32_t px;
-    int32_t py;
-    uint16_t w_lim;
-    uint16_t h_lim;
-    int32_t const dx_top = (int32_t)UI_SPLASH_WAVE_X3 - (int32_t)UI_SPLASH_WAVE_X0;
-    int32_t const dy_top = (int32_t)UI_SPLASH_WAVE_Y3 - (int32_t)UI_SPLASH_WAVE_Y0;
-    int32_t const dx_bot = (int32_t)UI_SPLASH_WAVE_X2 - (int32_t)UI_SPLASH_WAVE_X1;
-    int32_t const dy_bot = (int32_t)UI_SPLASH_WAVE_Y2 - (int32_t)UI_SPLASH_WAVE_Y1;
     uint16_t trace_color;
     uint16_t scope_fill;
 
     ui_splash_colors(&scope_fill, &trace_color);
 
-    n = fm_audio_waveform_copy_recent(buf, FM_AUDIO_WAVEFORM_RING_MAX_SAMPLES);
+    size_t n = fm_audio_waveform_copy_recent(buf, FM_AUDIO_WAVEFORM_RING_MAX_SAMPLES);
     if((n < 2U) || (display_cols < 2U))
     {
         s_splash_wave_poly_valid = false;
         return;
     }
 
-    frame_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS;
-    for(i = 0U; i < n; ++i)
+    int32_t frame_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS;
+    for(size_t i = 0U; i < n; ++i)
     {
-        raw = (int32_t)buf[i] - 2048;
+        int32_t raw = (int32_t)buf[i] - 2048;
         if(raw < 0)
         {
             raw = -raw;
@@ -768,38 +737,35 @@ static void ui_draw_splash_waveform(void)
         s_splash_wave_display_peak = (int32_t)UI_SPLASH_WAVE_PEAK_CEILING;
     }
 
-    w_lim = (uint16_t)(ST7789_GetWidth() - 1U);
-    h_lim = (uint16_t)(ST7789_GetHeight() - 1U);
+    uint16_t w_lim = (uint16_t)(ST7789_GetWidth() - 1U);
+    uint16_t h_lim = (uint16_t)(ST7789_GetHeight() - 1U);
 
-    den_plot = (int32_t)(display_cols - 1U);
+    int32_t den_plot = (int32_t)(display_cols - 1U);
+    int32_t const dx_top = (int32_t)UI_SPLASH_WAVE_X3 - (int32_t)UI_SPLASH_WAVE_X0;
+    int32_t const dy_top = (int32_t)UI_SPLASH_WAVE_Y3 - (int32_t)UI_SPLASH_WAVE_Y0;
+    int32_t const dx_bot = (int32_t)UI_SPLASH_WAVE_X2 - (int32_t)UI_SPLASH_WAVE_X1;
+    int32_t const dy_bot = (int32_t)UI_SPLASH_WAVE_Y2 - (int32_t)UI_SPLASH_WAVE_Y1;
 
-    for(i = 0U; i < display_cols; ++i)
+    for(size_t i = 0U; i < display_cols; ++i)
     {
-        int32_t j;
-        uint32_t jm;
-        uint32_t jp;
-        int32_t sum3;
+        int32_t j = ((int32_t)i * (int32_t)(n - 1U)) / den_plot;
+        uint32_t jm = (uint32_t)j > 0U ? (uint32_t)j - 1U : 0U;
+        uint32_t jp = (uint32_t)j + 1U < n ? (uint32_t)j + 1U : (uint32_t)(n - 1U);
+        int32_t sum3 = (int32_t)buf[jm] + (int32_t)buf[(uint32_t)j] + (int32_t)buf[jp];
+        int32_t raw = (sum3 / 3) - 2048;
+        int32_t amp = (raw * (int32_t)UI_SPLASH_WAVE_DEFLECT_MUL) / s_splash_wave_display_peak;
 
-        j = ((int32_t)i * (int32_t)(n - 1U)) / den_plot;
-        jm = (uint32_t)j > 0U ? (uint32_t)j - 1U : 0U;
-        jp = (uint32_t)j + 1U < n ? (uint32_t)j + 1U : (uint32_t)(n - 1U);
-        sum3 = (int32_t)buf[jm] + (int32_t)buf[(uint32_t)j] + (int32_t)buf[jp];
-        raw_smoothed = (sum3 / 3) - 2048;
+        int32_t x_top = (int32_t)UI_SPLASH_WAVE_X0 + (((int32_t)i * dx_top) / den_plot);
+        int32_t y_top = (int32_t)UI_SPLASH_WAVE_Y0 + (((int32_t)i * dy_top) / den_plot);
+        int32_t x_bot = (int32_t)UI_SPLASH_WAVE_X1 + (((int32_t)i * dx_bot) / den_plot);
+        int32_t y_bot = (int32_t)UI_SPLASH_WAVE_Y1 + (((int32_t)i * dy_bot) / den_plot);
+        int32_t x_center = (x_top + x_bot) / 2;
+        int32_t y_center = (y_top + y_bot) / 2;
+        int32_t vx = x_bot - x_top;
+        int32_t vy = y_bot - y_top;
 
-        raw = raw_smoothed;
-        amp = (raw * (int32_t)UI_SPLASH_WAVE_DEFLECT_MUL) / s_splash_wave_display_peak;
-
-        x_top = (int32_t)UI_SPLASH_WAVE_X0 + (((int32_t)i * dx_top) / den_plot);
-        y_top = (int32_t)UI_SPLASH_WAVE_Y0 + (((int32_t)i * dy_top) / den_plot);
-        x_bot = (int32_t)UI_SPLASH_WAVE_X1 + (((int32_t)i * dx_bot) / den_plot);
-        y_bot = (int32_t)UI_SPLASH_WAVE_Y1 + (((int32_t)i * dy_bot) / den_plot);
-        x_center = (x_top + x_bot) / 2;
-        y_center = (y_top + y_bot) / 2;
-        vx = x_bot - x_top;
-        vy = y_bot - y_top;
-
-        px = x_center + ((vx * amp) / (int32_t)UI_SPLASH_WAVE_DEFLECT_DIV);
-        py = y_center + ((vy * amp) / (int32_t)UI_SPLASH_WAVE_DEFLECT_DIV);
+        int32_t px = x_center + ((vx * amp) / (int32_t)UI_SPLASH_WAVE_DEFLECT_DIV);
+        int32_t py = y_center + ((vy * amp) / (int32_t)UI_SPLASH_WAVE_DEFLECT_DIV);
 
         px_col[i] = ui_splash_clamp_u16(px, w_lim);
         py_col[i] = ui_splash_clamp_u16(py, h_lim);
@@ -807,7 +773,7 @@ static void ui_draw_splash_waveform(void)
 
     if(s_splash_wave_poly_valid)
     {
-        for(i = 1U; i < display_cols; ++i)
+        for(size_t i = 1U; i < display_cols; ++i)
         {
             ST7789_DrawLineFills(s_splash_wave_prev_x[i - 1U],
                                  s_splash_wave_prev_y[i - 1U],
@@ -821,12 +787,12 @@ static void ui_draw_splash_waveform(void)
         ui_splash_fill_quad(&s_splash_quad_wave, scope_fill);
     }
 
-    for(i = 1U; i < display_cols; ++i)
+    for(size_t i = 1U; i < display_cols; ++i)
     {
         ST7789_DrawLineFills(px_col[i - 1U], py_col[i - 1U], px_col[i], py_col[i], trace_color);
     }
 
-    for(i = 0U; i < display_cols; ++i)
+    for(size_t i = 0U; i < display_cols; ++i)
     {
         s_splash_wave_prev_x[i] = px_col[i];
         s_splash_wave_prev_y[i] = py_col[i];
@@ -840,26 +806,19 @@ static void ui_draw_splash_freq_overlay(uint64_t freq_hz)
     char text[20];
     unsigned long mhz = (unsigned long)(freq_hz / 1000000ULL);
     unsigned long mhz_frac = (unsigned long)((freq_hz % 1000000ULL) / 100000ULL);
-    uint16_t text_fg;
-    uint16_t text_bg;
-    size_t text_len;
-    int32_t top_span_x;
-    int32_t text_span_x;
-    int32_t start_x;
-    int32_t start_y;
 
     snprintf(text, sizeof(text), "%lu.%lu MHz", mhz, mhz_frac);
 
-    text_fg = (s_splash_appearance == UI_SPLASH_APPEARANCE_INVERTED) ? BLACK : WHITE;
-    text_bg = (s_splash_appearance == UI_SPLASH_APPEARANCE_INVERTED) ? WHITE : BLACK;
+    uint16_t text_fg = (s_splash_appearance == UI_SPLASH_APPEARANCE_INVERTED) ? BLACK : WHITE;
+    uint16_t text_bg = (s_splash_appearance == UI_SPLASH_APPEARANCE_INVERTED) ? WHITE : BLACK;
 
     ui_splash_fill_quad(&s_splash_quad_mhz, text_bg);
 
-    text_len = strlen(text);
-    top_span_x = (int32_t)UI_SPLASH_TEXT_X1 - (int32_t)UI_SPLASH_TEXT_X0;
-    text_span_x = (int32_t)text_len * UI_SPLASH_TEXT_BASELINE_DX;
-    start_x = (int32_t)UI_SPLASH_TEXT_X0 + ((top_span_x - text_span_x) / 2);
-    start_y = (int32_t)UI_SPLASH_TEXT_Y0 + 12;
+    size_t text_len = strlen(text);
+    int32_t top_span_x = (int32_t)UI_SPLASH_TEXT_X1 - (int32_t)UI_SPLASH_TEXT_X0;
+    int32_t text_span_x = (int32_t)text_len * UI_SPLASH_TEXT_BASELINE_DX;
+    int32_t start_x = (int32_t)UI_SPLASH_TEXT_X0 + ((top_span_x - text_span_x) / 2);
+    int32_t start_y = (int32_t)UI_SPLASH_TEXT_Y0 + 12;
 
     if(top_span_x > 0)
     {
@@ -880,10 +839,10 @@ static void ui_draw_splash_freq_overlay(uint64_t freq_hz)
 
 static void ui_draw_splash_fullscreen_landscape(uint64_t freq_hz)
 {
+    s_splash_wave_poly_valid = false;
+
     uint16_t bitmap_fg;
     uint16_t bitmap_bg;
-
-    s_splash_wave_poly_valid = false;
 
     ui_splash_colors(&bitmap_fg, &bitmap_bg);
 
