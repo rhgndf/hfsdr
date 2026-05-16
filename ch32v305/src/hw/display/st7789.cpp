@@ -738,7 +738,7 @@ void ST7789_DrawImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint
 void ST7789_DrawBitmap1bpp(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                            const uint8_t *bits, uint16_t fg, uint16_t bg)
 {
-	static uint8_t row_buf[ST7789_PANEL_LONG_SIDE * ST7789_RGB565_BYTES_PER_PIXEL];
+	uint8_t row_buf[ST7789_PANEL_LONG_SIDE * ST7789_RGB565_BYTES_PER_PIXEL];
 
 	if ((bits == nullptr) || (w == 0U) || (h == 0U) || (w > ST7789_PANEL_LONG_SIDE))
 		return;

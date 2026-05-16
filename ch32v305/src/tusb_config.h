@@ -127,18 +127,24 @@ extern "C" {
 
 #define CFG_TUD_AUDIO_ENABLE_EP_OUT               0
 
-// CDC FIFO size of TX and RX
-#define CFG_TUD_CDC_RX_BUFSIZE   (TUD_OPT_HIGH_SPEED ? 512 : 64)
-#define CFG_TUD_CDC_TX_BUFSIZE   (TUD_OPT_HIGH_SPEED ? 512 : 64)
-
+// CDC is used as a device-to-host debug console. Do not arm CDC OUT
+// transfers, and keep only a token RX FIFO/staging buffer for API shape.
+#define CFG_TUD_CDC_RX_AUTO_XFER 0
+#define CFG_TUD_CDC_RX_BUFSIZE   1
+#define CFG_TUD_CDC_TX_BUFSIZE   (TUD_OPT_HIGH_SPEED ? 256 : 64)
+#define CFG_TUD_CDC_RX_EPSIZE    1
 // CDC Endpoint transfer buffer size, more is faster
 // Leave it as default size (512 for HS, 64 for FS) unless your host application
 // is able to send ZLP (Zero Length Packet) to terminate transfer !
-#define CFG_TUD_CDC_EP_BUFSIZE   (TUD_OPT_HIGH_SPEED ? 512 : 64)
+#define CFG_TUD_CDC_TX_EPSIZE    64
 
 // Vendor class endpoint and FIFO sizes must be >= endpoint packet size.
 // With HS descriptors using 512-byte bulk endpoints, keep these at 512 for HS.
 #define CFG_TUD_VENDOR_EPSIZE     (TUD_OPT_HIGH_SPEED ? 512 : 64)
+// We don't need host->device transfers
+#define CFG_TUD_VENDOR_RX_EPSIZE  1
+#define CFG_TUD_VENDOR_TX_EPSIZE  CFG_TUD_VENDOR_EPSIZE
+#define CFG_TUD_VENDOR_RX_MANUAL_XFER 1
 #define CFG_TUD_VENDOR_RX_BUFSIZE 0 //(TUD_OPT_HIGH_SPEED ? 512 : 64)
 #define CFG_TUD_VENDOR_TX_BUFSIZE 0 //(TUD_OPT_HIGH_SPEED ? 512 : 64)
 
