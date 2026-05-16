@@ -153,8 +153,6 @@ void UI_FFT_Init(void)
     s_fft_interp_instance.xSpacing = 1.0f;
     s_fft_interp_instance.pYData = fft_buf;
     i2s_fft_sample_arr_reset();
-
-    s_waterfall_line = ST7789_ScrollRows(FFT_WATERFALL_TOP, FFT_WATERFALL_BOTTOM, 0);
 }
 
 void UI_FFT_Compute(void)
@@ -175,12 +173,8 @@ void UI_FFT_Compute(void)
     fft_convert_and_window();
     riscv_cfft_f32(&s_fft_instance, fft_buf, 0U, 1U);
 
-    s_waterfall_line = ST7789_ScrollRows(FFT_WATERFALL_TOP, FFT_WATERFALL_BOTTOM, 1);
-    ST7789_Fill(0U, s_waterfall_line, ST7789_WIDTH - 1U, s_waterfall_line, BLACK);
-
     fft_build_interp_db_table();
 
-    i2s_fft_sample_arr_reset();
 }
 
 void UI_FFT_Draw(void) 
@@ -198,5 +192,19 @@ void UI_FFT_Draw(void)
         fft_line[x_bin] = fft_db_to_color(db);
         source_x += source_x_step;
     }
+    i2s_fft_sample_arr_reset();
+
+    s_waterfall_line = ST7789_ScrollRows(FFT_WATERFALL_TOP, FFT_WATERFALL_BOTTOM, 1);
+    ST7789_Fill(0U, s_waterfall_line, ST7789_WIDTH - 1U, s_waterfall_line, BLACK);
     ST7789_DrawColorLine(0U, s_waterfall_line, fft_line, FFT_DISPLAY_SAMPLE_COUNT);
+}
+
+const float *UI_FFT_Buffer(void)
+{
+    return fft_buf;
+}
+
+uint32_t UI_FFT_BinCount(void)
+{
+    return FFT_INTERP_COL_COUNT;
 }

@@ -10,6 +10,7 @@
 #include "hw/display/st7789.h"
 #include "hw/display/splash.h"
 #include "hw/encoder.h"
+#include "hw/i2s.h"
 #include "hw/si5351.h"
 #include "hw/tlv320adc6120.h"
 #include "hw/usb.h"
@@ -76,6 +77,22 @@
 #define UI_SPLASH_WAVE_DEFLECT_MUL   1600 /* 10x vs 320; paired with DIV along thickness vector */
 #define UI_SPLASH_WAVE_DEFLECT_DIV   3072
 
+/* Landscape spectrum quad (same vertex order as waveform quad). */
+#define UI_SPLASH_SPEC_X0    186U
+#define UI_SPLASH_SPEC_Y0    126U
+#define UI_SPLASH_SPEC_X1    184U
+#define UI_SPLASH_SPEC_Y1    176U
+#define UI_SPLASH_SPEC_X2    314U
+#define UI_SPLASH_SPEC_Y2    196U
+#define UI_SPLASH_SPEC_X3    317U
+#define UI_SPLASH_SPEC_Y3    145U
+#define UI_SPLASH_SPEC_DISPLAY_COLS 128U
+#define UI_SPLASH_SPEC_SAMPLE_RATE_HZ 192000
+#define UI_SPLASH_SPEC_MIN_HZ (-20000)
+#define UI_SPLASH_SPEC_MAX_HZ 30000
+#define UI_SPLASH_SPEC_MIN_DB (-100.0f)
+#define UI_SPLASH_SPEC_MAX_DB (0.0f)
+
 typedef struct
 {
     uint16_t x0;
@@ -112,6 +129,9 @@ static int32_t s_splash_wave_display_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS
 static uint16_t s_splash_wave_prev_x[UI_SPLASH_WAVE_DISPLAY_COLS];
 static uint16_t s_splash_wave_prev_y[UI_SPLASH_WAVE_DISPLAY_COLS];
 static bool s_splash_wave_poly_valid = false;
+static uint16_t s_splash_spec_prev_x[UI_SPLASH_SPEC_DISPLAY_COLS];
+static uint16_t s_splash_spec_prev_y[UI_SPLASH_SPEC_DISPLAY_COLS];
+static bool s_splash_spec_poly_valid = false;
 /* Last MADCTL value applied by UI (0xFF = never synced this session). */
 static uint8_t s_hw_madctl = 0xFFU;
 
@@ -242,6 +262,7 @@ static void ui_splash_exit_to_waterfall(void)
     s_last_splash_wave_tick = 0ULL;
     s_splash_wave_display_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS;
     s_splash_wave_poly_valid = false;
+    s_splash_spec_poly_valid = false;
 }
 
 static void ui_handle_button_press(void)
@@ -630,6 +651,13 @@ static const ui_splash_quad_t s_splash_quad_wave = {
     UI_SPLASH_WAVE_X3, UI_SPLASH_WAVE_Y3
 };
 
+static const ui_splash_quad_t s_splash_quad_spec = {
+    UI_SPLASH_SPEC_X0, UI_SPLASH_SPEC_Y0,
+    UI_SPLASH_SPEC_X1, UI_SPLASH_SPEC_Y1,
+    UI_SPLASH_SPEC_X2, UI_SPLASH_SPEC_Y2,
+    UI_SPLASH_SPEC_X3, UI_SPLASH_SPEC_Y3
+};
+
 static uint64_t ui_splash_ticks_from_ms(uint32_t ms)
 {
     uint64_t ticks = ((uint64_t)SystemCoreClock * (uint64_t)ms) / 1000ULL;
@@ -774,6 +802,124 @@ static void ui_draw_splash_waveform(void)
     s_splash_wave_poly_valid = true;
 }
 
+static float ui_splash_spec_fft_bin_at_hz(int32_t hz, uint32_t bin_count)
+{
+    return (((float)hz + ((float)UI_SPLASH_SPEC_SAMPLE_RATE_HZ * 0.5f)) * (float)bin_count) /
+           (float)UI_SPLASH_SPEC_SAMPLE_RATE_HZ;
+}
+
+static float ui_splash_spec_db_at_bin(const float *fft_buf, uint32_t bin_count, float bin)
+{
+    if(bin < 0.0f)
+    {
+        bin = 0.0f;
+    }
+
+    float max_bin = (float)(bin_count - 2U);
+    if(bin > max_bin)
+    {
+        bin = max_bin;
+    }
+
+    uint32_t idx = (uint32_t)bin;
+    float frac = bin - (float)idx;
+
+    return fft_buf[idx] + (frac * (fft_buf[idx + 1U] - fft_buf[idx]));
+}
+
+static uint16_t ui_splash_spec_y_frac(float db)
+{
+    float normalized = (db - UI_SPLASH_SPEC_MIN_DB) / (UI_SPLASH_SPEC_MAX_DB - UI_SPLASH_SPEC_MIN_DB);
+
+    if(normalized < 0.0f)
+    {
+        normalized = 0.0f;
+    }
+    if(normalized > 1.0f)
+    {
+        normalized = 1.0f;
+    }
+
+    return (uint16_t)(normalized * 1024.0f);
+}
+
+static void ui_draw_splash_spectrum(void)
+{
+    uint16_t trace_color;
+    uint16_t scope_fill;
+
+    ui_splash_colors(&scope_fill, &trace_color);
+
+    if(!s_splash_spec_poly_valid)
+    {
+        ui_splash_fill_quad(&s_splash_quad_spec, scope_fill);
+    }
+
+    UI_FFT_Compute();
+
+    const float *fft_buf = UI_FFT_Buffer();
+    uint32_t const bin_count = UI_FFT_BinCount();
+    if((fft_buf == NULL) || (bin_count < 2U))
+    {
+        s_splash_spec_poly_valid = false;
+        return;
+    }
+
+    size_t const display_cols = (size_t)UI_SPLASH_SPEC_DISPLAY_COLS;
+    if(s_splash_spec_poly_valid)
+    {
+        for(size_t i = 1U; i < display_cols; ++i)
+        {
+            ST7789_DrawLineFills(s_splash_spec_prev_x[i - 1U],
+                                 s_splash_spec_prev_y[i - 1U],
+                                 s_splash_spec_prev_x[i],
+                                 s_splash_spec_prev_y[i],
+                                 scope_fill);
+        }
+    }
+
+    uint16_t w_lim = (uint16_t)(ST7789_GetWidth() - 1U);
+    uint16_t h_lim = (uint16_t)(ST7789_GetHeight() - 1U);
+    int32_t den_plot = (int32_t)(display_cols - 1U);
+    int32_t const dx_top = (int32_t)UI_SPLASH_SPEC_X3 - (int32_t)UI_SPLASH_SPEC_X0;
+    int32_t const dy_top = (int32_t)UI_SPLASH_SPEC_Y3 - (int32_t)UI_SPLASH_SPEC_Y0;
+    int32_t const dx_bot = (int32_t)UI_SPLASH_SPEC_X2 - (int32_t)UI_SPLASH_SPEC_X1;
+    int32_t const dy_bot = (int32_t)UI_SPLASH_SPEC_Y2 - (int32_t)UI_SPLASH_SPEC_Y1;
+    float const bin_min = ui_splash_spec_fft_bin_at_hz(UI_SPLASH_SPEC_MIN_HZ, bin_count);
+    float const bin_max = ui_splash_spec_fft_bin_at_hz(UI_SPLASH_SPEC_MAX_HZ, bin_count);
+    float const bin_step = (bin_max - bin_min) / (float)den_plot;
+    float bin = bin_min;
+
+    uint16_t prev_px = 0U;
+    uint16_t prev_py = 0U;
+    for(size_t i = 0U; i < display_cols; ++i)
+    {
+        int32_t x_top = (int32_t)UI_SPLASH_SPEC_X0 + (((int32_t)i * dx_top) / den_plot);
+        int32_t y_top = (int32_t)UI_SPLASH_SPEC_Y0 + (((int32_t)i * dy_top) / den_plot);
+        int32_t x_bot = (int32_t)UI_SPLASH_SPEC_X1 + (((int32_t)i * dx_bot) / den_plot);
+        int32_t y_bot = (int32_t)UI_SPLASH_SPEC_Y1 + (((int32_t)i * dy_bot) / den_plot);
+        uint16_t y_frac = ui_splash_spec_y_frac(ui_splash_spec_db_at_bin(fft_buf, bin_count, bin));
+        int32_t px = x_bot + (((x_top - x_bot) * (int32_t)y_frac) / 1024);
+        int32_t py = y_bot + (((y_top - y_bot) * (int32_t)y_frac) / 1024);
+        uint16_t curr_px = ui_splash_clamp_u16(px, w_lim);
+        uint16_t curr_py = ui_splash_clamp_u16(py, h_lim);
+
+        if(i > 0U)
+        {
+            ST7789_DrawLineFills(prev_px, prev_py, curr_px, curr_py, trace_color);
+        }
+
+        s_splash_spec_prev_x[i] = curr_px;
+        s_splash_spec_prev_y[i] = curr_py;
+        prev_px = curr_px;
+        prev_py = curr_py;
+        bin += bin_step;
+    }
+
+    s_splash_spec_poly_valid = true;
+    i2s_fft_sample_arr_reset();
+}
+
 static void ui_draw_splash_freq_overlay(uint64_t freq_hz)
 {
     char text[20];
@@ -813,6 +959,7 @@ static void ui_draw_splash_freq_overlay(uint64_t freq_hz)
 static void ui_draw_splash_fullscreen_landscape(uint64_t freq_hz)
 {
     s_splash_wave_poly_valid = false;
+    s_splash_spec_poly_valid = false;
 
     uint16_t bitmap_fg;
     uint16_t bitmap_bg;
@@ -829,6 +976,7 @@ static void ui_draw_splash_fullscreen_landscape(uint64_t freq_hz)
                           bitmap_bg);
     ui_draw_splash_freq_overlay(freq_hz);
     ui_draw_splash_waveform();
+    ui_draw_splash_spectrum();
 }
 
 static void ui_apply_encoder_delta(int16_t delta, uint64_t freq_hz, uint64_t *next_freq_hz)
@@ -919,6 +1067,8 @@ void UI_Init(void)
     s_displayed_splash_freq_hz = UINT64_MAX;
     s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
     s_last_splash_wave_tick = 0ULL;
+    s_splash_spec_poly_valid = false;
+    UI_FFT_Init();
     fm_audio_out_set_mode(FM_AUDIO_OUT_MODE_WBFM);
     fm_audio_out_set_gain(ui_volume_gain_q16(s_volume));
     UI_Draw();
@@ -993,6 +1143,7 @@ void UI_Draw(void)
             if(wave_due)
             {
                 ui_draw_splash_waveform();
+                ui_draw_splash_spectrum();
                 s_last_splash_wave_tick = now_tick;
             }
         }
