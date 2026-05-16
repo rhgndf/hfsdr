@@ -461,6 +461,7 @@ int main(void)
     PeriodicTrigger FFTDraw{1000U / 60U, []() {
         if(UI_ShouldDrawFft())
         {
+            UI_FFT_Compute();
             UI_FFT_Draw();
         }
     }};

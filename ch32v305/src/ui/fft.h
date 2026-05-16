@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 void UI_FFT_Init(void);
+void UI_FFT_Compute(void);
 void UI_FFT_Draw(void);
 
 #ifdef __cplusplus

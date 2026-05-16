@@ -157,7 +157,7 @@ void UI_FFT_Init(void)
     s_waterfall_line = ST7789_ScrollRows(FFT_WATERFALL_TOP, FFT_WATERFALL_BOTTOM, 0);
 }
 
-void UI_FFT_Draw(void)
+void UI_FFT_Compute(void)
 {
     uint32_t rx_word_count = i2s_hw_rx_word_count();
 
@@ -180,6 +180,11 @@ void UI_FFT_Draw(void)
 
     fft_build_interp_db_table();
 
+    i2s_fft_sample_arr_reset();
+}
+
+void UI_FFT_Draw(void) 
+{
     constexpr float32_t source_x_step = FFT_INTERP_X_MAX /
                                         (float32_t)(FFT_DISPLAY_SAMPLE_COUNT - 1U);
     float32_t source_x = 0.0f;
@@ -194,6 +199,4 @@ void UI_FFT_Draw(void)
         source_x += source_x_step;
     }
     ST7789_DrawColorLine(0U, s_waterfall_line, fft_line, FFT_DISPLAY_SAMPLE_COUNT);
-
-    i2s_fft_sample_arr_reset();
 }
