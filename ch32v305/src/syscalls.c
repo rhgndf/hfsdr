@@ -13,6 +13,10 @@
 #include "debug.h"
 #include "hw/usb.h"
 
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
 static uint32_t s_ticks_per_us = 0U;
 
 /*********************************************************************
@@ -121,6 +125,63 @@ __attribute__((used)) int _write(int fd, char *buf, int size)
     return (int)usb_send_data((uint8_t const *)buf, (uint32_t)size);
 }
 
+__attribute__((used)) int _close(int fd)
+{
+    (void)fd;
+    errno = EBADF;
+    return -1;
+}
+
+__attribute__((used)) int _fstat(int fd, struct stat *st)
+{
+    (void)fd;
+
+    if(st == 0)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
+    st->st_mode = S_IFCHR;
+    return 0;
+}
+
+__attribute__((used)) int _getpid(void)
+{
+    return 1;
+}
+
+__attribute__((used)) int _isatty(int fd)
+{
+    (void)fd;
+    return 1;
+}
+
+__attribute__((used)) int _kill(int pid, int sig)
+{
+    (void)pid;
+    (void)sig;
+    errno = EINVAL;
+    return -1;
+}
+
+__attribute__((used)) off_t _lseek(int fd, off_t offset, int whence)
+{
+    (void)fd;
+    (void)offset;
+    (void)whence;
+    errno = ESPIPE;
+    return (off_t)-1;
+}
+
+__attribute__((used)) int _read(int fd, char *buf, int size)
+{
+    (void)fd;
+    (void)buf;
+    (void)size;
+    return 0;
+}
+
 /*********************************************************************
  * @fn      _sbrk
  *
@@ -142,4 +203,3 @@ __attribute__((used)) void *_sbrk(ptrdiff_t incr)
     curbrk += incr;
     return curbrk - incr;
 }
-

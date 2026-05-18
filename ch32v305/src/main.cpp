@@ -36,7 +36,7 @@ extern "C" {
 #include "hw/watchdog.h"
 #include "hw/adc.h"
 #include "feature/blinky/blinky.h"
-#include "feature/fm_audio_out/fm_audio_out.h"
+#include "demod/demod.h"
 #include "ui/ui.h"
 }
 
@@ -404,8 +404,8 @@ int main(void)
     adc_hw_init();
     dac_hw_init();
     encoder_init();
-    fm_audio_out_init();
-    printf("FM audio out: enabled (fixed-point FM demod to DAC)\r\n");
+    demod_init();
+    printf("Demod audio out: enabled (WBFM/NBFM/AM to DAC)\r\n");
 
     blinky_init();
 

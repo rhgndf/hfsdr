@@ -10,7 +10,7 @@ extern "C" {
 #include "hw/usb.h"
 }
 
-#include "feature/fm_audio_out/fm_audio_out.h"
+#include "demod/demod.h"
 #include "hw/display/st7789.h"
 #include "ui/fft.h"
 #include "utils/utils.h"
@@ -141,7 +141,8 @@ static uint8_t s_hw_madctl = 0xFFU;
 static uint64_t s_displayed_freq_hz = UINT64_MAX;
 static uint8_t s_displayed_volume = UINT8_MAX;
 static int8_t s_displayed_tlv320_gain_db_x2 = INT8_MAX;
-static fm_audio_out_mode_t s_displayed_fm_mode = FM_AUDIO_OUT_MODE_COUNT;
+static demodulation_mode_t s_demod_mode = DEMODULATION_MODE_WBFM;
+static demodulation_mode_t s_displayed_demod_mode = DEMODULATION_MODE_COUNT;
 static uint8_t s_volume = UI_VOLUME_DEFAULT;
 static int8_t s_tlv320_gain_db_x2 = UI_TLV320_GAIN_DEFAULT_DB_X2;
 static bool s_redraw_all = true;
@@ -152,7 +153,7 @@ typedef enum
     UI_CONTROL_FREQ_1_MHZ,
     UI_CONTROL_FREQ_100_KHZ,
     UI_CONTROL_FREQ_10_KHZ,
-    UI_CONTROL_FM_MODE,
+    UI_CONTROL_DEMOD_MODE,
     UI_CONTROL_VOLUME,
     UI_CONTROL_TLV320_GAIN,
     UI_CONTROL_COUNT
@@ -329,14 +330,25 @@ static void ui_draw_frequency(uint64_t freq_hz)
     }
 }
 
-static char const *ui_fm_mode_text(void)
+static char const *ui_demod_mode_text(void)
 {
-    return (fm_audio_out_get_mode() == FM_AUDIO_OUT_MODE_NBFM) ? "NBFM" : "WBFM";
+    switch(s_demod_mode)
+    {
+        case DEMODULATION_MODE_NBFM:
+            return "NBFM";
+
+        case DEMODULATION_MODE_AM:
+            return " AM ";
+
+        case DEMODULATION_MODE_WBFM:
+        default:
+            return "WBFM";
+    }
 }
 
 static void ui_draw_mode_control(void)
 {
-    bool active = (s_active_control == UI_CONTROL_FM_MODE);
+    bool active = (s_active_control == UI_CONTROL_DEMOD_MODE);
     uint16_t fg = active ? BLACK : CYAN;
     uint16_t bg = active ? CYAN : BLACK;
 
@@ -345,7 +357,7 @@ static void ui_draw_mode_control(void)
                 (uint16_t)(UI_MODE_TEXT_X + UI_MODE_TEXT_WIDTH - 1U),
                 (uint16_t)(UI_MODE_TEXT_Y + UI_MODE_TEXT_HEIGHT - 1U),
                 bg);
-    ST7789_WriteString(UI_MODE_TEXT_X, UI_MODE_TEXT_Y, ui_fm_mode_text(), Font_11x18, fg, bg);
+    ST7789_WriteString(UI_MODE_TEXT_X, UI_MODE_TEXT_Y, ui_demod_mode_text(), Font_11x18, fg, bg);
 }
 
 static void ui_draw_progress_row(uint16_t y, char const *label, int16_t value, int16_t min, int16_t max, bool active)
@@ -418,7 +430,7 @@ static void ui_draw_header(uint64_t freq_hz)
     s_displayed_freq_hz = freq_hz;
     s_displayed_volume = s_volume;
     s_displayed_tlv320_gain_db_x2 = s_tlv320_gain_db_x2;
-    s_displayed_fm_mode = fm_audio_out_get_mode();
+    s_displayed_demod_mode = s_demod_mode;
     s_displayed_active_control = s_active_control;
     s_redraw_all = false;
 }
@@ -1006,25 +1018,27 @@ static void ui_apply_encoder_delta(int16_t delta, uint64_t freq_hz, uint64_t *ne
             if(volume != s_volume)
             {
                 s_volume = volume;
-                fm_audio_out_set_gain(ui_volume_gain_q16(s_volume));
+                demod_set_gain(ui_volume_gain_q16(s_volume));
             }
             break;
         }
 
-        case UI_CONTROL_FM_MODE:
+        case UI_CONTROL_DEMOD_MODE:
         {
-            fm_audio_out_mode_t mode = fm_audio_out_get_mode();
-
             if(delta > 0)
             {
-                mode = (mode == FM_AUDIO_OUT_MODE_WBFM) ? FM_AUDIO_OUT_MODE_NBFM : FM_AUDIO_OUT_MODE_WBFM;
+                s_demod_mode = (s_demod_mode == DEMODULATION_MODE_AM)
+                    ? DEMODULATION_MODE_WBFM
+                    : (demodulation_mode_t)(s_demod_mode + 1);
             }
             else
             {
-                mode = (mode == FM_AUDIO_OUT_MODE_NBFM) ? FM_AUDIO_OUT_MODE_WBFM : FM_AUDIO_OUT_MODE_NBFM;
+                s_demod_mode = (s_demod_mode == DEMODULATION_MODE_WBFM)
+                    ? DEMODULATION_MODE_AM
+                    : (demodulation_mode_t)(s_demod_mode - 1);
             }
 
-            fm_audio_out_set_mode(mode);
+            demod_set_mode(s_demod_mode);
             break;
         }
 
@@ -1050,7 +1064,8 @@ void UI_Init(void)
     s_displayed_freq_hz = UINT64_MAX;
     s_displayed_volume = UINT8_MAX;
     s_displayed_tlv320_gain_db_x2 = INT8_MAX;
-    s_displayed_fm_mode = FM_AUDIO_OUT_MODE_COUNT;
+    s_demod_mode = DEMODULATION_MODE_WBFM;
+    s_displayed_demod_mode = DEMODULATION_MODE_COUNT;
     s_displayed_active_control = UI_CONTROL_COUNT;
     s_active_control = UI_CONTROL_FREQ_10_MHZ;
     s_volume = UI_VOLUME_DEFAULT;
@@ -1063,8 +1078,8 @@ void UI_Init(void)
     s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
     s_splash_spec_poly_valid = false;
     UI_FFT_Init();
-    fm_audio_out_set_mode(FM_AUDIO_OUT_MODE_WBFM);
-    fm_audio_out_set_gain(ui_volume_gain_q16(s_volume));
+    demod_set_mode(s_demod_mode);
+    demod_set_gain(ui_volume_gain_q16(s_volume));
     UI_Draw();
 }
 
@@ -1105,7 +1120,7 @@ void UI_Draw(void)
             (freq_hz != s_displayed_freq_hz) ||
             (s_volume != s_displayed_volume) ||
             (s_tlv320_gain_db_x2 != s_displayed_tlv320_gain_db_x2) ||
-            (fm_audio_out_get_mode() != s_displayed_fm_mode) ||
+            (s_demod_mode != s_displayed_demod_mode) ||
             (s_active_control != s_displayed_active_control))
         {
             ui_draw_header(freq_hz);

@@ -113,5 +113,6 @@ public:
     }
 
     T value() const { return state; }
+    void seed(T x) { state = x; }
     void reset() { state = 0; }
 };

@@ -5,7 +5,7 @@
 #include <stddef.h>
 
 #include "debug.h"
-#include "feature/fm_audio_out/fm_audio_out.h"
+#include "demod/demod.h"
 #include "pinout.h"
 #include "usb.h"
 
@@ -144,7 +144,7 @@ static void i2s_process_buf(uint16_t const *src_words)
     s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
     usb_hw_vendor_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
     audio_usb_mic_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
-    fm_audio_out_process_i2s_words_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
+    demod_process_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
 }
 
 void i2s_coincidence_disable(void)
