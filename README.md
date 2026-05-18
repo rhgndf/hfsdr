@@ -38,7 +38,7 @@ Connected to a PC
 | `ch32v305/` | Firmware (CH32V305). Build, flash, toolchain: [ch32v305/README.md](ch32v305/README.md). |
 | `client-sw/` | Host Python (`hfsdr_probe`, PyUSB helpers), GNU Radio blocks and examples (`gr-hfsdr-lib`, `.grc`). |
 | `docs/` | [host-guide.md](docs/host-guide.md) — primary host-side documentation. |
-| `hardware/` | KiCad project and related hardware files. (Will be published in a while) |
+| `hardware/` | KiCad project and related hardware files. |
 | `scripts/` | Helper scripts (e.g. udev `99-hfsdr.rules`, Windows USB checks). |
 | `ui/` | WebUSB Web UI (Svelte/Vite). Deployed build: `homepage` in [ui/package.json](ui/package.json). |
 
