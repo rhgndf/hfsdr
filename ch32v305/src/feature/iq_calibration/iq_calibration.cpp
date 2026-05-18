@@ -18,7 +18,7 @@ extern "C" {
 
 #include "utils/complex_dsp.h"
 
-constexpr uint32_t kCalibrationSignalHz = 72000000U;
+constexpr uint32_t kCalibrationSignalHz = 144000000U;
 constexpr uint32_t kI2sSampleRateHz = 192000U;
 constexpr size_t kMeasureComplexSamples = 240U;
 constexpr uint8_t kBlocksPerCandidate = 4U;
@@ -376,7 +376,7 @@ static bool calibration_start(void)
     s_phase_found_best = false;
     s_gain_cursor = kRelativeGainMinDbX10;
 
-    int64_t target_if_hz = (int64_t)(2U * kCalibrationSignalHz) - (int64_t)si5351_hw_clk0_get_freq_hz();
+    int32_t target_if_hz = kCalibrationSignalHz - (int32_t)si5351_hw_clk0_get_freq_hz();
     if(target_if_hz == 0)
     {
         return finish_with_failure("zero IF");
