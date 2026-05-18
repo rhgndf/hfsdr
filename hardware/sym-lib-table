@@ -1,0 +1,5 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "2025-06-21_15-05-27")(type "KiCad")(uri "${KIPRJMOD}/tlv320aic6120/2025-06-21_15-05-27.kicad_sym")(options "")(descr ""))
+  (lib (name "easyeda")(type "KiCad")(uri "${KIPRJMOD}/easyeda.kicad_sym")(options "")(descr ""))
+)
