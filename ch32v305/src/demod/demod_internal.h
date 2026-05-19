@@ -22,4 +22,8 @@ void fm_process_nbfm_i2s_words(const uint16_t *words, size_t frame_count, uint32
 
 void am_reset();
 void am_process_i2s_words(const uint16_t *words, size_t frame_count, uint32_t gain_q16);
+
+void ssb_reset();
+void ssb_process_usb_i2s_words(const uint16_t *words, size_t frame_count, uint32_t gain_q16);
+void ssb_process_lsb_i2s_words(const uint16_t *words, size_t frame_count, uint32_t gain_q16);
 }

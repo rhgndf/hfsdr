@@ -19,57 +19,17 @@ constexpr int32_t kCarrierLpfAlphaQ31 = 2146435071; /* 1 - 1/2048 in Q31 */
 constexpr int32_t kMinCarrier = 1 << 10;
 constexpr int32_t kMaxNormalizedAudio = 1 << 21;
 
-struct BiquadCoefficients
-{
-    int32_t b0;
-    int32_t b1;
-    int32_t b2;
-    int32_t a1;
-    int32_t a2;
-};
-
-struct BiquadState
-{
-    int32_t x1 = 0;
-    int32_t x2 = 0;
-    int32_t y1 = 0;
-    int32_t y2 = 0;
-
-    int32_t push(int32_t x, const BiquadCoefficients &c)
-    {
-        int64_t acc = (int64_t)c.b0 * x
-                    + (int64_t)c.b1 * x1
-                    + (int64_t)c.b2 * x2
-                    - (int64_t)c.a1 * y1
-                    - (int64_t)c.a2 * y2;
-        int32_t y = (int32_t)(acc >> kBiquadQ);
-        x2 = x1;
-        x1 = x;
-        y2 = y1;
-        y1 = y;
-        return y;
-    }
-
-    void reset()
-    {
-        x1 = 0;
-        x2 = 0;
-        y1 = 0;
-        y2 = 0;
-    }
-};
-
 class Cheby2Lowpass
 {
-    static constexpr BiquadCoefficients kSection0 = {
+    static constexpr BiquadCoefficients<kBiquadQ> kSection0 = {
         10517004, -14428567, 10517004, -1811780164, 769196170
     };
-    static constexpr BiquadCoefficients kSection1 = {
+    static constexpr BiquadCoefficients<kBiquadQ> kSection1 = {
         1073741824, -2014475559, 1073741824, -2005123829, 959579643
     };
 
-    BiquadState section0;
-    BiquadState section1;
+    BiquadState<kBiquadQ> section0;
+    BiquadState<kBiquadQ> section1;
 
 public:
     int32_t push(int32_t x)

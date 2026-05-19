@@ -340,6 +340,12 @@ static char const *ui_demod_mode_text(void)
         case DEMODULATION_MODE_AM:
             return " AM ";
 
+        case DEMODULATION_MODE_USB:
+            return "USB ";
+
+        case DEMODULATION_MODE_LSB:
+            return "LSB ";
+
         case DEMODULATION_MODE_WBFM:
         default:
             return "WBFM";
@@ -1027,14 +1033,14 @@ static void ui_apply_encoder_delta(int16_t delta, uint64_t freq_hz, uint64_t *ne
         {
             if(delta > 0)
             {
-                s_demod_mode = (s_demod_mode == DEMODULATION_MODE_AM)
+                s_demod_mode = (s_demod_mode == (demodulation_mode_t)(DEMODULATION_MODE_COUNT - 1))
                     ? DEMODULATION_MODE_WBFM
                     : (demodulation_mode_t)(s_demod_mode + 1);
             }
             else
             {
                 s_demod_mode = (s_demod_mode == DEMODULATION_MODE_WBFM)
-                    ? DEMODULATION_MODE_AM
+                    ? (demodulation_mode_t)(DEMODULATION_MODE_COUNT - 1)
                     : (demodulation_mode_t)(s_demod_mode - 1);
             }
 

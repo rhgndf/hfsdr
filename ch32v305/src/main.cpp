@@ -405,7 +405,7 @@ int main(void)
     dac_hw_init();
     encoder_init();
     demod_init();
-    printf("Demod audio out: enabled (WBFM/NBFM/AM to DAC)\r\n");
+    printf("Demod audio out: enabled (WBFM/NBFM/AM/USB/LSB to DAC)\r\n");
 
     blinky_init();
 

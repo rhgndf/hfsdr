@@ -38,6 +38,7 @@ static void demod_reset_filters()
     demod::output_reset();
     demod::fm_reset();
     demod::am_reset();
+    demod::ssb_reset();
 }
 
 extern "C" void demod_set_gain(uint32_t gain_q16)
@@ -93,6 +94,14 @@ extern "C" bool demod_process_isr(volatile uint16_t const *src_words, size_t wor
 
         case DEMODULATION_MODE_AM:
             demod::am_process_i2s_words(words, frame_count, gain_q16);
+            break;
+
+        case DEMODULATION_MODE_USB:
+            demod::ssb_process_usb_i2s_words(words, frame_count, gain_q16);
+            break;
+
+        case DEMODULATION_MODE_LSB:
+            demod::ssb_process_lsb_i2s_words(words, frame_count, gain_q16);
             break;
 
         case DEMODULATION_MODE_WBFM:
