@@ -8,7 +8,7 @@
 #define IWDG_LSI_FREQ_HZ         32000U
 #define IWDG_TIMEOUT_MS          5000U
 #define IWDG_PRESCALER_DIV       256U
-#define IWDG_RELOAD_VALUE        ((((IWDG_LSI_FREQ_HZ * IWDG_TIMEOUT_MS) / 1000U) / IWDG_PRESCALER_DIV) - 1U)
+#define IWDG_RELOAD_VALUE        0xFFFFU
 
 #define WWDG_COUNTER_VALUE        0x7FU
 #define WWDG_WINDOW_VALUE         0x7FU
@@ -38,7 +38,7 @@ static void iwdg_init(void)
 
     IWDG_WriteAccessCmd(IWDG_WriteAccess_Enable);
     IWDG_SetPrescaler(IWDG_Prescaler_256);
-    IWDG_SetReload((uint16_t)IWDG_RELOAD_VALUE);
+    IWDG_SetReload(IWDG_RELOAD_VALUE);
     iwdg_wait_ready();
     IWDG_ReloadCounter();
     IWDG_Enable();
@@ -68,11 +68,11 @@ static void wwdg_kick(void)
 void watchdog_init(void)
 {
     iwdg_init();
-    wwdg_init();
+    //wwdg_init();
 }
 
 void watchdog_kick(void)
 {
-    wwdg_kick();
+    //wwdg_kick();
     iwdg_kick();
 }

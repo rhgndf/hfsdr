@@ -410,8 +410,6 @@ int main(void)
     blinky_init();
 
     sdcard::init();
-    
-    //watchdog_init();
 
     PeriodicTrigger I2SPoll{1000U, TLV320_I2S_Poll};
     PeriodicTrigger I2CBusScan{1000U, Scan_I2CBus_EverySecond};
@@ -439,6 +437,7 @@ int main(void)
     (void)tlv320adc6120_hw_set_ch_gain_db_x2(0);
     usb_hw_set_clk_freq_hz(InitialFMFreq);
     UI_Init();
+    watchdog_kick();
 
     while(1)
     {
@@ -451,5 +450,6 @@ int main(void)
         //cst328_hw_poll();
         blinky_task();
         //SDCardPoll();
+        watchdog_kick();
     }
 }
