@@ -162,7 +162,13 @@ static void ST7789_WriteData(const uint8_t *buff, size_t buff_size)
 	}
 
 	ST7789TransactionGuard guard{ST7789TransactionKind::Data};
-	spi_hw_transfer_dma(buff, buff_size);
+	if (buff_size <= 4) {
+		for (size_t i = 0;i < buff_size;i++) {
+			ST7789_SPI_TxU8(buff[i]);
+		}
+	} else {
+		spi_hw_transfer_dma(buff, buff_size);
+	}
 }
 
 template<size_t N>
