@@ -412,6 +412,10 @@ void i2s_hw_deinit(void)
 
     s_rx_word_count = 0U;
 
+    RCC_APB1PeriphResetCmd(RCC_APB1Periph_SPI2, ENABLE);
+    Delay_Ms(1);
+    RCC_APB1PeriphResetCmd(RCC_APB1Periph_SPI2, DISABLE);
+
     RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, DISABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI2, DISABLE);
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC, DISABLE);
