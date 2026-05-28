@@ -124,7 +124,7 @@ static void i2s_coincidence_detect(uint16_t const *src_words)
 
 static uint32_t i2s_coincidence_threshold(uint32_t samples)
 {
-    return (uint32_t)(1.2879f * sqrtf((float)samples));
+    return (uint32_t)(1.5f * sqrtf((float)samples));
 }
 
 static void i2s_process_buf(uint16_t const *src_words)
