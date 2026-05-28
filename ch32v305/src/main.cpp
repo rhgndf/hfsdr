@@ -19,6 +19,7 @@
 
 
 #include "debug.h"
+#include "main.h"
 #include <stddef.h>
 
 extern "C" {
@@ -49,6 +50,29 @@ constexpr uint64_t InitialCalibrationFreq = 144020000ULL;
 constexpr uint64_t InitialFMFreq = 92400000ULL;
 static void Draw_I2S_Sync_Status(void);
 static void Boot_Display_InitLandscape(void);
+
+static hardware_rev_t s_hardware_rev = HARDWARE_REV_UNKNOWN;
+
+void detect_hardware_rev(void)
+{
+    GPIO_InitTypeDef gpio{};
+
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+
+    gpio.GPIO_Pin = GPIO_Pin_9;
+    gpio.GPIO_Mode = GPIO_Mode_IPD;
+    gpio.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(GPIOB, &gpio);
+
+    Delay_Us(10U);
+
+    s_hardware_rev = (GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_9) != 0U) ? HARDWARE_REV_V2 : HARDWARE_REV_V1;
+}
+
+hardware_rev_t get_hardware_rev(void)
+{
+    return s_hardware_rev;
+}
 
 static void SysTick_Report_USB_EverySecond(void)
 {
@@ -355,12 +379,14 @@ int main(void)
 
     SystemCoreClockUpdate();
     Delay_Init();
+    detect_hardware_rev();
 
     usb_hw_init();
     
     //SysTick_Config(SystemCoreClock / 1000);	
     printf("SystemClk:%ld\r\n", SystemCoreClock);
     printf( "ChipID:%08lx\r\n", DBGMCU_GetCHIPID() );
+    printf("Hardware rev:v%u\r\n", (unsigned int)get_hardware_rev());
     
     printf("ST7789 init\r\n");
     ST7789_Init();

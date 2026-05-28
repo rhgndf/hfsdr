@@ -6,6 +6,7 @@
 
 #include "debug.h"
 #include "demod/demod.h"
+#include "main.h"
 #include "pinout.h"
 #include "usb.h"
 
@@ -41,6 +42,12 @@ static volatile uint32_t s_i2s_reset_coincidences = 0U;
 static volatile uint32_t s_i2s_coincidences_samples = 0U;
 static volatile bool s_coincidence_enabled = true;
 
+typedef enum
+{
+    I2S_HW_CLOCK_NONE = 0,
+    I2S_HW_CLOCK_MCO_HSE,
+    I2S_HW_CLOCK_TIM8_CH1,
+} i2s_hw_clock_source_t;
 
 int32_t i2s_fft_sample_arr[I2S_HW_COMPLEX_SAMPLE_COUNT * 2];
 static volatile uint32_t s_fft_sample_cnt = 0U;
@@ -244,6 +251,107 @@ static ErrorStatus i2s_hw_clock_init_24mhz(void)
     return READY;
 }
 
+[[maybe_unused]] static void i2s_hw_clock_deinit_24mhz(void)
+{
+    RCC_MCOConfig(RCC_MCO_NoClock);
+
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
+
+    GPIO_InitTypeDef gpio = {0};
+    gpio.GPIO_Pin = GPIO_Pin_8;
+    gpio.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+    gpio.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(GPIOA, &gpio);
+}
+
+/* Unfortunately we wired the clock wrong on the prototype,
+   so we have to use TIM8 as a clock out instead */
+static ErrorStatus i2s_hw_alt_clock_init_24mhz(void)
+{
+    RCC_ClocksTypeDef clocks = {0};
+
+    RCC_GetClocksFreq(&clocks);
+
+    uint32_t tim_clk_hz;
+    if((RCC->CFGR0 & RCC_PPRE2) == RCC_PPRE2_DIV1)
+    {
+        tim_clk_hz = clocks.PCLK2_Frequency;
+    }
+    else
+    {
+        tim_clk_hz = clocks.PCLK2_Frequency * 2U;
+    }
+
+    if((tim_clk_hz % 24000000U) != 0U)
+    {
+        return NoREADY;
+    }
+
+    uint32_t period_ticks = tim_clk_hz / 24000000U;
+    if(period_ticks < 2U)
+    {
+        return NoREADY;
+    }
+
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC | RCC_APB2Periph_AFIO | RCC_APB2Periph_TIM8, ENABLE);
+
+    GPIO_InitTypeDef gpio = {0};
+    gpio.GPIO_Pin = GPIO_Pin_6;
+    gpio.GPIO_Mode = GPIO_Mode_AF_PP;
+    gpio.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(GPIOC, &gpio);
+
+    TIM_DeInit(TIM8);
+    TIM_TimeBaseInitTypeDef tim = {0};
+    tim.TIM_Prescaler = 0U;
+    tim.TIM_CounterMode = TIM_CounterMode_Up;
+    tim.TIM_Period = period_ticks - 1U;
+    tim.TIM_ClockDivision = TIM_CKD_DIV1;
+    tim.TIM_RepetitionCounter = 0U;
+    TIM_TimeBaseInit(TIM8, &tim);
+
+    TIM_OCInitTypeDef oc = {0};
+    oc.TIM_OCMode = TIM_OCMode_PWM1;
+    oc.TIM_OutputState = TIM_OutputState_Enable;
+    oc.TIM_Pulse = period_ticks / 2U;
+    oc.TIM_OCPolarity = TIM_OCPolarity_High;
+    TIM_OC1Init(TIM8, &oc);
+    TIM_OC1PreloadConfig(TIM8, TIM_OCPreload_Enable);
+    TIM_ARRPreloadConfig(TIM8, ENABLE);
+    TIM_CtrlPWMOutputs(TIM8, ENABLE);
+    TIM_Cmd(TIM8, ENABLE);
+
+    return READY;
+}
+
+static void i2s_hw_alt_clock_deinit(void)
+{
+    TIM_Cmd(TIM8, DISABLE);
+    TIM_CtrlPWMOutputs(TIM8, DISABLE);
+    TIM_OC1PreloadConfig(TIM8, TIM_OCPreload_Disable);
+    TIM_DeInit(TIM8);
+
+    GPIO_InitTypeDef gpio = {0};
+    gpio.GPIO_Pin = GPIO_Pin_6;
+    gpio.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+    gpio.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_Init(GPIOC, &gpio);
+
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_TIM8, DISABLE);
+}
+
+static void i2s_hw_clock_deinit(void)
+{
+    if(get_hardware_rev() == HARDWARE_REV_V2)
+    {
+        i2s_hw_clock_deinit_24mhz();
+    }
+    else
+    {
+        i2s_hw_alt_clock_deinit();
+    }
+}
+
 void i2s_hw_init(void)
 {
     s_rx_word_count = 0U;
@@ -278,7 +386,14 @@ void i2s_hw_init(void)
 
     i2s_hw_dma_irq_init();
 
-    i2s_hw_clock_init_24mhz();
+    if(get_hardware_rev() == HARDWARE_REV_V2)
+    {
+        i2s_hw_clock_init_24mhz();
+    }
+    else
+    {
+        i2s_hw_alt_clock_init_24mhz();
+    }
 }
 
 void i2s_hw_deinit(void)
