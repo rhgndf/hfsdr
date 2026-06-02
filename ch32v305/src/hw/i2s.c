@@ -359,16 +359,11 @@ void i2s_hw_init(void)
     s_i2s_coincidences_samples = 0U;
     s_coincidence_enabled = true;
 
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC, ENABLE);
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI2, ENABLE);
 
     GPIO_InitTypeDef gpio_init = {0};
-    gpio_init.GPIO_Pin = I2S_WS_GPIO_PIN | I2S_CK_GPIO_PIN;
-    gpio_init.GPIO_Mode = GPIO_Mode_IN_FLOATING;
-    gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_Init(GPIOB, &gpio_init);
-
-    gpio_init.GPIO_Pin = I2S_SD_GPIO_PIN;
+    gpio_init.GPIO_Pin = I2S_WS_GPIO_PIN | I2S_CK_GPIO_PIN | I2S_SD_GPIO_PIN;
     gpio_init.GPIO_Mode = GPIO_Mode_IN_FLOATING;
     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(GPIOB, &gpio_init);
@@ -418,7 +413,7 @@ void i2s_hw_deinit(void)
 
     RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, DISABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI2, DISABLE);
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC, DISABLE);
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, DISABLE);
 }
 
 uint32_t i2s_hw_rx_word_count(void)
