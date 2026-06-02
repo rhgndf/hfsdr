@@ -180,11 +180,18 @@ static void Draw_I2S_Syncing_Status(void)
 
 static void TLV320_I2S_CheckBitslip(void)
 {
-
     if(s_i2s_bitslip_check == 0U)
     {
         return;
     }
+
+
+    static uint32_t i2s_last_rx_word = 0;
+    uint32_t i2s_cur_rx_word = i2s_hw_rx_word_count();
+    if (i2s_last_rx_word == i2s_cur_rx_word) {
+        return;
+    }
+    i2s_last_rx_word = i2s_cur_rx_word;
 
     bool i2s_reset_needed = i2s_needs_reset();
     if(i2s_reset_needed)
@@ -363,7 +370,6 @@ int main(void)
     PeriodicTrigger ADCPoll{1000U, ADC_Poll};
     PeriodicTrigger SDCardPoll{1000U, SDCard_PrintCIDAndSector0};
     PeriodicTrigger DACBufferAdjust{1000U, dac_hw_stream_adjust_buffer};
-    PeriodicTrigger TLV320Bitslip{100U, TLV320_I2S_CheckBitslip};
     si5351_hw_clk0_set_freq_hz(InitialCalibrationFreq);
 
     trng_hw_init();
@@ -371,7 +377,7 @@ int main(void)
     Draw_I2S_Syncing_Status();
     while(s_i2s_bitslip_check)
     {
-        TLV320Bitslip();
+        TLV320_I2S_CheckBitslip();
     }
     (void)tlv320adc6120_ch1_mute(false);
     trng_hw_deinit();
