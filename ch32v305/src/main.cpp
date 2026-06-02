@@ -36,6 +36,7 @@ extern "C" {
 #include "hw/usb.h"
 #include "hw/watchdog.h"
 #include "hw/adc.h"
+#include "hw/trng.h"
 #include "feature/blinky/blinky.h"
 #include "demod/demod.h"
 #include "ui/ui.h"
@@ -194,7 +195,11 @@ static void TLV320_I2S_CheckBitslip(void)
         printf("bitslipped, resetting\n");
         i2s_hw_enable(DISABLE);
         i2s_hw_deinit();
-        Delay_Ms(40);
+        // Random wait
+        uint32_t wait_amt = trng_hw_read_u32()%1000000;
+        while(wait_amt--) {
+            asm volatile("nop");
+        }
         i2s_hw_init();
         i2s_hw_enable(ENABLE);
         s_tlv320_i2s_report_initialized = 0U;
@@ -361,6 +366,7 @@ int main(void)
     PeriodicTrigger TLV320Bitslip{100U, TLV320_I2S_CheckBitslip};
     si5351_hw_clk0_set_freq_hz(InitialCalibrationFreq);
 
+    trng_hw_init();
     (void)tlv320adc6120_ch1_mute(true);
     Draw_I2S_Syncing_Status();
     while(s_i2s_bitslip_check)
@@ -368,6 +374,7 @@ int main(void)
         TLV320Bitslip();
     }
     (void)tlv320adc6120_ch1_mute(false);
+    trng_hw_deinit();
     
     ST7789_Fill_Color(BLACK);
     i2s_sync_check_disable();
