@@ -18,6 +18,7 @@
 #define TLV320_REG_BIAS_CFG        0x3BU
 #define TLV320_REG_CH1_CFG0        0x3CU
 #define TLV320_REG_CH1_CFG1        0x3DU
+#define TLV320_REG_CH1_CFG2        0x3EU
 #define TLV320_REG_CH1_CFG3        0x3FU
 #define TLV320_REG_CH1_CFG4        0x40U
 #define TLV320_REG_CH2_CFG0        0x41U
@@ -116,6 +117,8 @@
  * - bit0: CHx_GAIN_SIGN_BIT = 0 for positive gain, 1 for negative gain
  */
 #define TLV320_CH_CFG1_GAIN_0DB        0x00U
+#define TLV320_CH_CFG2_DVOL_MUTE       0x00U
+#define TLV320_CH_CFG2_DVOL_0DB        0xC9U
 
 /*
  * CHx_CFG3 (0x3F / 0x44):
@@ -235,6 +238,17 @@ ErrorStatus tlv320adc6120_hw_set_ch_gain_db_x2(int8_t gain_db_x2)
     magnitude_db_x2 = (uint8_t)((gain_db_x2 < 0) ? -gain_db_x2 : gain_db_x2);
 
     return tlv320adc6120_hw_set_ch_gain_raw((uint8_t)((magnitude_db_x2 << 1U) | sign_bit));
+}
+
+ErrorStatus tlv320adc6120_ch1_mute(bool mute)
+{
+    if(tlv320adc6120_hw_write_reg(TLV320_REG_PAGE_CFG, 0x00U) != READY)
+    {
+        return NoREADY;
+    }
+
+    uint8_t dvol = mute ? TLV320_CH_CFG2_DVOL_MUTE : TLV320_CH_CFG2_DVOL_0DB;
+    return tlv320adc6120_hw_write_reg(TLV320_REG_CH1_CFG2, dvol);
 }
 
 ErrorStatus tlv320adc6120_hw_set_ch_calibration(int8_t ch1_gain_cal_db_x10,

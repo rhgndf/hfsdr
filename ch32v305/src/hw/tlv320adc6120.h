@@ -13,6 +13,7 @@
  * Use 0 for 1.8 V AVDD with AREG shorted to AVDD (external AREG path).
  */
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "debug.h"
@@ -30,6 +31,7 @@
 [[nodiscard]] ErrorStatus tlv320adc6120_hw_init(void);
 [[nodiscard]] ErrorStatus tlv320adc6120_hw_start(void);
 [[nodiscard]] ErrorStatus tlv320adc6120_hw_stop(void);
+[[nodiscard]] ErrorStatus tlv320adc6120_ch1_mute(bool mute);
 [[nodiscard]] ErrorStatus tlv320adc6120_hw_set_ch_gain_raw(uint8_t gain_raw);
 [[nodiscard]] ErrorStatus tlv320adc6120_hw_set_ch_gain_db_x2(int8_t gain_db_x2);
 [[nodiscard]] ErrorStatus tlv320adc6120_hw_set_ch_calibration(int8_t ch1_gain_cal_db_x10,

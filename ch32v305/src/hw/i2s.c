@@ -1,7 +1,6 @@
 #include "i2s.h"
 
 #include <assert.h>
-#include <math.h>
 #include <stddef.h>
 
 #include "debug.h"
@@ -11,6 +10,7 @@
 #include "usb.h"
 
 #include "ch32v30x_dma.h"
+#include "ch32v30x_gpio.h"
 #include "ch32v30x_misc.h"
 #include "ch32v30x_rcc.h"
 #include "ch32v30x_spi.h"
@@ -32,15 +32,15 @@
 #define I2S_RX_FRAME_WORDS           4U
 #define I2S_RX_DMA_CHUNK_WORDS       (I2S_RX_DMA_BUFFER_WORDS / 2U)
 #define I2S_RX_DMA_CHUNK_BYTES       (I2S_RX_DMA_CHUNK_WORDS * sizeof(uint16_t))
+#define I2S_WS_SYNC_TIMEOUT_POLLS    100000U
 
 static_assert((I2S_RX_DMA_BUFFER_WORDS % I2S_RX_FRAME_WORDS) == 0U,
               "32-bit I2S DMA buffer must align to full stereo frames");
 
 static volatile uint32_t s_rx_word_count = 0U;
 static volatile uint16_t s_rx_dma_buf[I2S_RX_DMA_BUFFER_WORDS];
-static volatile uint32_t s_i2s_reset_coincidences = 0U;
-static volatile uint32_t s_i2s_coincidences_samples = 0U;
-static volatile bool s_coincidence_enabled = true;
+static volatile bool s_i2s_needs_reset = false;
+static volatile bool s_bitslip_detect_enabled = true;
 
 typedef enum
 {
@@ -85,6 +85,22 @@ static void i2s_hw_rx_flush(void)
             (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_OVR) != RESET));
 }
 
+static bool i2s_wait_for_ws_rising_edge(void)
+{
+    uint32_t timeout = I2S_WS_SYNC_TIMEOUT_POLLS;
+    while((GPIO_ReadInputDataBit(I2S_WS_GPIO_PORT, I2S_WS_GPIO_PIN) != Bit_RESET) && (timeout > 0U))
+    {
+        --timeout;
+    }
+
+    while((GPIO_ReadInputDataBit(I2S_WS_GPIO_PORT, I2S_WS_GPIO_PIN) == Bit_RESET) && (timeout > 0U))
+    {
+        --timeout;
+    }
+
+    return timeout > 0U;
+}
+
 static void i2s_hw_dma_irq_init(void)
 {
     NVIC_InitTypeDef nvic = {0};
@@ -105,33 +121,32 @@ static void i2s_hw_dma_irq_deinit(void)
     NVIC_Init(&nvic);
 }
 
-static void i2s_coincidence_detect(uint16_t const *src_words)
+static void i2s_bitslip_detect(uint16_t const *src_words)
 {
+    if(s_i2s_needs_reset)
+    {
+        return;
+    }
+
     uint32_t const *src32 = (uint32_t const *)(uintptr_t)src_words;
-    uint32_t coincidences = 0;
     for(size_t i = 0; i < I2S_RX_DMA_CHUNK_WORDS / 2U; i++)
     {
         uint32_t raw = src32[i];
         uint32_t sample_32 = (raw << 16) | (raw >> 16);
-        uint32_t s31 = sample_32 >> 31;
-        uint32_t s30 = (sample_32 >> 30) & 1U;
-        uint32_t s0  = sample_32 & 1U;
-        coincidences += ((s31 ^ s30) ^ 1U) & (s31 ^ s0);
+        bool should_be_ch1_mute = (i & 1U) == 0U;
+        if(should_be_ch1_mute && (sample_32 != 0U))
+        {
+            s_i2s_needs_reset = true;
+            return;
+        }
     }
-    s_i2s_reset_coincidences += coincidences;
-    s_i2s_coincidences_samples += I2S_RX_DMA_CHUNK_WORDS / 2;
-}
-
-static uint32_t i2s_coincidence_threshold(uint32_t samples)
-{
-    return (uint32_t)(1.5f * sqrtf((float)samples));
 }
 
 static void i2s_process_buf(uint16_t const *src_words)
 {
-    if(s_coincidence_enabled)
+    if(s_bitslip_detect_enabled)
     {
-        i2s_coincidence_detect(src_words);
+        i2s_bitslip_detect(src_words);
     }
 
     uint32_t fft_idx = s_fft_sample_cnt;
@@ -154,29 +169,9 @@ static void i2s_process_buf(uint16_t const *src_words)
     demod_process_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
 }
 
-void i2s_coincidence_disable(void)
+void i2s_sync_check_disable(void)
 {
-    s_coincidence_enabled = false;
-}
-
-i2s_coincidence_status_t i2s_coincidence_status(void)
-{
-    i2s_coincidence_status_t status;
-    uint32_t center;
-    uint32_t threshold;
-
-    status.coincidences = s_i2s_reset_coincidences;
-    status.samples = s_i2s_coincidences_samples;
-    center = status.samples / 2U;
-    threshold = i2s_coincidence_threshold(status.samples);
-    status.acceptable_min = (threshold < center) ? (center - threshold) : 0U;
-    status.acceptable_max = center + threshold;
-    if(status.acceptable_max > status.samples)
-    {
-        status.acceptable_max = status.samples;
-    }
-
-    return status;
+    s_bitslip_detect_enabled = false;
 }
 
 void i2s_fft_sample_arr_reset(void)
@@ -340,7 +335,7 @@ static void i2s_hw_alt_clock_deinit(void)
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_TIM8, DISABLE);
 }
 
-static void i2s_hw_clock_deinit(void)
+[[maybe_unused]] static void i2s_hw_clock_deinit(void)
 {
     if(get_hardware_rev() == HARDWARE_REV_V2)
     {
@@ -355,9 +350,8 @@ static void i2s_hw_clock_deinit(void)
 void i2s_hw_init(void)
 {
     s_rx_word_count = 0U;
-    s_i2s_reset_coincidences = 0U;
-    s_i2s_coincidences_samples = 0U;
-    s_coincidence_enabled = true;
+    s_i2s_needs_reset = false;
+    s_bitslip_detect_enabled = true;
 
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_SPI2, ENABLE);
@@ -393,8 +387,7 @@ void i2s_hw_init(void)
 
 void i2s_hw_deinit(void)
 {
-    s_i2s_reset_coincidences = 0U;
-    s_i2s_coincidences_samples = 0U;
+    s_i2s_needs_reset = false;
     i2s_dma_rx_stop();
     i2s_hw_dma_irq_deinit();
     SPI_I2S_DeInit(SPI2);
@@ -423,23 +416,16 @@ uint32_t i2s_hw_rx_word_count(void)
 
 bool i2s_needs_reset(void)
 {
-    // If i2s is not bitslipped, we expect coincidences to be random with 50% probability
-    // We do a two sided Z-test here
-    i2s_coincidence_status_t status = i2s_coincidence_status();
-    bool ret = false;
-    if ((status.coincidences < status.acceptable_min) ||
-        (status.coincidences > status.acceptable_max)) {
-        uint32_t sample_32 = ((uint32_t)s_rx_dma_buf[0] << 16) | s_rx_dma_buf[1];
-        printf("coincidences: %ld/%ld, acceptable: %ld..%ld, sample: %08lX\n",
-               status.coincidences,
-               status.samples,
-               status.acceptable_min,
-               status.acceptable_max,
-               sample_32);
-        ret = true;
+    bool ret = s_i2s_needs_reset;
+    if(ret)
+    {
+        uint32_t sample_320 = ((uint32_t)s_rx_dma_buf[0] << 16) | s_rx_dma_buf[1];
+        uint32_t sample_321 = ((uint32_t)s_rx_dma_buf[2] << 16) | s_rx_dma_buf[3];
+        uint32_t sample_322 = ((uint32_t)s_rx_dma_buf[4] << 16) | s_rx_dma_buf[5];
+        uint32_t sample_323 = ((uint32_t)s_rx_dma_buf[6] << 16) | s_rx_dma_buf[7];
+        printf("muted-ch1 pattern failure, sample: %08lX %08lX %08lX %08lX\n", sample_320, sample_321, sample_322, sample_323);
     }
-    s_i2s_coincidences_samples = 0;
-    s_i2s_reset_coincidences = 0;
+    s_i2s_needs_reset = false;
     return ret;
 }
 
