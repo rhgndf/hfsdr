@@ -28,7 +28,8 @@
 #define SI5351_PHASE_REG_MIN_OUTPUT_HZ 3174604ULL
 #define SI5351_TEMP_OFFSET_HZ  250ULL
 #define SI5351_TIM6_MAX_TICKS  65536UL
-#define SI5351_PLL_LOCK_TIMEOUT 100000U
+#define SI5351_PLL_LOCK_POLL_HZ 1000UL
+#define SI5351_PLL_LOCK_POLLS 100U
 
 /* Si5351 register addresses (AN619 / datasheet). */
 #define SI5351_REG_DEVICE_STATUS   0U
@@ -88,15 +89,21 @@ struct si5351_output_config
 enum si5351_tim6_state
 {
     SI5351_TIM6_IDLE = 0,
-    SI5351_TIM6_ARMED_FINALIZE_CLK1 = 1
+    SI5351_TIM6_WAIT_PLL_LOCK = 1,
+    SI5351_TIM6_ARMED_FINALIZE_CLK1 = 2
 };
 
 static uint64_t si5351_actual_frequency;
 static volatile enum si5351_tim6_state si5351_tim6_state;
 static volatile uint32_t si5351_tim6_remaining_ticks;
+static volatile uint32_t si5351_tim6_lock_polls_remaining;
 static volatile ErrorStatus si5351_tim6_last_status = READY;
+static uint8_t si5351_tim6_temp_ms1[8];
+static uint8_t si5351_tim6_temp_clk1_ctrl;
 static uint8_t si5351_tim6_final_ms1[8];
 static uint8_t si5351_tim6_final_clk1_ctrl;
+
+static ErrorStatus si5351_enable_quadrature_outputs(void);
 
 static void si5351_pack_ms(struct si5351_ms ms, uint8_t buf[8])
 {
@@ -389,6 +396,16 @@ static void si5351_tim6_arm_next_period(void)
     TIM_Cmd(TIM6, ENABLE);
 }
 
+static void si5351_tim6_arm_ticks(uint32_t ticks)
+{
+    if(ticks == 0U)
+    {
+        ticks = 1U;
+    }
+    si5351_tim6_remaining_ticks = ticks;
+    si5351_tim6_arm_next_period();
+}
+
 static void si5351_tim6_cancel(void)
 {
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM6, ENABLE);
@@ -398,6 +415,7 @@ static void si5351_tim6_cancel(void)
     NVIC_ClearPendingIRQ(TIM6_IRQn);
     si5351_tim6_state = SI5351_TIM6_IDLE;
     si5351_tim6_remaining_ticks = 0U;
+    si5351_tim6_lock_polls_remaining = 0U;
 }
 
 static void si5351_tim6_init(void)
@@ -424,26 +442,26 @@ static void si5351_tim6_init(void)
     NVIC_Init(&nvic);
 }
 
-static ErrorStatus si5351_tim6_start_finalize_clk1(const uint8_t final_ms1[8], uint8_t final_clk1_ctrl)
+static uint32_t si5351_tim6_phase_delay_ticks(void)
 {
-    for(uint32_t i = 0U; i < 8U; ++i)
-    {
-        si5351_tim6_final_ms1[i] = final_ms1[i];
-    }
-    si5351_tim6_final_clk1_ctrl = final_clk1_ctrl;
-
     uint32_t timclk = si5351_tim6_counter_clock_hz();
     uint32_t delay_ticks = timclk / (uint32_t)(4ULL * SI5351_TEMP_OFFSET_HZ);
     if(delay_ticks == 0U)
     {
         delay_ticks = 1U;
     }
+    return delay_ticks;
+}
 
-    si5351_tim6_state = SI5351_TIM6_ARMED_FINALIZE_CLK1;
-    si5351_tim6_last_status = READY;
-    si5351_tim6_remaining_ticks = delay_ticks;
-    si5351_tim6_arm_next_period();
-    return READY;
+static uint32_t si5351_tim6_pll_lock_poll_ticks(void)
+{
+    uint32_t timclk = si5351_tim6_counter_clock_hz();
+    uint32_t poll_ticks = timclk / SI5351_PLL_LOCK_POLL_HZ;
+    if(poll_ticks == 0U)
+    {
+        poll_ticks = 1U;
+    }
+    return poll_ticks;
 }
 
 static ErrorStatus si5351_write_clk1_ms_and_ctrl(const uint8_t ms1[8], uint8_t clk1_ctrl)
@@ -455,6 +473,83 @@ static ErrorStatus si5351_write_clk1_ms_and_ctrl(const uint8_t ms1[8], uint8_t c
     return i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_CLK1_CTRL, clk1_ctrl);
 }
 
+static ErrorStatus si5351_tim6_start_pll_lock_wait(const uint8_t temp_ms1[8], uint8_t temp_clk1_ctrl,
+                                                   const uint8_t final_ms1[8], uint8_t final_clk1_ctrl)
+{
+    for(uint32_t i = 0U; i < 8U; ++i)
+    {
+        si5351_tim6_temp_ms1[i] = temp_ms1[i];
+        si5351_tim6_final_ms1[i] = final_ms1[i];
+    }
+    si5351_tim6_temp_clk1_ctrl = temp_clk1_ctrl;
+    si5351_tim6_final_clk1_ctrl = final_clk1_ctrl;
+
+    si5351_tim6_state = SI5351_TIM6_WAIT_PLL_LOCK;
+    si5351_tim6_last_status = READY;
+    si5351_tim6_lock_polls_remaining = SI5351_PLL_LOCK_POLLS;
+    si5351_tim6_arm_ticks(si5351_tim6_pll_lock_poll_ticks());
+    return READY;
+}
+
+static void si5351_tim6_finalize_clk1(void)
+{
+    TIM_Cmd(TIM6, DISABLE);
+    TIM_ITConfig(TIM6, TIM_IT_Update, DISABLE);
+    si5351_tim6_state = SI5351_TIM6_IDLE;
+    si5351_tim6_last_status = si5351_write_clk1_ms_and_ctrl(si5351_tim6_final_ms1, si5351_tim6_final_clk1_ctrl);
+}
+
+static void si5351_tim6_handle_pll_lock_wait(void)
+{
+    uint8_t locked;
+    if(si5351_hw_get_plla_lock(&locked) != READY)
+    {
+        si5351_tim6_last_status = NoREADY;
+        si5351_tim6_cancel();
+        return;
+    }
+
+    if(locked == 0U)
+    {
+        if(si5351_tim6_lock_polls_remaining == 0U)
+        {
+            si5351_tim6_last_status = NoREADY;
+            si5351_tim6_cancel();
+            return;
+        }
+
+        --si5351_tim6_lock_polls_remaining;
+        si5351_tim6_arm_ticks(si5351_tim6_pll_lock_poll_ticks());
+        return;
+    }
+
+    if(si5351_enable_quadrature_outputs() != READY)
+    {
+        si5351_tim6_last_status = NoREADY;
+        si5351_tim6_cancel();
+        return;
+    }
+
+    si5351_tim6_state = SI5351_TIM6_ARMED_FINALIZE_CLK1;
+    si5351_tim6_arm_ticks(si5351_tim6_phase_delay_ticks());
+    if(si5351_write_clk1_ms_and_ctrl(si5351_tim6_temp_ms1, si5351_tim6_temp_clk1_ctrl) != READY)
+    {
+        si5351_tim6_last_status = NoREADY;
+        si5351_tim6_cancel();
+    }
+}
+
+static void si5351_tim6_handle_finalize_wait(void)
+{
+    if(si5351_tim6_remaining_ticks != 0U)
+    {
+        si5351_tim6_arm_next_period();
+        return;
+    }
+
+    si5351_tim6_finalize_clk1();
+}
+
 __attribute__((interrupt)) void TIM6_IRQHandler(void)
 {
     if(TIM_GetITStatus(TIM6, TIM_IT_Update) == RESET)
@@ -464,24 +559,22 @@ __attribute__((interrupt)) void TIM6_IRQHandler(void)
 
     TIM_ClearITPendingBit(TIM6, TIM_IT_Update);
 
-    if(si5351_tim6_state != SI5351_TIM6_ARMED_FINALIZE_CLK1)
+    switch(si5351_tim6_state)
     {
+    case SI5351_TIM6_WAIT_PLL_LOCK:
+        si5351_tim6_handle_pll_lock_wait();
+        break;
+
+    case SI5351_TIM6_ARMED_FINALIZE_CLK1:
+        si5351_tim6_handle_finalize_wait();
+        break;
+
+    case SI5351_TIM6_IDLE:
+    default:
         TIM_Cmd(TIM6, DISABLE);
         TIM_ITConfig(TIM6, TIM_IT_Update, DISABLE);
-        return;
+        break;
     }
-
-    if(si5351_tim6_remaining_ticks != 0U)
-    {
-        si5351_tim6_arm_next_period();
-        return;
-    }
-
-    TIM_Cmd(TIM6, DISABLE);
-    TIM_ITConfig(TIM6, TIM_IT_Update, DISABLE);
-    si5351_tim6_state = SI5351_TIM6_IDLE;
-
-    si5351_tim6_last_status = si5351_write_clk1_ms_and_ctrl(si5351_tim6_final_ms1, si5351_tim6_final_clk1_ctrl);
 }
 
 static ErrorStatus si5351_wait_sys_init(void)
@@ -537,24 +630,6 @@ static ErrorStatus si5351_enable_clk_output(uint8_t clk_index)
     return i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_OUTPUT_ENABLE, oe);
 }
 
-static ErrorStatus si5351_wait_plla_lock(void)
-{
-    for(uint32_t timeout = SI5351_PLL_LOCK_TIMEOUT; timeout != 0U; --timeout)
-    {
-        uint8_t locked;
-        if(si5351_hw_get_plla_lock(&locked) != READY)
-        {
-            return NoREADY;
-        }
-        if(locked != 0U)
-        {
-            return READY;
-        }
-    }
-
-    return NoREADY;
-}
-
 static ErrorStatus si5351_write_common_quadrature_config(const struct si5351_pll_config *pll_conf,
                                                          const struct si5351_output_config *clk0_conf,
                                                          const struct si5351_output_config *clk1_conf)
@@ -603,7 +678,6 @@ static ErrorStatus si5351_write_common_quadrature_config(const struct si5351_pll
     {
         return NoREADY;
     }
-    Delay_Ms(1U);
 
     return READY;
 }
@@ -694,28 +768,10 @@ static ErrorStatus si5351_hw_clk0_timed_set_freq_hz(uint64_t hz)
     {
         return NoREADY;
     }
-    if(si5351_wait_plla_lock() != READY)
-    {
-        return NoREADY;
-    }
-    if(si5351_enable_quadrature_outputs() != READY)
-    {
-        return NoREADY;
-    }
 
     uint8_t clk1_temp_ctrl = si5351_clk_ctrl_value(&clk1_temp_conf);
-    if(si5351_tim6_start_finalize_clk1(clk1_final_buf, si5351_clk_ctrl_value(&clk1_final_conf)) != READY)
-    {
-        return NoREADY;
-    }
-
-    if(si5351_write_clk1_ms_and_ctrl(clk1_temp_buf, clk1_temp_ctrl) != READY)
-    {
-        si5351_tim6_cancel();
-        return NoREADY;
-    }
-
-    return READY;
+    return si5351_tim6_start_pll_lock_wait(clk1_temp_buf, clk1_temp_ctrl,
+                                           clk1_final_buf, si5351_clk_ctrl_value(&clk1_final_conf));
 }
 
 static ErrorStatus si5351_hw_clk0_quadrature_set_freq_hz(uint64_t hz)
