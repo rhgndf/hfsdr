@@ -49,7 +49,7 @@ static void iwdg_kick(void)
     IWDG_ReloadCounter();
 }
 
-static void wwdg_init(void)
+[[maybe_unused]] static void wwdg_init(void)
 {
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_WWDG, ENABLE);
 
@@ -60,7 +60,7 @@ static void wwdg_init(void)
     WWDG_Enable(WWDG_COUNTER_VALUE);
 }
 
-static void wwdg_kick(void)
+[[maybe_unused]] static void wwdg_kick(void)
 {
     WWDG_SetCounter(WWDG_COUNTER_VALUE);
 }

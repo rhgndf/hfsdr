@@ -85,22 +85,6 @@ static void i2s_hw_rx_flush(void)
             (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_OVR) != RESET));
 }
 
-static bool i2s_wait_for_ws_rising_edge(void)
-{
-    uint32_t timeout = I2S_WS_SYNC_TIMEOUT_POLLS;
-    while((GPIO_ReadInputDataBit(I2S_WS_GPIO_PORT, I2S_WS_GPIO_PIN) != Bit_RESET) && (timeout > 0U))
-    {
-        --timeout;
-    }
-
-    while((GPIO_ReadInputDataBit(I2S_WS_GPIO_PORT, I2S_WS_GPIO_PIN) == Bit_RESET) && (timeout > 0U))
-    {
-        --timeout;
-    }
-
-    return timeout > 0U;
-}
-
 static void i2s_hw_dma_irq_init(void)
 {
     NVIC_InitTypeDef nvic = {0};
