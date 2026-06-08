@@ -153,6 +153,7 @@ typedef enum
     UI_CONTROL_FREQ_1_MHZ,
     UI_CONTROL_FREQ_100_KHZ,
     UI_CONTROL_FREQ_10_KHZ,
+    UI_CONTROL_FREQ_1_KHZ,
     UI_CONTROL_DEMOD_MODE,
     UI_CONTROL_VOLUME,
     UI_CONTROL_TLV320_GAIN,
@@ -164,13 +165,15 @@ static ui_control_t s_displayed_active_control = UI_CONTROL_COUNT;
 
 static bool ui_control_is_frequency(ui_control_t control)
 {
-    return control <= UI_CONTROL_FREQ_10_KHZ;
+    return control <= UI_CONTROL_FREQ_1_KHZ;
 }
 
 static uint64_t ui_frequency_step_hz(ui_control_t control)
 {
     switch(control)
     {
+        case UI_CONTROL_FREQ_1_KHZ:
+            return 1000ULL;
         case UI_CONTROL_FREQ_10_KHZ:
             return 10000ULL;
         case UI_CONTROL_FREQ_100_KHZ:
@@ -188,6 +191,8 @@ static uint8_t ui_frequency_digit_power(ui_control_t control)
 {
     switch(control)
     {
+        case UI_CONTROL_FREQ_1_KHZ:
+            return 3U;
         case UI_CONTROL_FREQ_10_KHZ:
             return 4U;
         case UI_CONTROL_FREQ_100_KHZ:
@@ -936,10 +941,22 @@ static void ui_draw_splash_spectrum(void)
 static void ui_draw_splash_freq_overlay(uint64_t freq_hz)
 {
     char text[20];
-    unsigned long mhz = (unsigned long)(freq_hz / 1000000ULL);
-    unsigned long mhz_frac = (unsigned long)((freq_hz % 1000000ULL) / 100000ULL);
-
-    snprintf(text, sizeof(text), "%lu.%lu MHz", mhz, mhz_frac);
+    if(freq_hz >= 1000000ULL)
+    {
+        unsigned long mhz = (unsigned long)(freq_hz / 1000000ULL);
+        unsigned long mhz_frac = (unsigned long)((freq_hz % 1000000ULL) / 100000ULL);
+        snprintf(text, sizeof(text), "%lu.%lu MHz", mhz, mhz_frac);
+    }
+    else if(freq_hz >= 1000ULL)
+    {
+        unsigned long khz = (unsigned long)(freq_hz / 1000ULL);
+        unsigned long khz_frac = (unsigned long)((freq_hz % 1000ULL) / 100ULL);
+        snprintf(text, sizeof(text), "%lu.%lu kHz", khz, khz_frac);
+    }
+    else
+    {
+        snprintf(text, sizeof(text), "%lu Hz", (unsigned long)freq_hz);
+    }
 
     uint16_t text_fg = (s_splash_appearance == UI_SPLASH_APPEARANCE_INVERTED) ? BLACK : WHITE;
     uint16_t text_bg = (s_splash_appearance == UI_SPLASH_APPEARANCE_INVERTED) ? WHITE : BLACK;
@@ -1004,6 +1021,7 @@ static void ui_apply_encoder_delta(int16_t delta, uint64_t freq_hz, uint64_t *ne
     switch(s_active_control)
     {
         case UI_CONTROL_FREQ_10_KHZ:
+        case UI_CONTROL_FREQ_1_KHZ:
         case UI_CONTROL_FREQ_100_KHZ:
         case UI_CONTROL_FREQ_1_MHZ:
         case UI_CONTROL_FREQ_10_MHZ:
