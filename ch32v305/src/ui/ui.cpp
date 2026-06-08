@@ -212,7 +212,7 @@ static uint64_t ui_apply_frequency_delta(uint64_t freq_hz, int16_t delta, uint64
 
     if(next_freq_hz < (int64_t)SI5351_MIN_OUTPUT_HZ)
     {
-        next_freq_hz = (int64_t)SI5351_MIN_OUTPUT_HZ;
+        return freq_hz;
     }
 
     return (uint64_t)next_freq_hz;
