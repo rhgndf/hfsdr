@@ -280,13 +280,46 @@ static struct si5351_ms si5351_calc_output_ms_fraction(uint32_t div, uint32_t nu
     return ms;
 }
 
-static ErrorStatus si5351_calc_fixed_div_fractional_output_ms(uint64_t vco_scaled,
-                                                              uint64_t output_clock_scaled,
-                                                              uint32_t div,
-                                                              struct si5351_ms *ms,
-                                                              uint64_t *actual_output_scaled)
+static uint32_t si5351_select_temp_b1_denominator(uint64_t final_output_scaled, uint32_t div)
 {
-    if((output_clock_scaled == 0U) || (ms == 0) || (actual_output_scaled == 0))
+    /*
+     * Temporary CLK1 uses the same integer divider as final CLK1, plus 1/c:
+     *
+     *   f_final = F / a
+     *   f_temp  = F / (a + 1/c)
+     *   delta   = f_final - f_temp = f_final / (a*c + 1)
+     *
+     * Pick c ~= (f_final - delta) / (delta * a) using scaled integer Hz.
+     * Clamp c >= 2 so b/c stays below 1 and the temporary integer part
+     * remains a. TIM6 is later timed from the actual chosen-c delta.
+     */
+    uint64_t target_delta_scaled = SI5351_TEMP_OFFSET_HZ * SI5351_FREQ_MULT;
+    if((target_delta_scaled == 0U) || (div == 0U) || (final_output_scaled <= target_delta_scaled))
+    {
+        return 2U;
+    }
+
+    uint64_t num = final_output_scaled - target_delta_scaled;
+    uint64_t den = target_delta_scaled * (uint64_t)div;
+    uint64_t c = (num + (den / 2U)) / den;
+    if(c < 2U)
+    {
+        return 2U;
+    }
+    if(c > SI5351_PLL_DENOM_MAX)
+    {
+        return SI5351_PLL_DENOM_MAX;
+    }
+    return (uint32_t)c;
+}
+
+static ErrorStatus si5351_calc_fixed_div_b1_output_ms(uint64_t vco_scaled,
+                                                      uint32_t div,
+                                                      uint32_t denom,
+                                                      struct si5351_ms *ms,
+                                                      uint64_t *actual_output_scaled)
+{
+    if((denom < 2U) || (ms == 0) || (actual_output_scaled == 0))
     {
         return NoREADY;
     }
@@ -296,28 +329,13 @@ static ErrorStatus si5351_calc_fixed_div_fractional_output_ms(uint64_t vco_scale
         return NoREADY;
     }
 
-    uint64_t base_scaled = (uint64_t)div * output_clock_scaled;
-    if(vco_scaled <= base_scaled)
+    if(denom > SI5351_PLL_DENOM_MAX)
     {
         return NoREADY;
     }
 
-    uint64_t rem = vco_scaled - base_scaled;
-    if(rem >= output_clock_scaled)
-    {
-        return NoREADY;
-    }
-
-    uint64_t num;
-    uint64_t den;
-    si5351_approximate_fraction(rem, output_clock_scaled, SI5351_PLL_DENOM_MAX, &num, &den);
-    if((den == 0U) || (num == 0U) || (num >= den))
-    {
-        return NoREADY;
-    }
-
-    *ms = si5351_calc_output_ms_fraction(div, (uint32_t)num, (uint32_t)den);
-    *actual_output_scaled = (vco_scaled * den) / ((uint64_t)div * den + num);
+    *ms = si5351_calc_output_ms_fraction(div, 1U, denom);
+    *actual_output_scaled = (vco_scaled * denom) / ((uint64_t)div * denom + 1U);
     return READY;
 }
 
@@ -726,41 +744,37 @@ static ErrorStatus si5351_prepare_lagging_clk1_temp_config(const struct si5351_p
     uint64_t actual_vco_scaled = si5351_pll_actual_vco_scaled(pll_conf);
     uint64_t final_output_clock_scaled = actual_vco_scaled / (uint64_t)final_conf->div;
     uint64_t final_output_scaled = final_output_clock_scaled / (uint64_t)final_conf->r_div_factor;
-    for(uint64_t offset_hz = SI5351_TEMP_OFFSET_HZ; offset_hz != 0U; offset_hz /= 2U)
-    {
-        uint64_t offset_scaled = offset_hz * SI5351_FREQ_MULT;
-        if(final_output_scaled > offset_scaled)
-        {
-            *temp_conf = *final_conf;
-            temp_conf->allow_integer_mode = 0U;
-            temp_conf->div_by_4 = 0U;
+    *temp_conf = *final_conf;
+    temp_conf->allow_integer_mode = 0U;
+    temp_conf->div_by_4 = 0U;
 
-            uint64_t temp_output_scaled = (final_output_scaled - offset_scaled) *
-                                          (uint64_t)temp_conf->r_div_factor;
-            uint64_t actual_temp_output_clock_scaled;
-            if(si5351_calc_fixed_div_fractional_output_ms(actual_vco_scaled,
-                                                          temp_output_scaled,
-                                                          final_conf->div,
-                                                          &temp_conf->ms,
-                                                          &actual_temp_output_clock_scaled) == READY)
-            {
-                uint64_t actual_temp_output_scaled = actual_temp_output_clock_scaled /
-                                                     (uint64_t)temp_conf->r_div_factor;
-                if(final_output_scaled > actual_temp_output_scaled)
-                {
-                    uint64_t delta_scaled = final_output_scaled - actual_temp_output_scaled;
-                    uint32_t ticks = si5351_tim6_phase_delay_ticks(delta_scaled);
-                    if(ticks != 0U)
-                    {
-                        *phase_ticks = ticks;
-                        return READY;
-                    }
-                }
-            }
-        }
+    uint32_t temp_den = si5351_select_temp_b1_denominator(final_output_scaled, final_conf->div);
+    uint64_t actual_temp_output_clock_scaled;
+    if(si5351_calc_fixed_div_b1_output_ms(actual_vco_scaled,
+                                          final_conf->div,
+                                          temp_den,
+                                          &temp_conf->ms,
+                                          &actual_temp_output_clock_scaled) != READY)
+    {
+        return NoREADY;
     }
 
-    return NoREADY;
+    uint64_t actual_temp_output_scaled = actual_temp_output_clock_scaled /
+                                         (uint64_t)temp_conf->r_div_factor;
+    if(final_output_scaled <= actual_temp_output_scaled)
+    {
+        return NoREADY;
+    }
+
+    uint64_t delta_scaled = final_output_scaled - actual_temp_output_scaled;
+    uint32_t ticks = si5351_tim6_phase_delay_ticks(delta_scaled);
+    if(ticks == 0U)
+    {
+        return NoREADY;
+    }
+
+    *phase_ticks = ticks;
+    return READY;
 }
 
 static ErrorStatus si5351_enable_quadrature_outputs(void)
