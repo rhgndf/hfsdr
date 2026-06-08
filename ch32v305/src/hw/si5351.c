@@ -28,6 +28,7 @@
 #define SI5351_PHASE_REG_MIN_OUTPUT_HZ 3174604ULL
 #define SI5351_TEMP_OFFSET_HZ  250ULL
 #define SI5351_TIM6_MAX_TICKS  65536UL
+#define SI5351_TIM6_PRESCALER_DIV_MAX 65536UL
 #define SI5351_PLL_LOCK_POLL_HZ 1000UL
 #define SI5351_PLL_LOCK_POLLS 100U
 
@@ -95,7 +96,6 @@ enum si5351_tim6_state
 
 static uint64_t si5351_actual_frequency;
 static volatile enum si5351_tim6_state si5351_tim6_state;
-static volatile uint32_t si5351_tim6_remaining_ticks;
 static volatile uint32_t si5351_tim6_phase_ticks;
 static volatile uint32_t si5351_tim6_lock_polls_remaining;
 static volatile ErrorStatus si5351_tim6_last_status = READY;
@@ -410,33 +410,38 @@ static uint32_t si5351_tim6_counter_clock_hz(void)
     return pclk1;
 }
 
-static void si5351_tim6_arm_next_period(void)
+static ErrorStatus si5351_tim6_arm_ticks(uint32_t raw_ticks)
 {
-    uint32_t ticks = si5351_tim6_remaining_ticks;
-    uint32_t chunk = (ticks > SI5351_TIM6_MAX_TICKS) ? SI5351_TIM6_MAX_TICKS : ticks;
-    if(chunk == 0U)
+    if(raw_ticks == 0U)
     {
-        chunk = 1U;
+        return NoREADY;
     }
 
-    si5351_tim6_remaining_ticks = ticks - chunk;
+    /*
+     * raw_ticks is measured at the APB timer input clock. Pick the smallest
+     * prescaler divisor that lets the one-shot period fit in the 16-bit ARR;
+     * this keeps the delay single-arm while preserving maximum timer resolution.
+     */
+    uint32_t prescaler_div = ((raw_ticks - 1U) >> 16) + 1U;
+    if(prescaler_div > SI5351_TIM6_PRESCALER_DIV_MAX)
+    {
+        return NoREADY;
+    }
+
+    uint32_t ticks = ((raw_ticks - 1U) / prescaler_div) + 1U;
+    if(ticks > SI5351_TIM6_MAX_TICKS)
+    {
+        return NoREADY;
+    }
 
     TIM_Cmd(TIM6, DISABLE);
+    TIM_PrescalerConfig(TIM6, (uint16_t)(prescaler_div - 1U), TIM_PSCReloadMode_Immediate);
     TIM_SetCounter(TIM6, 0U);
-    TIM_SetAutoreload(TIM6, (uint16_t)(chunk - 1U));
+    TIM_SetAutoreload(TIM6, (uint16_t)(ticks - 1U));
     TIM_ClearFlag(TIM6, TIM_FLAG_Update);
     TIM_ITConfig(TIM6, TIM_IT_Update, ENABLE);
     TIM_Cmd(TIM6, ENABLE);
-}
-
-static void si5351_tim6_arm_ticks(uint32_t ticks)
-{
-    if(ticks == 0U)
-    {
-        ticks = 1U;
-    }
-    si5351_tim6_remaining_ticks = ticks;
-    si5351_tim6_arm_next_period();
+    return READY;
 }
 
 static void si5351_tim6_cancel(void)
@@ -447,7 +452,6 @@ static void si5351_tim6_cancel(void)
     TIM_ClearFlag(TIM6, TIM_FLAG_Update);
     NVIC_ClearPendingIRQ(TIM6_IRQn);
     si5351_tim6_state = SI5351_TIM6_IDLE;
-    si5351_tim6_remaining_ticks = 0U;
     si5351_tim6_phase_ticks = 0U;
     si5351_tim6_lock_polls_remaining = 0U;
 }
@@ -485,7 +489,12 @@ static uint32_t si5351_tim6_phase_delay_ticks(uint64_t delta_scaled)
     }
 
     uint64_t ticks = ((uint64_t)timclk * SI5351_FREQ_MULT) / (4ULL * delta_scaled);
-    uint32_t delay_ticks = (ticks > 0xFFFFFFFFULL) ? 0xFFFFFFFFU : (uint32_t)ticks;
+    if(ticks > 0xFFFFFFFFULL)
+    {
+        return 0U;
+    }
+
+    uint32_t delay_ticks = (uint32_t)ticks;
     if(delay_ticks == 0U)
     {
         delay_ticks = 1U;
@@ -534,8 +543,7 @@ static ErrorStatus si5351_tim6_start_pll_lock_wait(const uint8_t temp_ms1[8], ui
     si5351_tim6_state = SI5351_TIM6_WAIT_PLL_LOCK;
     si5351_tim6_last_status = READY;
     si5351_tim6_lock_polls_remaining = SI5351_PLL_LOCK_POLLS;
-    si5351_tim6_arm_ticks(si5351_tim6_pll_lock_poll_ticks());
-    return READY;
+    return si5351_tim6_arm_ticks(si5351_tim6_pll_lock_poll_ticks());
 }
 
 static void si5351_tim6_finalize_clk1(void)
@@ -566,7 +574,11 @@ static void si5351_tim6_handle_pll_lock_wait(void)
         }
 
         --si5351_tim6_lock_polls_remaining;
-        si5351_tim6_arm_ticks(si5351_tim6_pll_lock_poll_ticks());
+        if(si5351_tim6_arm_ticks(si5351_tim6_pll_lock_poll_ticks()) != READY)
+        {
+            si5351_tim6_last_status = NoREADY;
+            si5351_tim6_cancel();
+        }
         return;
     }
 
@@ -585,17 +597,15 @@ static void si5351_tim6_handle_pll_lock_wait(void)
     }
 
     si5351_tim6_state = SI5351_TIM6_ARMED_FINALIZE_CLK1;
-    si5351_tim6_arm_ticks(si5351_tim6_phase_ticks);
+    if(si5351_tim6_arm_ticks(si5351_tim6_phase_ticks) != READY)
+    {
+        si5351_tim6_last_status = NoREADY;
+        si5351_tim6_cancel();
+    }
 }
 
 static void si5351_tim6_handle_finalize_wait(void)
 {
-    if(si5351_tim6_remaining_ticks != 0U)
-    {
-        si5351_tim6_arm_next_period();
-        return;
-    }
-
     si5351_tim6_finalize_clk1();
 }
 
