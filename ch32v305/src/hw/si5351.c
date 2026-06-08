@@ -589,6 +589,13 @@ static void si5351_tim6_handle_pll_lock_wait(void)
         return;
     }
 
+    si5351_tim6_state = SI5351_TIM6_ARMED_FINALIZE_CLK1;
+    if(si5351_tim6_arm_ticks(si5351_tim6_phase_ticks) != READY)
+    {
+        si5351_tim6_last_status = NoREADY;
+        si5351_tim6_cancel();
+    }
+    
     if(si5351_write_clk1_ms_and_ctrl(si5351_tim6_temp_ms1, si5351_tim6_temp_clk1_ctrl) != READY)
     {
         si5351_tim6_last_status = NoREADY;
@@ -596,12 +603,6 @@ static void si5351_tim6_handle_pll_lock_wait(void)
         return;
     }
 
-    si5351_tim6_state = SI5351_TIM6_ARMED_FINALIZE_CLK1;
-    if(si5351_tim6_arm_ticks(si5351_tim6_phase_ticks) != READY)
-    {
-        si5351_tim6_last_status = NoREADY;
-        si5351_tim6_cancel();
-    }
 }
 
 static void si5351_tim6_handle_finalize_wait(void)
