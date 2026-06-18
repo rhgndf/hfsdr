@@ -1,0 +1,203 @@
+kibot:
+  version: 1
+
+preflight:
+  check_zone_fills: true
+
+outputs:
+  - name: schematic_pdf
+    comment: Schematic PDF
+    type: pdf_sch_print
+    dir: pdf
+    options:
+      output: hfsdr-schematic.pdf
+
+  - name: pcb_front_copper_pdf
+    comment: Front copper PDF
+    type: pdf
+    dir: pdf
+    layers:
+      - F.Cu
+    options:
+      output: hfsdr-pcb-front-copper.pdf
+      plot_sheet_reference: false
+
+  - name: pcb_back_copper_pdf
+    comment: Back copper PDF
+    type: pdf
+    dir: pdf
+    layers:
+      - B.Cu
+    options:
+      output: hfsdr-pcb-back-copper.pdf
+      plot_sheet_reference: false
+
+  - name: pcb_front_silkscreen_pdf
+    comment: Front silkscreen PDF
+    type: pdf
+    dir: pdf
+    layers:
+      - F.SilkS
+    options:
+      output: hfsdr-pcb-front-silkscreen.pdf
+      plot_sheet_reference: false
+
+  - name: pcb_back_silkscreen_pdf
+    comment: Back silkscreen PDF
+    type: pdf
+    dir: pdf
+    layers:
+      - B.SilkS
+    options:
+      output: hfsdr-pcb-back-silkscreen.pdf
+      plot_sheet_reference: false
+
+  - name: pcb_front_mask_pdf
+    comment: Front solder mask PDF
+    type: pdf
+    dir: pdf
+    layers:
+      - F.Mask
+    options:
+      output: hfsdr-pcb-front-mask.pdf
+      plot_sheet_reference: false
+
+  - name: pcb_back_mask_pdf
+    comment: Back solder mask PDF
+    type: pdf
+    dir: pdf
+    layers:
+      - B.Mask
+    options:
+      output: hfsdr-pcb-back-mask.pdf
+      plot_sheet_reference: false
+
+  - name: pcb_front_fab_pdf
+    comment: Front fabrication drawing PDF
+    type: pdf
+    dir: pdf
+    layers:
+      - F.Fab
+    options:
+      output: hfsdr-pcb-front-fab.pdf
+      plot_sheet_reference: true
+
+  - name: pcb_back_fab_pdf
+    comment: Back fabrication drawing PDF
+    type: pdf
+    dir: pdf
+    layers:
+      - B.Fab
+    options:
+      output: hfsdr-pcb-back-fab.pdf
+      plot_sheet_reference: true
+
+  - name: pcb_edge_cuts_pdf
+    comment: Edge cuts PDF
+    type: pdf
+    dir: pdf
+    layers:
+      - Edge.Cuts
+    options:
+      output: hfsdr-pcb-edge-cuts.pdf
+      plot_sheet_reference: false
+
+  - name: generic_bom
+    comment: Generic BOM CSV
+    type: bom
+    dir: bom
+    options:
+      output: hfsdr-generic-bom.csv
+      format: CSV
+      columns:
+        - Row
+        - References
+        - Quantity Per PCB
+        - Value
+        - Part
+        - Footprint
+        - Datasheet
+        - LCSC
+
+  - name: jlcpcb_bom
+    comment: JLCPCB BOM CSV
+    type: bom
+    dir: jlcpcb
+    options:
+      output: hfsdr-jlcpcb-bom.csv
+      format: CSV
+      columns:
+        - References
+        - Quantity Per PCB
+        - Value
+        - Footprint
+        - LCSC
+
+  - name: jlcpcb_cpl
+    comment: JLCPCB component placement CSV
+    type: position
+    dir: jlcpcb
+    options:
+      output: hfsdr-jlcpcb-cpl.csv
+      format: CSV
+      units: millimeters
+      separate_files_for_front_and_back: false
+
+  - name: interactive_bom
+    comment: Interactive HTML BOM
+    type: ibom
+    dir: ibom
+    options:
+      output: hfsdr-ibom.html
+
+  - name: generic_gerbers
+    comment: Generic Gerber fabrication files
+    type: gerber
+    dir: fab/gerbers
+    layers:
+      - F.Cu
+      - B.Cu
+      - F.Paste
+      - B.Paste
+      - F.SilkS
+      - B.SilkS
+      - F.Mask
+      - B.Mask
+      - Edge.Cuts
+    options:
+      exclude_edge_layer: true
+      plot_sheet_reference: false
+      plot_footprint_refs: true
+      plot_footprint_values: false
+      force_plot_invisible_refs_vals: false
+      tent_vias: true
+      use_protel_extensions: false
+      gerber_precision: 4.6
+      create_gerber_job_file: true
+      use_gerber_x2_attributes: true
+      use_gerber_net_attributes: true
+
+  - name: generic_drill
+    comment: Generic Excellon drill files
+    type: excellon
+    dir: fab/drill
+
+  - name: generic_fab_zip
+    comment: Generic fabrication ZIP
+    type: compress
+    dir: fab
+    options:
+      output: hfsdr-generic-fab.zip
+      files:
+        - from_output: generic_gerbers
+        - from_output: generic_drill
+
+  - name: jlcpcb_gerbers_zip
+    comment: JLCPCB Gerbers ZIP
+    type: compress
+    dir: jlcpcb
+    options:
+      output: hfsdr-jlcpcb-gerbers.zip
+      files:
+        - from_output: generic_gerbers
+        - from_output: generic_drill

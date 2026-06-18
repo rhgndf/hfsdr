@@ -1,0 +1,10 @@
+kibot:
+  version: 1
+
+outputs:
+  - name: vrml_model
+    comment: VRML board model for CI conversion to GLB
+    type: vrml
+    dir: .
+    options:
+      output: hfsdr.wrl

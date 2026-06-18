@@ -1,0 +1,22 @@
+kibot:
+  version: 1
+
+preflight:
+  erc:
+    enabled: true
+    format: HTML
+    output: hfsdr-erc.html
+    dont_stop: false
+  drc:
+    enabled: true
+    format: HTML
+    output: hfsdr-drc.html
+    dont_stop: false
+
+outputs:
+  - name: checks_info
+    comment: Tool and environment information for hardware checks
+    type: info
+    dir: .
+    options:
+      output: hfsdr-checks-info.txt
