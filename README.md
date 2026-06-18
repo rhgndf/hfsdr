@@ -4,6 +4,8 @@ HFSDR: host software, firmware, and hardware design for the HFSDR USB device.
 
 ![hfsdr](docs/img/hfsdr.png)
 
+[Board PCB Files viewer](https://rhgndf.github.io/hfsdr/hardware)
+
 ## Getting started
 
 Portable Mode (not connected to a PC)
