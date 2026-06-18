@@ -1,0 +1,806 @@
+name: Hardware PR Visual Diff
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    paths:
+      - "hardware/**"
+      - ".github/hardware/projects.json"
+      - ".github/hardware/site/**"
+      - ".github/workflows/hardware-pr-diff.yml"
+
+permissions:
+  actions: read
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  project-matrix:
+    name: Hardware project matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.projects.outputs.matrix }}
+      projects: ${{ steps.projects.outputs.projects }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Load hardware projects
+        id: projects
+        shell: bash
+        run: |
+          set -euo pipefail
+          projects="$(jq -c '.' .github/hardware/projects.json)"
+          matrix="$(jq -c '{include: .}' .github/hardware/projects.json)"
+          echo "projects=${projects}" >> "$GITHUB_OUTPUT"
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+
+  visual-diff:
+    name: Visual diff (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    needs: project-matrix
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.project-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout pull request head
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install visual diff tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y software-properties-common
+          sudo add-apt-repository --yes ppa:kicad/kicad-9.0-releases
+          sudo apt-get update
+          sudo apt-get install -y kicad imagemagick librsvg2-bin
+
+      - name: Generate schematic and PCB visual diffs
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          project_name='${{ matrix.name }}'
+          project_slug='${{ matrix.slug }}'
+          project_dir='${{ matrix.dir }}'
+          schematic_file='${{ matrix.schematic }}'
+          board_file='${{ matrix.board }}'
+          basename='${{ matrix.basename }}'
+
+          out_root="visual-diff-output/$project_slug"
+          work_root="visual-diff-work/$project_slug"
+          base_tree="visual-diff-work/base"
+          mkdir -p "$out_root" "$work_root"
+
+          git fetch origin "$BASE_SHA" --depth=1
+          rm -rf "$base_tree"
+          git worktree add --detach "$base_tree" "$BASE_SHA"
+
+          current_schematic="$project_dir/$schematic_file"
+          current_board="$project_dir/$board_file"
+          base_schematic="$base_tree/$project_dir/$schematic_file"
+          base_board="$base_tree/$project_dir/$board_file"
+
+          if [ ! -f "$base_schematic" ] || [ ! -f "$base_board" ]; then
+            mkdir -p "$out_root"
+            cat > "$out_root/README.md" <<EOF
+          # Visual diff unavailable
+
+          The project \`$project_name\` does not exist at the PR base commit, or its schematic/PCB file names differ.
+          EOF
+            cat > "$out_root/SUMMARY.md" <<EOF
+          Compared base \`${BASE_SHA:0:12}\` to head \`${HEAD_SHA:0:12}\`.
+
+          No visual diff was generated because this project was not found in the PR base commit.
+          EOF
+            cp "$out_root/SUMMARY.md" "$out_root/GITHUB_SUMMARY.md"
+            exit 0
+          fi
+
+          kicad_cli() {
+            kicad-cli "$@"
+          }
+
+          mkdir -p \
+            "$out_root/base/schematic" \
+            "$out_root/current/schematic" \
+            "$out_root/base/pcb" \
+            "$out_root/current/pcb" \
+            "$out_root/diff/schematic" \
+            "$out_root/diff/pcb"
+
+          kicad_cli sch export svg --output "$out_root/base/schematic" "$base_schematic"
+          kicad_cli sch export svg --output "$out_root/current/schematic" "$current_schematic"
+
+          pcb_layers=(F.Cu B.Cu F.SilkS B.SilkS F.Mask B.Mask Edge.Cuts)
+          for layer in "${pcb_layers[@]}"; do
+            safe_layer="${layer//./_}"
+            kicad_cli pcb export svg --layers "$layer" --output "$out_root/base/pcb/$safe_layer.svg" "$base_board"
+            kicad_cli pcb export svg --layers "$layer" --output "$out_root/current/pcb/$safe_layer.svg" "$current_board"
+          done
+
+          combined_layers="$(IFS=,; echo "${pcb_layers[*]}")"
+          kicad_cli pcb export svg --layers "$combined_layers" --output "$out_root/base/pcb/All_Layers.svg" "$base_board"
+          kicad_cli pcb export svg --layers "$combined_layers" --output "$out_root/current/pcb/All_Layers.svg" "$current_board"
+
+          image_size() {
+            identify -format "%w %h" "$1"
+          }
+
+          write_diff_svg() {
+            local base_svg="$1"
+            local current_svg="$2"
+            local label="$3"
+            local output_svg="$4"
+            local scratch="$work_root/$(echo "$label" | tr '/ .:' '____')"
+            mkdir -p "$scratch" "$(dirname "$output_svg")"
+
+            rsvg-convert "$base_svg" -o "$scratch/base.png"
+            rsvg-convert "$current_svg" -o "$scratch/current.png"
+
+            base_dims="$(image_size "$scratch/base.png")"
+            current_dims="$(image_size "$scratch/current.png")"
+            read -r base_w base_h <<< "$base_dims"
+            read -r current_w current_h <<< "$current_dims"
+            max_w="$base_w"
+            max_h="$base_h"
+            if [ "$current_w" -gt "$max_w" ]; then max_w="$current_w"; fi
+            if [ "$current_h" -gt "$max_h" ]; then max_h="$current_h"; fi
+
+            convert "$scratch/base.png" -background white -gravity northwest -extent "${max_w}x${max_h}" "$scratch/base-normalized.png"
+            convert "$scratch/current.png" -background white -gravity northwest -extent "${max_w}x${max_h}" "$scratch/current-normalized.png"
+            compare "$scratch/base-normalized.png" "$scratch/current-normalized.png" "$scratch/diff.png" >/dev/null 2>&1 || true
+
+            local gap=24
+            local label_h=36
+            local canvas_w=$((max_w * 3 + gap * 4))
+            local canvas_h=$((max_h + label_h + gap * 2))
+            local base_x="$gap"
+            local current_x=$((max_w + gap * 2))
+            local diff_x=$((max_w * 2 + gap * 3))
+            local image_y=$((label_h + gap))
+            local title_y=24
+            local b64_base b64_current b64_diff
+            b64_base="$(base64 -w0 "$scratch/base-normalized.png")"
+            b64_current="$(base64 -w0 "$scratch/current-normalized.png")"
+            b64_diff="$(base64 -w0 "$scratch/diff.png")"
+
+            cat > "$output_svg" <<EOF
+          <svg xmlns="http://www.w3.org/2000/svg" width="$canvas_w" height="$canvas_h" viewBox="0 0 $canvas_w $canvas_h" role="img" aria-label="$label visual diff">
+            <rect width="100%" height="100%" fill="#ffffff"/>
+            <style>
+              text { font-family: Arial, sans-serif; font-size: 16px; fill: #111827; }
+              .label { font-weight: 700; }
+            </style>
+            <text class="label" x="$base_x" y="$title_y">$label baseline</text>
+            <text class="label" x="$current_x" y="$title_y">$label current</text>
+            <text class="label" x="$diff_x" y="$title_y">$label diff</text>
+            <image href="data:image/png;base64,$b64_base" x="$base_x" y="$image_y" width="$max_w" height="$max_h"/>
+            <image href="data:image/png;base64,$b64_current" x="$current_x" y="$image_y" width="$max_w" height="$max_h"/>
+            <image href="data:image/png;base64,$b64_diff" x="$diff_x" y="$image_y" width="$max_w" height="$max_h"/>
+          </svg>
+          EOF
+          }
+
+          shopt -s globstar nullglob
+          generated=0
+
+          for current_svg in "$out_root/current/schematic"/*.svg; do
+            name="$(basename "$current_svg")"
+            base_svg="$out_root/base/schematic/$name"
+            if [ -f "$base_svg" ]; then
+              output_svg="$out_root/diff/schematic/$name"
+              write_diff_svg "$base_svg" "$current_svg" "Schematic $name" "$output_svg"
+              generated=$((generated + 1))
+            fi
+          done
+
+          for current_svg in "$out_root/current/pcb"/*.svg; do
+            name="$(basename "$current_svg")"
+            base_svg="$out_root/base/pcb/$name"
+            if [ -f "$base_svg" ]; then
+              output_svg="$out_root/diff/pcb/$name"
+              write_diff_svg "$base_svg" "$current_svg" "PCB ${name%.svg}" "$output_svg"
+              generated=$((generated + 1))
+            fi
+          done
+
+          preview_width=3200
+          preview_count=0
+          mkdir -p "$out_root/preview/pcb" "$out_root/preview/schematic"
+
+          render_preview_png() {
+            local input_svg="$1"
+            local output_png="$2"
+            mkdir -p "$(dirname "$output_png")"
+            rsvg-convert -w "$preview_width" "$input_svg" -o "$output_png"
+            preview_count=$((preview_count + 1))
+          }
+
+          if [ -f "$out_root/diff/pcb/All_Layers.svg" ]; then
+            render_preview_png "$out_root/diff/pcb/All_Layers.svg" "$out_root/preview/pcb/All_Layers.png"
+          fi
+
+          for schematic_preview_svg in "$out_root/diff/schematic"/*.svg; do
+            [ -f "$schematic_preview_svg" ] || continue
+            schematic_preview_name="$(basename "$schematic_preview_svg" .svg)"
+            render_preview_png "$schematic_preview_svg" "$out_root/preview/schematic/$schematic_preview_name.png"
+          done
+
+          {
+            if [ "$generated" -eq 0 ]; then
+              echo "Compared base \`${BASE_SHA:0:12}\` to head \`${HEAD_SHA:0:12}\`."
+              echo
+              echo "No matching schematic or PCB SVGs were available to diff."
+            else
+              echo "Compared base \`${BASE_SHA:0:12}\` to head \`${HEAD_SHA:0:12}\`."
+              echo
+              echo "Generated $generated visual diff SVG file(s)."
+              echo "Generated $preview_count PNG preview file(s) at ${preview_width}px wide."
+              echo
+              echo "## Diff Files"
+              echo
+              for diff_svg in "$out_root"/diff/**/*.svg; do
+                rel="${diff_svg#$out_root/diff/}"
+                size_bytes="$(wc -c < "$diff_svg" | tr -d ' ')"
+                printf -- '- `%s` (%s bytes)\n' "$rel" "$size_bytes"
+              done
+            fi
+          } > "$out_root/GITHUB_SUMMARY.md"
+
+          cp "$out_root/GITHUB_SUMMARY.md" "$out_root/SUMMARY.md"
+          if [ "$generated" -gt 0 ]; then
+            {
+              echo
+              echo "## Embedded Preview"
+              echo
+              if [ -f "$out_root/preview/pcb/All_Layers.png" ]; then
+                echo "![Combined PCB diff](preview/pcb/All_Layers.png)"
+                echo
+              fi
+              for schematic_preview_png in "$out_root/preview/schematic"/*.png; do
+                [ -f "$schematic_preview_png" ] || continue
+                schematic_rel="${schematic_preview_png#$out_root/}"
+                schematic_label="$(basename "$schematic_preview_png" .png)"
+                echo "![Schematic diff: $schematic_label]($schematic_rel)"
+                echo
+              done
+            } >> "$out_root/SUMMARY.md"
+          fi
+
+      - name: Upload visual diff artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.slug }}-pr-visual-diff
+          path: visual-diff-output/${{ matrix.slug }}
+          if-no-files-found: warn
+
+  pr-checks:
+    name: PR ERC and DRC (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    needs: project-matrix
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.project-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout pull request head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Run KiBot ERC and DRC
+        id: run-kibot-checks
+        continue-on-error: true
+        uses: INTI-CMNB/KiBot@v2_k9
+        with:
+          config: ${{ matrix.dir }}/${{ matrix.checks_config }}
+          schema: ${{ matrix.dir }}/${{ matrix.schematic }}
+          board: ${{ matrix.dir }}/${{ matrix.board }}
+          dir: ${{ matrix.dir }}/output/pr-checks
+
+      - name: Upload PR ERC and DRC reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.slug }}-pr-check-reports
+          path: ${{ matrix.dir }}/output/pr-checks
+          if-no-files-found: warn
+
+  pr-outputs:
+    name: PR documentation and fabrication outputs (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    needs: project-matrix
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.project-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout pull request head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Generate KiCad outputs
+        id: generate-hardware-outputs
+        continue-on-error: true
+        uses: INTI-CMNB/KiBot@v2_k9
+        with:
+          config: ${{ matrix.dir }}/${{ matrix.outputs_config }}
+          schema: ${{ matrix.dir }}/${{ matrix.schematic }}
+          board: ${{ matrix.dir }}/${{ matrix.board }}
+          dir: ${{ matrix.dir }}/output/pr-generated
+
+      - name: Upload PR generated hardware outputs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.slug }}-pr-hardware-outputs
+          path: ${{ matrix.dir }}/output/pr-generated
+          if-no-files-found: warn
+
+  pr-3d-model:
+    name: PR 3D model (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    needs: project-matrix
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.project-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout pull request head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Export VRML model with KiBot
+        id: export-vrml
+        continue-on-error: true
+        uses: INTI-CMNB/KiBot@v2_k9
+        with:
+          config: ${{ matrix.dir }}/${{ matrix.model_config }}
+          schema: ${{ matrix.dir }}/${{ matrix.schematic }}
+          board: ${{ matrix.dir }}/${{ matrix.board }}
+          dir: ${{ matrix.dir }}/output/pr-3d-source
+
+      - name: Find exported VRML model
+        id: find-vrml
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          model_dir="hardware-pr-3d-artifacts/${{ matrix.slug }}/model"
+          mkdir -p "$model_dir"
+
+          mapfile -t board_vrml_candidates < <(find "${{ matrix.dir }}/output/pr-3d-source" \( -iname '*.wrl' -o -iname '*.vrml' \) ! -path '*/shapes3D/*' -print 2>/dev/null | sort)
+          if [ "${#board_vrml_candidates[@]}" -gt 0 ]; then
+            vrml_path="${board_vrml_candidates[0]}"
+          else
+            vrml_path="$(find "${{ matrix.dir }}/output/pr-3d-source" \( -iname '*.wrl' -o -iname '*.vrml' \) -print 2>/dev/null | sort | head -n 1 || true)"
+          fi
+          echo "path=${vrml_path}" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$vrml_path" ]; then
+            {
+              echo "No VRML model was generated for ${{ matrix.name }}."
+              echo "KiBot VRML step outcome: ${{ steps.export-vrml.outcome }}"
+            } > "$model_dir/README.txt"
+          else
+            echo "Selected VRML model: $vrml_path"
+            cp "$vrml_path" "$model_dir/board.wrl"
+          fi
+
+      - name: Install Blender
+        if: ${{ steps.find-vrml.outputs.path != '' }}
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y blender python3-numpy xvfb libegl1 libgl1 libglx-mesa0 libxi6 libxrender1
+
+      - name: Convert VRML model to GLB
+        if: ${{ steps.find-vrml.outputs.path != '' }}
+        id: convert-vrml
+        continue-on-error: true
+        timeout-minutes: 6
+        shell: bash
+        run: |
+          set -euo pipefail
+          model_dir="hardware-pr-3d-artifacts/${{ matrix.slug }}/model"
+          mkdir -p "$model_dir"
+
+          xvfb-run -a blender --background --python .github/hardware/3d/convert_vrml_to_glb.py -- \
+            "${{ steps.find-vrml.outputs.path }}" \
+            "$model_dir/board.glb" \
+            "$model_dir/board-preview.png"
+
+          test -s "$model_dir/board.glb"
+          test -s "$model_dir/board-preview.png"
+
+      - name: Note skipped or failed 3D conversion
+        if: ${{ always() && steps.find-vrml.outputs.path != '' && steps.convert-vrml.outcome != 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          model_dir="hardware-pr-3d-artifacts/${{ matrix.slug }}/model"
+          mkdir -p "$model_dir"
+          {
+            echo "3D model conversion did not complete for ${{ matrix.name }}."
+            echo "Conversion step outcome: ${{ steps.convert-vrml.outcome }}"
+            echo "The original VRML export is included when available."
+          } > "$model_dir/README.txt"
+
+      - name: Upload PR 3D model outputs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.slug }}-pr-3d-model
+          path: hardware-pr-3d-artifacts/${{ matrix.slug }}
+          if-no-files-found: warn
+
+  publish-previews:
+    name: Publish PR preview assets
+    runs-on: ubuntu-latest
+    needs:
+      - project-matrix
+      - visual-diff
+      - pr-checks
+      - pr-outputs
+      - pr-3d-model
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    permissions:
+      contents: write
+    outputs:
+      raw_base: ${{ steps.publish.outputs.raw_base }}
+      preview_url: ${{ steps.publish.outputs.preview_url }}
+      preview_branch: ${{ steps.publish.outputs.preview_branch }}
+      preview_root: ${{ steps.publish.outputs.preview_root }}
+
+    steps:
+      - name: Checkout pull request head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Download PR preview artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Publish PR preview assets
+        id: publish
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PROJECTS_JSON: ${{ needs.project-matrix.outputs.projects }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          preview_branch="pr-diff-previews"
+          preview_root="pr-${PR_NUMBER}/run-${GITHUB_RUN_ID}"
+          raw_base="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${preview_branch}/${preview_root}"
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          preview_url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}/hardware/preview/?pr=${PR_NUMBER}&run=${GITHUB_RUN_ID}&repo=${GITHUB_REPOSITORY}&branch=${preview_branch}&root=${preview_root}"
+          echo "raw_base=${raw_base}" >> "$GITHUB_OUTPUT"
+          echo "preview_url=${preview_url}" >> "$GITHUB_OUTPUT"
+          echo "preview_branch=${preview_branch}" >> "$GITHUB_OUTPUT"
+          echo "preview_root=${preview_root}" >> "$GITHUB_OUTPUT"
+
+          mkdir -p publish
+          cd publish
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          if git fetch --depth=1 origin "$preview_branch"; then
+            git checkout -B "$preview_branch" FETCH_HEAD
+          else
+            git checkout --orphan "$preview_branch"
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          mkdir -p "$preview_root"
+          copied=0
+
+          echo "$PROJECTS_JSON" | jq -c '.[]' | while read -r project; do
+            slug="$(echo "$project" | jq -r '.slug')"
+            project_dir="$(echo "$project" | jq -r '.dir')"
+            project_file="$(echo "$project" | jq -r '.project')"
+            schematic_file="$(echo "$project" | jq -r '.schematic')"
+            board_file="$(echo "$project" | jq -r '.board')"
+            board_root="$preview_root/$slug"
+
+            mkdir -p "$board_root/kicad" "$board_root/reports" "$board_root/outputs" "$board_root/model" "$board_root/visual-diff"
+
+            cp "../$project_dir/$project_file" "$board_root/kicad/" 2>/dev/null || true
+            cp "../$project_dir/$schematic_file" "$board_root/kicad/" 2>/dev/null || true
+            cp "../$project_dir/$board_file" "$board_root/kicad/" 2>/dev/null || true
+
+            if [ -d "../artifacts/$slug-pr-visual-diff" ]; then
+              cp -a "../artifacts/$slug-pr-visual-diff/." "$board_root/visual-diff/"
+              copied=$((copied + 1))
+            fi
+            if [ -d "../artifacts/$slug-pr-check-reports" ]; then
+              cp -a "../artifacts/$slug-pr-check-reports/." "$board_root/reports/"
+              copied=$((copied + 1))
+            fi
+            if [ -d "../artifacts/$slug-pr-hardware-outputs" ]; then
+              cp -a "../artifacts/$slug-pr-hardware-outputs/." "$board_root/outputs/"
+              copied=$((copied + 1))
+            fi
+            if [ -d "../artifacts/$slug-pr-3d-model/model" ]; then
+              cp -a "../artifacts/$slug-pr-3d-model/model/." "$board_root/model/"
+              copied=$((copied + 1))
+            fi
+          done
+
+          export PROJECTS_JSON PREVIEW_ROOT="$preview_root" BASE_SHA HEAD_SHA PR_NUMBER GITHUB_RUN_ID GITHUB_REPOSITORY
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          projects = json.loads(os.environ["PROJECTS_JSON"])
+          preview_root = Path(os.environ["PREVIEW_ROOT"])
+          boards = []
+
+          def item(label, path, svg_path=None):
+              data = {
+                  "label": label,
+                  "png": path.as_posix(),
+              }
+              if svg_path:
+                  data["svg"] = svg_path.as_posix()
+              return data
+
+          def link(label, path):
+              return {
+                  "label": label,
+                  "href": path.as_posix(),
+              }
+
+          def first_existing(*paths):
+              for path in paths:
+                  if path.exists():
+                      return path
+              return None
+
+          def collect_pdfs(board_root, basename):
+              pdf_root = board_root / "outputs" / "pdf"
+              wanted = [
+                  ("Schematic", f"{basename}-schematic.pdf"),
+                  ("Front copper", f"{basename}-pcb-front-copper.pdf"),
+                  ("Back copper", f"{basename}-pcb-back-copper.pdf"),
+                  ("Front silkscreen", f"{basename}-pcb-front-silkscreen.pdf"),
+                  ("Back silkscreen", f"{basename}-pcb-back-silkscreen.pdf"),
+                  ("Front mask", f"{basename}-pcb-front-mask.pdf"),
+                  ("Back mask", f"{basename}-pcb-back-mask.pdf"),
+                  ("Front fab", f"{basename}-pcb-front-fab.pdf"),
+                  ("Back fab", f"{basename}-pcb-back-fab.pdf"),
+                  ("Edge cuts", f"{basename}-pcb-edge-cuts.pdf"),
+              ]
+              links = []
+              for label, filename in wanted:
+                  path = pdf_root / filename
+                  if path.exists():
+                      links.append(link(label, path.relative_to(preview_root)))
+              return links
+
+          def collect_downloads(board_root, basename):
+              wanted = [
+                  ("Generic BOM CSV", board_root / "outputs" / "bom" / f"{basename}-generic-bom.csv"),
+                  ("Generic fabrication ZIP", board_root / "outputs" / "fab" / f"{basename}-generic-fab.zip"),
+                  ("JLCPCB Gerbers ZIP", board_root / "outputs" / "jlcpcb" / f"{basename}-jlcpcb-gerbers.zip"),
+                  ("JLCPCB BOM CSV", board_root / "outputs" / "jlcpcb" / f"{basename}-jlcpcb-bom.csv"),
+                  ("JLCPCB CPL CSV", board_root / "outputs" / "jlcpcb" / f"{basename}-jlcpcb-cpl.csv"),
+                  ("Interactive BOM", board_root / "outputs" / "ibom" / f"{basename}-ibom.html"),
+              ]
+              return [link(label, path.relative_to(preview_root)) for label, path in wanted if path.exists()]
+
+          for project in projects:
+              slug = project["slug"]
+              basename = project["basename"]
+              board_root = preview_root / slug
+              diff_items = []
+
+              pcb_preview_root = board_root / "visual-diff" / "preview" / "pcb"
+              if pcb_preview_root.exists():
+                  all_layers = pcb_preview_root / "All_Layers.png"
+                  if all_layers.exists():
+                      rel_png = all_layers.relative_to(preview_root)
+                      rel_svg = board_root / "visual-diff" / "diff" / "pcb" / "All_Layers.svg"
+                      diff_items.append(item("Combined PCB", rel_png, rel_svg.relative_to(preview_root) if rel_svg.exists() else None))
+                  for png in sorted(pcb_preview_root.glob("*.png")):
+                      if png.name == "All_Layers.png":
+                          continue
+                      rel_png = png.relative_to(preview_root)
+                      rel_svg = board_root / "visual-diff" / "diff" / "pcb" / f"{png.stem}.svg"
+                      diff_items.append(item(f"PCB {png.stem.replace('_', ' ')}", rel_png, rel_svg.relative_to(preview_root) if rel_svg.exists() else None))
+
+              schematic_preview_root = board_root / "visual-diff" / "preview" / "schematic"
+              if schematic_preview_root.exists():
+                  for png in sorted(schematic_preview_root.glob("*.png")):
+                      rel_png = png.relative_to(preview_root)
+                      rel_svg = board_root / "visual-diff" / "diff" / "schematic" / f"{png.stem}.svg"
+                      diff_items.insert(0, item(f"Schematic {png.stem}", rel_png, rel_svg.relative_to(preview_root) if rel_svg.exists() else None))
+
+              erc_report = first_existing(board_root / "reports" / f"{basename}-erc.html")
+              drc_report = first_existing(board_root / "reports" / f"{basename}-drc.html")
+              model_glb = first_existing(board_root / "model" / "board.glb")
+              model_poster = first_existing(board_root / "model" / "board-preview.png")
+
+              model = {}
+              if model_glb:
+                  model["glb"] = model_glb.relative_to(preview_root).as_posix()
+              if model_poster:
+                  model["poster"] = model_poster.relative_to(preview_root).as_posix()
+
+              boards.append({
+                  "name": project["name"],
+                  "slug": slug,
+                  "kicad": {
+                      "project": (board_root / "kicad" / project["project"]).relative_to(preview_root).as_posix(),
+                      "schematic": (board_root / "kicad" / project["schematic"]).relative_to(preview_root).as_posix(),
+                      "board": (board_root / "kicad" / project["board"]).relative_to(preview_root).as_posix(),
+                  },
+                  "reports": {
+                      "erc": erc_report.relative_to(preview_root).as_posix() if erc_report else None,
+                      "drc": drc_report.relative_to(preview_root).as_posix() if drc_report else None,
+                  },
+                  "model": model,
+                  "diff": diff_items,
+                  "downloads": collect_downloads(board_root, basename),
+                  "pdfs": collect_pdfs(board_root, basename),
+              })
+
+          manifest = {
+              "repo": os.environ["GITHUB_REPOSITORY"],
+              "pr": int(os.environ["PR_NUMBER"]),
+              "runId": os.environ["GITHUB_RUN_ID"],
+              "baseSha": os.environ["BASE_SHA"],
+              "headSha": os.environ["HEAD_SHA"],
+              "boards": boards,
+          }
+          (preview_root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          PY
+
+          git add "$preview_root"
+          if git diff --cached --quiet; then
+            echo "No preview image changes to publish."
+            exit 0
+          fi
+
+          git commit -m "Publish PR ${PR_NUMBER} hardware diff previews for run ${GITHUB_RUN_ID}"
+          git push origin "$preview_branch"
+
+  comment-pr:
+    name: Comment on pull request
+    runs-on: ubuntu-latest
+    needs:
+      - project-matrix
+      - visual-diff
+      - publish-previews
+    if: ${{ always() && github.event_name == 'pull_request' }}
+
+    steps:
+      - name: Build and upsert PR comment
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROJECTS_JSON: ${{ needs.project-matrix.outputs.projects }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RAW_PREVIEW_BASE: ${{ needs.publish-previews.outputs.raw_base }}
+          PREVIEW_URL: ${{ needs.publish-previews.outputs.preview_url }}
+          PREVIEW_BRANCH: ${{ needs.publish-previews.outputs.preview_branch }}
+          PREVIEW_ROOT: ${{ needs.publish-previews.outputs.preview_root }}
+        run: |
+          set -euo pipefail
+
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          artifacts_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts")"
+          marker="<!-- hardware-visual-diff-comment -->"
+
+          {
+            echo "$marker"
+            echo
+            echo "## Hardware Visual Diff"
+            echo
+            echo "Compared base \`${BASE_SHA:0:12}\` to head \`${HEAD_SHA:0:12}\`."
+            echo
+            if [ -n "${PREVIEW_URL:-}" ]; then
+              echo "[Open hardware PR preview page](${PREVIEW_URL})"
+              echo
+            fi
+            if [ -n "${RAW_PREVIEW_BASE:-}" ]; then
+              echo "PNG previews are embedded below. The preview page includes KiCanvas, visual diffs, 3D output, reports, downloads, and PDFs when those assets are available."
+            else
+              echo "PNG previews were not published for this run. Full SVGs and source exports are in the artifacts."
+            fi
+            echo
+            echo "| Board | Visual diff | Reports | Outputs | 3D |"
+            echo "| --- | --- | --- | --- | --- |"
+            echo "$PROJECTS_JSON" | jq -c '.[]' | while read -r project; do
+              slug="$(echo "$project" | jq -r '.slug')"
+              name="$(echo "$project" | jq -r '.name')"
+              artifact_link() {
+                local artifact_name="$1"
+                local label="$2"
+                local artifact_id
+                artifact_id="$(echo "$artifacts_json" | jq -r --arg artifact_name "$artifact_name" '.artifacts[]? | select(.name == $artifact_name) | .id' | head -n 1)"
+                if [ -n "$artifact_id" ]; then
+                  local artifact_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts/${artifact_id}"
+                  printf '[%s](%s)' "$label" "$artifact_url"
+                else
+                  printf 'Unavailable'
+                fi
+              }
+              visual_link="$(artifact_link "${slug}-pr-visual-diff" "Download")"
+              reports_link="$(artifact_link "${slug}-pr-check-reports" "Download")"
+              outputs_link="$(artifact_link "${slug}-pr-hardware-outputs" "Download")"
+              model_link="$(artifact_link "${slug}-pr-3d-model" "Download")"
+              printf '| %s | %s | %s | %s | %s |\n' "$name" "$visual_link" "$reports_link" "$outputs_link" "$model_link"
+            done
+            if [ -n "${RAW_PREVIEW_BASE:-}" ]; then
+              echo
+              echo "## Preview Images"
+              echo "$PROJECTS_JSON" | jq -c '.[]' | while read -r project; do
+                slug="$(echo "$project" | jq -r '.slug')"
+                name="$(echo "$project" | jq -r '.name')"
+                echo
+                echo "### $name"
+                echo
+                echo "![${name} combined PCB diff](${RAW_PREVIEW_BASE}/${slug}/visual-diff/preview/pcb/All_Layers.png)"
+                echo
+                schematic_api_path="repos/${GITHUB_REPOSITORY}/contents/${PREVIEW_ROOT}/${slug}/visual-diff/preview/schematic?ref=${PREVIEW_BRANCH}"
+                schematic_names="$(gh api "$schematic_api_path" --jq '.[]? | select(.type == "file" and (.name | endswith(".png"))) | .name' 2>/dev/null || true)"
+                if [ -n "$schematic_names" ]; then
+                  echo "$schematic_names" | while read -r schematic_name; do
+                    [ -n "$schematic_name" ] || continue
+                    encoded_schematic_name="$(printf '%s' "$schematic_name" | jq -sRr @uri)"
+                    schematic_label="${schematic_name%.png}"
+                    echo "![${name} schematic diff: ${schematic_label}](${RAW_PREVIEW_BASE}/${slug}/visual-diff/preview/schematic/${encoded_schematic_name})"
+                    echo
+                  done
+                else
+                  echo "_No schematic preview PNGs were published for this board._"
+                  echo
+                fi
+              done
+            fi
+            echo
+            echo "Run: [${GITHUB_RUN_ID}](${run_url})"
+            echo
+            echo "_This comment is updated automatically when the PR changes._"
+          } > comment.md
+
+          payload="$(jq -n --rawfile body comment.md '{body: $body}')"
+          comment_id="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- hardware-visual-diff-comment -->"))) | .id' \
+            | tail -n 1)"
+
+          if [ -n "$comment_id" ]; then
+            echo "$payload" | gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" --input -
+          else
+            echo "$payload" | gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input -
+          fi

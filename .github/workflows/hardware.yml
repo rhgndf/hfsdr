@@ -1,0 +1,557 @@
+name: Hardware CI
+
+on:
+  push:
+    paths:
+      - "hardware/**"
+      - ".github/workflows/hardware.yml"
+      - ".github/hardware/**"
+  pull_request:
+    paths:
+      - "hardware/**"
+      - ".github/workflows/hardware.yml"
+      - ".github/hardware/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  project-matrix:
+    name: Hardware project matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.projects.outputs.matrix }}
+      projects: ${{ steps.projects.outputs.projects }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Load hardware projects
+        id: projects
+        shell: bash
+        run: |
+          set -euo pipefail
+          projects="$(jq -c '.' .github/hardware/projects.json)"
+          matrix="$(jq -c '{include: .}' .github/hardware/projects.json)"
+          echo "projects=${projects}" >> "$GITHUB_OUTPUT"
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+
+  hardware-checks:
+    name: ERC and DRC (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    needs: project-matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.project-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run KiBot ERC and DRC
+        id: run-kibot-checks
+        continue-on-error: true
+        uses: INTI-CMNB/KiBot@v2_k9
+        with:
+          config: ${{ matrix.dir }}/${{ matrix.checks_config }}
+          schema: ${{ matrix.dir }}/${{ matrix.schematic }}
+          board: ${{ matrix.dir }}/${{ matrix.board }}
+          dir: ${{ matrix.dir }}/output/checks
+
+      - name: Upload ERC and DRC reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.slug }}-check-reports
+          path: ${{ matrix.dir }}/output/checks
+          if-no-files-found: warn
+
+      - name: Fail if ERC or DRC failed
+        if: ${{ steps.run-kibot-checks.outcome != 'success' }}
+        shell: bash
+        run: |
+          echo "ERC/DRC failed for ${{ matrix.name }}."
+          exit 1
+
+  hardware-outputs:
+    name: Documentation and fabrication outputs (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    needs:
+      - project-matrix
+      - hardware-checks
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.project-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Generate KiCad outputs
+        id: generate-hardware-outputs
+        continue-on-error: true
+        uses: INTI-CMNB/KiBot@v2_k9
+        with:
+          config: ${{ matrix.dir }}/${{ matrix.outputs_config }}
+          schema: ${{ matrix.dir }}/${{ matrix.schematic }}
+          board: ${{ matrix.dir }}/${{ matrix.board }}
+          dir: ${{ matrix.dir }}/output/generated
+
+      - name: Upload generated hardware outputs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.slug }}-hardware-outputs
+          path: ${{ matrix.dir }}/output/generated
+          if-no-files-found: warn
+
+      - name: Fail if hardware output generation failed
+        if: ${{ steps.generate-hardware-outputs.outcome != 'success' }}
+        shell: bash
+        run: |
+          echo "Hardware output generation failed for ${{ matrix.name }}."
+          exit 1
+
+  hardware-3d-model:
+    name: 3D model (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    needs:
+      - project-matrix
+      - hardware-checks
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.project-matrix.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Export VRML model with KiBot
+        id: export-vrml
+        continue-on-error: true
+        uses: INTI-CMNB/KiBot@v2_k9
+        with:
+          config: ${{ matrix.dir }}/${{ matrix.model_config }}
+          schema: ${{ matrix.dir }}/${{ matrix.schematic }}
+          board: ${{ matrix.dir }}/${{ matrix.board }}
+          dir: ${{ matrix.dir }}/output/3d-source
+
+      - name: Find exported VRML model
+        id: find-vrml
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          model_dir="hardware-3d-artifacts/${{ matrix.slug }}/model"
+          mkdir -p "$model_dir"
+
+          mapfile -t board_vrml_candidates < <(find "${{ matrix.dir }}/output/3d-source" \( -iname '*.wrl' -o -iname '*.vrml' \) ! -path '*/shapes3D/*' -print 2>/dev/null | sort)
+          if [ "${#board_vrml_candidates[@]}" -gt 0 ]; then
+            vrml_path="${board_vrml_candidates[0]}"
+          else
+            vrml_path="$(find "${{ matrix.dir }}/output/3d-source" \( -iname '*.wrl' -o -iname '*.vrml' \) -print 2>/dev/null | sort | head -n 1 || true)"
+          fi
+          echo "path=${vrml_path}" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$vrml_path" ]; then
+            {
+              echo "No VRML model was generated for ${{ matrix.name }}."
+              echo "KiBot VRML step outcome: ${{ steps.export-vrml.outcome }}"
+            } > "$model_dir/README.txt"
+          else
+            echo "Selected VRML model: $vrml_path"
+            cp "$vrml_path" "$model_dir/board.wrl"
+          fi
+
+      - name: Install Blender
+        if: ${{ steps.find-vrml.outputs.path != '' }}
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y blender python3-numpy xvfb libegl1 libgl1 libglx-mesa0 libxi6 libxrender1
+
+      - name: Convert VRML model to GLB
+        if: ${{ steps.find-vrml.outputs.path != '' }}
+        id: convert-vrml
+        continue-on-error: true
+        timeout-minutes: 6
+        shell: bash
+        run: |
+          set -euo pipefail
+          model_dir="hardware-3d-artifacts/${{ matrix.slug }}/model"
+          mkdir -p "$model_dir"
+
+          xvfb-run -a blender --background --python .github/hardware/3d/convert_vrml_to_glb.py -- \
+            "${{ steps.find-vrml.outputs.path }}" \
+            "$model_dir/board.glb" \
+            "$model_dir/board-preview.png"
+
+          test -s "$model_dir/board.glb"
+          test -s "$model_dir/board-preview.png"
+
+      - name: Note skipped or failed 3D conversion
+        if: ${{ always() && steps.find-vrml.outputs.path != '' && steps.convert-vrml.outcome != 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          model_dir="hardware-3d-artifacts/${{ matrix.slug }}/model"
+          mkdir -p "$model_dir"
+          {
+            echo "3D model conversion did not complete for ${{ matrix.name }}."
+            echo "Conversion step outcome: ${{ steps.convert-vrml.outcome }}"
+            echo "The original VRML export is included when available."
+          } > "$model_dir/README.txt"
+
+      - name: Upload 3D model outputs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.slug }}-3d-model
+          path: hardware-3d-artifacts/${{ matrix.slug }}
+          if-no-files-found: warn
+
+  build-pages-site:
+    name: Build GitHub Pages site
+    runs-on: ubuntu-latest
+    needs:
+      - project-matrix
+      - hardware-checks
+      - hardware-outputs
+      - hardware-3d-model
+    if: ${{ always() }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build UI Pages root
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --prefix ui
+          npm run build --prefix ui
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+        with:
+          enablement: true
+
+      - name: Download hardware artifacts
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          path: artifacts
+
+      - name: Assemble static site
+        shell: bash
+        env:
+          PROJECTS_JSON: ${{ needs.project-matrix.outputs.projects }}
+          CHECKS_RESULT: ${{ needs.hardware-checks.result }}
+          OUTPUTS_RESULT: ${{ needs.hardware-outputs.result }}
+          MODELS_RESULT: ${{ needs.hardware-3d-model.result }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p site
+          cp -a ui/dist/. site/
+
+          mkdir -p site/hardware/projects site/hardware/preview
+          cp .github/hardware/site/style.css site/hardware/style.css
+          cp .github/hardware/site/pr-preview.html site/hardware/preview/index.html
+          cat > site/hardware/index.html <<EOF
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <title>Hardware Boards</title>
+              <link rel="stylesheet" href="style.css">
+            </head>
+            <body>
+              <header class="topbar">
+                <div>
+                  <p class="eyebrow">KiCad CI review</p>
+                  <h1>Hardware Boards</h1>
+                </div>
+                <nav aria-label="Project links">
+                  <a href="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}">Actions run</a>
+                </nav>
+              </header>
+              <main>
+                <section class="status-band" aria-label="Build status">
+                  <div>
+                    <span class="label">Run</span>
+                    <a href="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}">GitHub Actions</a>
+                  </div>
+                  <div>
+                    <span class="label">Commit</span>
+                    <code>${GITHUB_SHA:0:12}</code>
+                  </div>
+                  <div>
+                    <span class="label">ERC / DRC</span>
+                    <code>${CHECKS_RESULT:-unknown}</code>
+                  </div>
+                  <div>
+                    <span class="label">Outputs</span>
+                    <code>${OUTPUTS_RESULT:-unknown}</code>
+                  </div>
+                  <div>
+                    <span class="label">3D</span>
+                    <code>${MODELS_RESULT:-unknown}</code>
+                  </div>
+                </section>
+                <section class="section">
+                  <div class="section-heading">
+                    <h2>Boards</h2>
+                    <p>Select a board to review generated reports, fabrication files, PDFs, and 3D model output.</p>
+                  </div>
+                  <div class="board-grid">
+          EOF
+
+          echo "$PROJECTS_JSON" | jq -c '.[]' | while read -r project; do
+            slug="$(echo "$project" | jq -r '.slug')"
+            name="$(echo "$project" | jq -r '.name')"
+            project_dir="$(echo "$project" | jq -r '.dir')"
+            project_file="$(echo "$project" | jq -r '.project')"
+            schematic_file="$(echo "$project" | jq -r '.schematic')"
+            board_file="$(echo "$project" | jq -r '.board')"
+            basename="$(echo "$project" | jq -r '.basename')"
+
+            project_site="site/hardware/projects/$slug"
+            mkdir -p "$project_site/reports" "$project_site/outputs" "$project_site/kicad" "$project_site/model"
+            cp .github/hardware/site/index.html "$project_site/index.html"
+            cp .github/hardware/site/style.css "$project_site/style.css"
+            escape_sed() {
+              printf '%s' "$1" | sed 's/[\/&]/\\&/g'
+            }
+            sed -i \
+              -e "s/__PROJECT_NAME__/$(escape_sed "$name")/g" \
+              -e "s/__PROJECT_FILE__/$(escape_sed "$project_file")/g" \
+              -e "s/__SCHEMATIC_FILE__/$(escape_sed "$schematic_file")/g" \
+              -e "s/__BOARD_FILE__/$(escape_sed "$board_file")/g" \
+              -e "s/__BASE_NAME__/$(escape_sed "$basename")/g" \
+              "$project_site/index.html"
+            cp "$project_dir/$project_file" "$project_site/kicad/"
+            cp "$project_dir/$schematic_file" "$project_site/kicad/"
+            cp "$project_dir/$board_file" "$project_site/kicad/"
+
+            if [ -d "artifacts/$slug-check-reports" ]; then
+              cp -a "artifacts/$slug-check-reports/." "$project_site/reports/"
+            fi
+            if [ -d "artifacts/$slug-hardware-outputs" ]; then
+              cp -a "artifacts/$slug-hardware-outputs/." "$project_site/outputs/"
+            fi
+            if [ -d "artifacts/$slug-3d-model/model" ]; then
+              cp -a "artifacts/$slug-3d-model/model/." "$project_site/model/"
+            fi
+
+            cat > "$project_site/run-info.js" <<EOF
+          window.HARDWARE_CI = {
+            runUrl: "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}",
+            sha: "${GITHUB_SHA}",
+            checksResult: "${CHECKS_RESULT:-unknown}",
+            outputsResult: "${OUTPUTS_RESULT:-unknown}",
+            modelsResult: "${MODELS_RESULT:-unknown}",
+            projectName: "${name}",
+            projectSlug: "${slug}",
+            projectFile: "${project_file}",
+            schematicFile: "${schematic_file}",
+            boardFile: "${board_file}",
+            baseName: "${basename}"
+          };
+          EOF
+
+            if [ ! -f "$project_site/reports/$basename-erc.html" ]; then
+              printf '<!doctype html><title>ERC report unavailable</title><h1>ERC report unavailable</h1><p>No ERC report artifact was produced for this run.</p>' > "$project_site/reports/$basename-erc.html"
+            fi
+            if [ ! -f "$project_site/reports/$basename-drc.html" ]; then
+              printf '<!doctype html><title>DRC report unavailable</title><h1>DRC report unavailable</h1><p>No DRC report artifact was produced for this run.</p>' > "$project_site/reports/$basename-drc.html"
+            fi
+
+            cat >> site/hardware/index.html <<EOF
+                    <a class="board-card" href="projects/$slug/">
+                      <span class="board-name">$name</span>
+                      <span class="board-path">$project_dir</span>
+                      <span class="board-meta">$board_file</span>
+                    </a>
+          EOF
+          done
+
+          cat >> site/hardware/index.html <<EOF
+                  </div>
+                </section>
+              </main>
+            </body>
+          </html>
+          EOF
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy-pages:
+    name: Deploy GitHub Pages
+    runs-on: ubuntu-latest
+    needs: build-pages-site
+    if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
+
+  hardware-summary:
+    name: Hardware links
+    runs-on: ubuntu-latest
+    needs:
+      - project-matrix
+      - hardware-checks
+      - hardware-outputs
+      - hardware-3d-model
+      - deploy-pages
+    if: ${{ always() }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download ERC and DRC report artifacts
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: "*-check-reports"
+          path: check-artifacts
+
+      - name: Add links to run summary
+        shell: bash
+        env:
+          PROJECTS_JSON: ${{ needs.project-matrix.outputs.projects }}
+          CHECKS_RESULT: ${{ needs.hardware-checks.result }}
+          OUTPUTS_RESULT: ${{ needs.hardware-outputs.result }}
+          MODELS_RESULT: ${{ needs.hardware-3d-model.result }}
+          PAGES_URL: ${{ needs.deploy-pages.outputs.page_url }}
+        run: |
+          set -euo pipefail
+
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          artifacts_url="$run_url#artifacts"
+          pages_base="${PAGES_URL%/}"
+          hardware_pages_url=""
+          if [ -n "${PAGES_URL:-}" ]; then
+            hardware_pages_url="${pages_base}/hardware/"
+          fi
+
+          {
+            echo '# Hardware CI Summary'
+            echo
+            echo "| Item | Result |"
+            echo "| --- | --- |"
+            echo "| ERC and DRC | \`${CHECKS_RESULT}\` |"
+            echo "| Documentation and fabrication outputs | \`${OUTPUTS_RESULT}\` |"
+            echo "| 3D model generation | \`${MODELS_RESULT}\` |"
+            echo
+            echo "Run: [${GITHUB_RUN_ID}](${run_url})"
+            if [ -n "${hardware_pages_url:-}" ]; then
+              echo
+              echo "Published hardware review site: [${hardware_pages_url}](${hardware_pages_url})"
+            fi
+            echo
+            echo '> GitHub Actions artifacts are downloaded as archives. The review site links directly to deployed files after Pages is published.'
+            echo
+            echo '## Projects'
+            echo
+            echo '| Project | Review site | Artifacts |'
+            echo '| --- | --- | --- |'
+            echo "$PROJECTS_JSON" | jq -c '.[]' | while read -r project; do
+              slug="$(echo "$project" | jq -r '.slug')"
+              name="$(echo "$project" | jq -r '.name')"
+              if [ -n "${hardware_pages_url:-}" ]; then
+                page_link="[Open](${hardware_pages_url}projects/${slug}/)"
+              else
+                page_link="Pages not published"
+              fi
+              printf '| %s | %s | [%s reports, outputs, 3D](%s) |\n' "$name" "$page_link" "$slug" "$artifacts_url"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Add ERC and DRC issues to run summary
+        if: ${{ always() }}
+        shell: bash
+        env:
+          PROJECTS_JSON: ${{ needs.project-matrix.outputs.projects }}
+        run: |
+          set -euo pipefail
+
+          python3 .github/hardware/report_summary.py \
+            --projects-json "$PROJECTS_JSON" \
+            --artifacts-dir check-artifacts >> "$GITHUB_STEP_SUMMARY"
+
+  hardware-gate:
+    name: Hardware CI gate
+    runs-on: ubuntu-latest
+    needs:
+      - hardware-checks
+      - hardware-outputs
+      - build-pages-site
+      - deploy-pages
+      - hardware-summary
+    if: ${{ always() }}
+
+    steps:
+      - name: Fail if validation or output generation failed
+        shell: bash
+        env:
+          CHECKS_RESULT: ${{ needs.hardware-checks.result }}
+          OUTPUTS_RESULT: ${{ needs.hardware-outputs.result }}
+          PAGES_BUILD_RESULT: ${{ needs.build-pages-site.result }}
+          PAGES_RESULT: ${{ needs.deploy-pages.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+
+          if [ "${CHECKS_RESULT:-failure}" != "success" ]; then
+            echo "ERC/DRC failed, was skipped, or did not complete: ${CHECKS_RESULT:-missing}"
+            failed=1
+          fi
+
+          if [ "${OUTPUTS_RESULT:-failure}" != "success" ]; then
+            echo "Hardware output generation failed, was skipped, or did not complete: ${OUTPUTS_RESULT:-missing}"
+            failed=1
+          fi
+
+          if [ "${PAGES_BUILD_RESULT:-failure}" != "success" ]; then
+            echo "GitHub Pages site build failed or did not complete: ${PAGES_BUILD_RESULT:-missing}"
+            failed=1
+          fi
+
+          if [ "${GITHUB_EVENT_NAME}" != "pull_request" ] && { [ "${GITHUB_REF}" = "refs/heads/main" ] || [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; } && [ "${PAGES_RESULT}" != "success" ]; then
+            echo "GitHub Pages deployment failed or did not complete: ${PAGES_RESULT}"
+            failed=1
+          fi
+
+          exit "$failed"
