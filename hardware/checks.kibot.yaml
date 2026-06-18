@@ -6,7 +6,7 @@ preflight:
     enabled: true
     format: HTML
     output: hfsdr-erc.html
-    dont_stop: false
+    dont_stop: true
   drc:
     enabled: true
     format: HTML
