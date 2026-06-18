@@ -6,7 +6,7 @@
     <title>Hardware PR Preview</title>
     <link rel="stylesheet" href="../style.css">
     <script type="module" src="https://kicanvas.org/kicanvas/kicanvas.js"></script>
-    <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/x_ite@15.1.6/dist/x_ite.min.js"></script>
   </head>
   <body>
     <header class="topbar">
@@ -215,23 +215,21 @@
       };
 
       const renderModel = (board) => {
-        if (board.model?.glb) {
+        if (board.model?.wrl) {
           return `
-            <model-viewer
-              src="${assetUrl(board.model.glb)}"
-              ${board.model.poster ? `poster="${assetUrl(board.model.poster)}"` : ''}
-              camera-controls
-              auto-rotate
-              shadow-intensity="0.8"
-              aria-label="Interactive 3D PCB model">
-            </model-viewer>
-            <p class="model-actions"><a href="${assetUrl(board.model.glb)}">Download GLB</a></p>
+            <x3d-canvas
+              src="${assetUrl(board.model.wrl)}"
+              contentScale="auto"
+              update="auto">
+              <p>Interactive VRML viewer unavailable in this browser.</p>
+            </x3d-canvas>
+            <p class="model-actions"><a href="${assetUrl(board.model.wrl)}">Download VRML</a></p>
           `;
         }
         return `
           <div class="model-fallback">
             <h3>No browser-viewable 3D model in this run</h3>
-            <p>The PR preview did not publish a GLB model for this board.</p>
+            <p>The PR preview did not publish a VRML model for this board.</p>
           </div>
         `;
       };

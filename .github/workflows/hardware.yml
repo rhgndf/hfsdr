@@ -165,49 +165,19 @@ jobs:
             } > "$model_dir/README.txt"
           else
             echo "Selected VRML model: $vrml_path"
-            cp "$vrml_path" "$model_dir/board.wrl"
+            cp "$vrml_path" "$model_dir/board-source.wrl"
+            if [ -d "$(dirname "$vrml_path")/shapes3D" ]; then
+              cp -a "$(dirname "$vrml_path")/shapes3D" "$model_dir/shapes3D"
+            fi
+            if ! python3 .github/hardware/3d/bundle_vrml.py "$vrml_path" "$model_dir/board.wrl" --copy-shapes "$model_dir/shapes3D"; then
+              echo "VRML bundling failed for ${{ matrix.name }}; publishing source VRML with shapes3D fallback."
+              cp "$model_dir/board-source.wrl" "$model_dir/board.wrl"
+              {
+                echo "VRML bundling failed for ${{ matrix.name }}."
+                echo "The original VRML export is published as board.wrl with shapes3D fallback when available."
+              } > "$model_dir/README.txt"
+            fi
           fi
-
-      - name: Install Blender
-        if: ${{ steps.find-vrml.outputs.path != '' }}
-        timeout-minutes: 10
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y blender python3-numpy xvfb libegl1 libgl1 libglx-mesa0 libxi6 libxrender1
-
-      - name: Convert VRML model to GLB
-        if: ${{ steps.find-vrml.outputs.path != '' }}
-        id: convert-vrml
-        continue-on-error: true
-        timeout-minutes: 6
-        shell: bash
-        run: |
-          set -euo pipefail
-          model_dir="hardware-3d-artifacts/${{ matrix.slug }}/model"
-          mkdir -p "$model_dir"
-
-          xvfb-run -a blender --background --python .github/hardware/3d/convert_vrml_to_glb.py -- \
-            "${{ steps.find-vrml.outputs.path }}" \
-            "$model_dir/board.glb" \
-            "$model_dir/board-preview.png"
-
-          test -s "$model_dir/board.glb"
-          test -s "$model_dir/board-preview.png"
-
-      - name: Note skipped or failed 3D conversion
-        if: ${{ always() && steps.find-vrml.outputs.path != '' && steps.convert-vrml.outcome != 'success' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          model_dir="hardware-3d-artifacts/${{ matrix.slug }}/model"
-          mkdir -p "$model_dir"
-          {
-            echo "3D model conversion did not complete for ${{ matrix.name }}."
-            echo "Conversion step outcome: ${{ steps.convert-vrml.outcome }}"
-            echo "The original VRML export is included when available."
-          } > "$model_dir/README.txt"
 
       - name: Upload 3D model outputs
         if: ${{ always() }}

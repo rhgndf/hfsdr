@@ -202,7 +202,7 @@ kicanvas-embed {
   min-height: 260px;
 }
 
-model-viewer {
+x3d-canvas {
   display: block;
   width: 100%;
   height: min(640px, 72vh);

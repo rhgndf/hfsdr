@@ -6,7 +6,7 @@
     <title>__PROJECT_NAME__ Hardware Review</title>
     <link rel="stylesheet" href="style.css">
     <script type="module" src="https://kicanvas.org/kicanvas/kicanvas.js"></script>
-    <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/x_ite@15.1.6/dist/x_ite.min.js"></script>
   </head>
   <body>
     <header class="topbar">
@@ -83,11 +83,11 @@
       <section id="model" class="section">
         <div class="section-heading">
           <h2>3D Model</h2>
-          <p>The browser model viewer is enabled automatically when a GLB model is available.</p>
+          <p>The browser VRML viewer is enabled automatically when a board model is available.</p>
         </div>
         <div id="model-container" class="model-fallback">
           <h3>No browser-viewable 3D model in this run</h3>
-          <p>The 3D model job did not publish <code>model/board.glb</code> for this project.</p>
+          <p>The 3D model job did not publish <code>model/board.wrl</code> for this project.</p>
         </div>
       </section>
 
@@ -234,19 +234,17 @@
         });
       }
 
-      fetch('model/board.glb', { method: 'HEAD' })
+      fetch('model/board.wrl', { method: 'HEAD' })
         .then((response) => {
           if (!response.ok) return;
           document.getElementById('model-container').innerHTML = `
-            <model-viewer
-              src="model/board.glb"
-              poster="model/board-preview.png"
-              camera-controls
-              auto-rotate
-              shadow-intensity="0.8"
-              aria-label="Interactive 3D PCB model">
-            </model-viewer>
-            <p class="model-actions"><a href="model/board.glb">Download GLB</a></p>
+            <x3d-canvas
+              src="model/board.wrl"
+              contentScale="auto"
+              update="auto">
+              <p>Interactive VRML viewer unavailable in this browser.</p>
+            </x3d-canvas>
+            <p class="model-actions"><a href="model/board.wrl">Download VRML</a></p>
           `;
         })
         .catch(() => {});

@@ -2,9 +2,9 @@ kibot:
   version: 1
 
 outputs:
-  - name: vrml_model
-    comment: VRML board model for CI conversion to GLB
+  - name: board_vrml
+    comment: VRML 3D model for browser viewing
     type: vrml
-    dir: .
+    dir: model
     options:
-      output: hfsdr.wrl
+      output: "%f.%x"
