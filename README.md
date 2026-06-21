@@ -2,6 +2,9 @@
 
 HFSDR: host software, firmware, and hardware design for the HFSDR USB device.
 
+<img width="2560" height="1920" alt="image" src="https://github.com/user-attachments/assets/4eb105be-3718-4635-9fc9-07ac569adb7c" />
+<img width="2560" height="1920" alt="image" src="https://github.com/user-attachments/assets/8cab9cb0-f5cc-48a9-a281-68a00319f5fa" />
+
 ![hfsdr](docs/img/hfsdr.png)
 
 [Board PCB Files viewer](https://rhgndf.github.io/hfsdr/hardware)
