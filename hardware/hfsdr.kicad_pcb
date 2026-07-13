@@ -30652,7 +30652,7 @@
 				)
 			)
 		)
-		(attr smd dnp)
+		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_poly
 			(pts
