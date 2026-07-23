@@ -55,6 +55,8 @@ SECTIONS
 		*(.text.*)
 		*(.rodata)
 		*(.rodata*)
+		*(.gnu.linkonce.r.*)
+		*(.srodata .srodata.*)
 		*(.gnu.linkonce.t.*)
 		. = ALIGN(4);
 	} >FLASH AT>FLASH 
@@ -136,20 +138,13 @@ SECTIONS
 
 	.data :
 	{
-    	*(.gnu.linkonce.r.*)
     	*(.data .data.*)
     	*(.gnu.linkonce.d.*)
 		. = ALIGN(8);
     	PROVIDE( __global_pointer$ = . + 0x800 );
     	*(.sdata .sdata.*)
-		*(.sdata2.*)
+		*(.sdata2 .sdata2.*)
     	*(.gnu.linkonce.s.*)
-    	. = ALIGN(8);
-    	*(.srodata.cst16)
-    	*(.srodata.cst8)
-    	*(.srodata.cst4)
-    	*(.srodata.cst2)
-    	*(.srodata .srodata.*)
     	. = ALIGN(4);
 		PROVIDE( _edata = .);
 	} >RAM AT>FLASH
@@ -177,5 +172,4 @@ SECTIONS
 	ASSERT( _end <= _heap_end, "RAM overflow: .data/.bss/heap overlap stack" )
 
 }
-
 
