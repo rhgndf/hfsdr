@@ -39,7 +39,9 @@ constexpr size_t kMixerTableSize = 64U;
 constexpr size_t kMixerTableMask = kMixerTableSize - 1U;
 constexpr uint8_t kMixerInputShift = 20U;
 constexpr size_t kMovingAverageLength = 16U;
-constexpr size_t kMovingAverageStageCount = 2U;
+constexpr size_t kMovingAverageMask = kMovingAverageLength - 1U;
+constexpr uint8_t kMovingAverageShift =
+    static_cast<uint8_t>(std::countr_zero(kMovingAverageLength));
 constexpr size_t kBasebandCicTapCount = 4U;
 constexpr size_t kMaxBasebandSamplesPerSymbol =
     (kSymbolPhaseModulus + kSymbolPhaseIncrement - 1U) / kSymbolPhaseIncrement;
@@ -60,6 +62,7 @@ constexpr int64_t kMixerMagnitudeBound =
      (1LL << kMixerInputShift) + 1LL) * 32768LL;
 
 static_assert(kInputSampleRateHz / kMovingAverageLength == kBasebandSampleRateHz);
+static_assert(std::has_single_bit(kMovingAverageLength));
 static_assert(kRdsSubcarrierHz * kMixerTableSize / kInputSampleRateHz == 19U);
 static_assert((kGroupQueueCapacity & (kGroupQueueCapacity - 1U)) == 0U);
 static_assert(kCorrectableBurstCount == 367U);
@@ -102,6 +105,72 @@ constexpr uint16_t polynomial_remainder(uint32_t value)
     }
     return static_cast<uint16_t>(value & kCheckMask);
 }
+
+constexpr uint16_t polynomial_remainder_wide(uint32_t value,
+                                             unsigned int highest_bit)
+{
+    for(int bit = static_cast<int>(highest_bit); bit >= 10; --bit)
+    {
+        uint32_t const bit_mask = 1UL << static_cast<unsigned int>(bit);
+        if((value & bit_mask) != 0U)
+        {
+            value ^= kGeneratorPolynomial << static_cast<unsigned int>(bit - 10);
+        }
+    }
+    return static_cast<uint16_t>(value & kCheckMask);
+}
+
+constexpr uint16_t kDroppedWindowBitSyndrome =
+    polynomial_remainder_wide(1UL << 26U, 26U);
+
+constexpr uint16_t polynomial_push_bit(uint16_t syndrome, bool bit)
+{
+    uint16_t next = static_cast<uint16_t>(
+        (static_cast<uint16_t>(syndrome << 1U) |
+         static_cast<uint16_t>(bit)) & 0x07FFU);
+    if((next & (1U << 10U)) != 0U)
+    {
+        next = static_cast<uint16_t>(next ^ kGeneratorPolynomial);
+    }
+    return static_cast<uint16_t>(next & kCheckMask);
+}
+
+constexpr uint16_t polynomial_push_window_bit(uint16_t syndrome,
+                                              bool dropped_bit,
+                                              bool bit)
+{
+    uint16_t next = polynomial_push_bit(syndrome, bit);
+    if(dropped_bit)
+    {
+        next = static_cast<uint16_t>(next ^ kDroppedWindowBitSyndrome);
+    }
+    return next;
+}
+
+consteval bool rolling_syndrome_matches_polynomial_division()
+{
+    uint32_t window = 0U;
+    uint16_t syndrome = 0U;
+    uint32_t sequence = 0xA5C39E71U;
+
+    for(unsigned int i = 0U; i < 1024U; ++i)
+    {
+        sequence = sequence * 1664525U + 1013904223U;
+        bool const bit = (sequence & 0x80000000U) != 0U;
+        bool const dropped_bit = (window & (1UL << 25U)) != 0U;
+
+        syndrome = polynomial_push_window_bit(syndrome, dropped_bit, bit);
+        window = ((window << 1U) | static_cast<uint32_t>(bit)) & kBlockMask;
+        if(syndrome != polynomial_remainder(window))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static_assert(kDroppedWindowBitSyndrome == 0x0EEU);
+static_assert(rolling_syndrome_matches_polynomial_division());
 
 struct BurstTable
 {
@@ -223,41 +292,113 @@ static constexpr auto kMixerTable = make_mixer_table();
 
 class ComplexDecimator
 {
-    using DecimationFilter =
-        CICComplexFilter<int32_t, kMovingAverageLength, int32_t>;
-
-    std::array<DecimationFilter, kMovingAverageStageCount> stages{};
-    uint8_t decimation_phase = 0U;
+    std::array<ComplexSample, kMovingAverageLength> input_history{};
+    std::array<ComplexSample, kMovingAverageLength> first_stage_history{};
+    int32_t first_sum_i = 0;
+    int32_t first_sum_q = 0;
+    int32_t second_sum_i = 0;
+    int32_t second_sum_q = 0;
+    uint8_t index = 0U;
 
 public:
-    bool push(ComplexSample sample, ComplexSample &output)
+    constexpr bool push(ComplexSample sample, ComplexSample &output)
     {
-        for(auto &stage : stages)
-        {
-            auto const [filtered_i, filtered_q] = stage.push(sample.i, sample.q);
-            sample = {filtered_i, filtered_q};
-        }
+        ComplexSample &input_slot = input_history[index];
+        first_sum_i += sample.i - input_slot.i;
+        first_sum_q += sample.q - input_slot.q;
+        input_slot = sample;
 
-        decimation_phase = static_cast<uint8_t>((decimation_phase + 1U) &
-                                                (kMovingAverageLength - 1U));
-        if(decimation_phase != 0U)
+        ComplexSample const first_stage{
+            first_sum_i >> kMovingAverageShift,
+            first_sum_q >> kMovingAverageShift,
+        };
+        ComplexSample &first_stage_slot = first_stage_history[index];
+        second_sum_i += first_stage.i - first_stage_slot.i;
+        second_sum_q += first_stage.q - first_stage_slot.q;
+        first_stage_slot = first_stage;
+
+        index = static_cast<uint8_t>((index + 1U) & kMovingAverageMask);
+        if(index != 0U)
         {
             return false;
         }
 
-        output = sample;
+        output = {
+            second_sum_i >> kMovingAverageShift,
+            second_sum_q >> kMovingAverageShift,
+        };
         return true;
     }
 
     void reset()
     {
-        for(auto &stage : stages)
-        {
-            stage.reset();
-        }
-        decimation_phase = 0U;
+        input_history = {};
+        first_stage_history = {};
+        first_sum_i = 0;
+        first_sum_q = 0;
+        second_sum_i = 0;
+        second_sum_q = 0;
+        index = 0U;
     }
 };
+
+consteval bool fused_decimator_matches_cascade()
+{
+    ComplexDecimator decimator;
+    std::array<ComplexSample, kMovingAverageLength> input_history{};
+    std::array<ComplexSample, kMovingAverageLength> first_stage_history{};
+    int32_t first_sum_i = 0;
+    int32_t first_sum_q = 0;
+    int32_t second_sum_i = 0;
+    int32_t second_sum_q = 0;
+    size_t first_index = 0U;
+    size_t second_index = 0U;
+    uint8_t decimation_phase = 0U;
+    uint32_t sequence = 0x6D2B79F5U;
+
+    for(size_t i = 0U; i < 512U; ++i)
+    {
+        sequence = sequence * 1664525U + 1013904223U;
+        ComplexSample const sample{
+            static_cast<int32_t>((sequence >> 16U) & 0xFFFFU) - 32768,
+            static_cast<int32_t>(sequence & 0xFFFFU) - 32768,
+        };
+
+        ComplexSample &input_slot = input_history[first_index];
+        first_sum_i += sample.i - input_slot.i;
+        first_sum_q += sample.q - input_slot.q;
+        input_slot = sample;
+        first_index = (first_index + 1U) & kMovingAverageMask;
+
+        ComplexSample const first_stage{
+            first_sum_i >> kMovingAverageShift,
+            first_sum_q >> kMovingAverageShift,
+        };
+        ComplexSample &first_stage_slot = first_stage_history[second_index];
+        second_sum_i += first_stage.i - first_stage_slot.i;
+        second_sum_q += first_stage.q - first_stage_slot.q;
+        first_stage_slot = first_stage;
+        second_index = (second_index + 1U) & kMovingAverageMask;
+
+        decimation_phase = static_cast<uint8_t>(
+            (decimation_phase + 1U) & kMovingAverageMask);
+        bool const expected_ready = decimation_phase == 0U;
+        ComplexSample output{};
+        bool const ready = decimator.push(sample, output);
+        if(ready != expected_ready)
+        {
+            return false;
+        }
+        if(ready && ((output.i != (second_sum_i >> kMovingAverageShift)) ||
+                     (output.q != (second_sum_q >> kMovingAverageShift))))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static_assert(fused_decimator_matches_cascade());
 
 class BiphaseCorrelator
 {
@@ -384,6 +525,7 @@ constexpr OffsetKind identify_offset(uint16_t syndrome)
 class SynchronizationSearch
 {
     uint32_t window = 0U;
+    uint16_t syndrome = 0U;
     uint32_t bit_count = 0U;
     uint32_t last_hit_bit = 0U;
     OffsetKind last_hit = OffsetKind::Invalid;
@@ -392,6 +534,7 @@ public:
     void reset()
     {
         window = 0U;
+        syndrome = 0U;
         bit_count = 0U;
         last_hit_bit = 0U;
         last_hit = OffsetKind::Invalid;
@@ -399,6 +542,8 @@ public:
 
     bool push(bool bit, OffsetKind &acquired_offset, uint32_t &acquired_block)
     {
+        bool const dropped_bit = (window & (1UL << 25U)) != 0U;
+        syndrome = polynomial_push_window_bit(syndrome, dropped_bit, bit);
         window = ((window << 1U) | static_cast<uint32_t>(bit)) & kBlockMask;
         ++bit_count;
         if(bit_count < 26U)
@@ -406,7 +551,7 @@ public:
             return false;
         }
 
-        OffsetKind const current_hit = identify_offset(polynomial_remainder(window));
+        OffsetKind const current_hit = identify_offset(syndrome);
         if(current_hit == OffsetKind::Invalid)
         {
             return false;
@@ -458,6 +603,7 @@ public:
 struct Group
 {
     std::array<uint16_t, 4U> words{};
+    uint8_t corrected_mask = 0U;
 };
 
 struct ClockTime
@@ -589,6 +735,7 @@ static_assert(!decode_clock_time(
 static std::array<Group, kGroupQueueCapacity> s_group_queue{};
 static std::atomic<uint32_t> s_group_head{0U};
 static std::atomic<uint32_t> s_group_tail{0U};
+static std::atomic<uint32_t> s_group_dropped{0U};
 
 static void process_clock_time(const Group &group)
 {
@@ -630,6 +777,7 @@ static void enqueue_group(const Group &group)
     uint32_t const tail = s_group_tail.load(std::memory_order_acquire);
     if((head - tail) >= kGroupQueueCapacity)
     {
+        s_group_dropped.fetch_add(1U, std::memory_order_relaxed);
         return;
     }
 
@@ -644,10 +792,12 @@ struct DecodeResult
     bool corrected = false;
 };
 
-static constexpr DecodeResult decode_with_offset(uint32_t raw_block, uint16_t offset)
+static constexpr DecodeResult decode_with_syndrome(uint32_t raw_block,
+                                                   uint16_t raw_syndrome,
+                                                   uint16_t offset)
 {
     uint32_t const deoffset_block = raw_block ^ offset;
-    uint16_t const syndrome = polynomial_remainder(deoffset_block);
+    uint16_t const syndrome = static_cast<uint16_t>(raw_syndrome ^ offset);
     if(syndrome == 0U)
     {
         return {
@@ -676,17 +826,22 @@ static constexpr DecodeResult decode_with_offset(uint32_t raw_block, uint16_t of
        (kBurstTable.syndromes[first] == syndrome))
     {
         uint32_t const corrected_block = deoffset_block ^ kBurstTable.masks[first];
-        if(polynomial_remainder(corrected_block) == 0U)
-        {
-            return {
-                static_cast<uint16_t>(corrected_block >> 10U),
-                true,
-                true,
-            };
-        }
+        return {
+            static_cast<uint16_t>(corrected_block >> 10U),
+            true,
+            true,
+        };
     }
 
     return {};
+}
+
+static constexpr DecodeResult decode_with_offset(uint32_t raw_block,
+                                                 uint16_t offset)
+{
+    return decode_with_syndrome(raw_block,
+                                polynomial_remainder(raw_block),
+                                offset);
 }
 
 constexpr uint32_t encode_block(uint16_t information, uint16_t offset)
@@ -725,6 +880,7 @@ static_assert(decoder_corrects_every_short_burst());
 class LinkDecoder
 {
     uint32_t raw_block = 0U;
+    uint16_t raw_syndrome = 0U;
     uint8_t bits_in_block = 0U;
     uint8_t expected_position = 0U;
     Group group{};
@@ -741,20 +897,23 @@ class LinkDecoder
         switch(position)
         {
             case 0U:
-                return decode_with_offset(raw_block, kOffsetA);
+                return decode_with_syndrome(raw_block, raw_syndrome, kOffsetA);
             case 1U:
-                return decode_with_offset(raw_block, kOffsetB);
+                return decode_with_syndrome(raw_block, raw_syndrome, kOffsetB);
             case 2U:
                 if(group_active && block_valid[1U])
                 {
                     uint16_t const expected_offset =
                         ((group.words[1U] & 0x0800U) != 0U) ? kOffsetCPrime : kOffsetC;
-                    return decode_with_offset(raw_block, expected_offset);
+                    return decode_with_syndrome(
+                        raw_block, raw_syndrome, expected_offset);
                 }
                 else
                 {
-                    DecodeResult const c = decode_with_offset(raw_block, kOffsetC);
-                    DecodeResult const c_prime = decode_with_offset(raw_block, kOffsetCPrime);
+                    DecodeResult const c =
+                        decode_with_syndrome(raw_block, raw_syndrome, kOffsetC);
+                    DecodeResult const c_prime =
+                        decode_with_syndrome(raw_block, raw_syndrome, kOffsetCPrime);
                     if(c.valid == c_prime.valid)
                     {
                         return {};
@@ -762,7 +921,7 @@ class LinkDecoder
                     return c.valid ? c : c_prime;
                 }
             case 3U:
-                return decode_with_offset(raw_block, kOffsetD);
+                return decode_with_syndrome(raw_block, raw_syndrome, kOffsetD);
             default:
                 return {};
         }
@@ -805,6 +964,11 @@ class LinkDecoder
             if(result.valid)
             {
                 group.words[position] = result.information;
+                if(result.corrected)
+                {
+                    group.corrected_mask =
+                        static_cast<uint8_t>(group.corrected_mask | (1U << position));
+                }
             }
         }
 
@@ -823,6 +987,7 @@ public:
     void reset()
     {
         raw_block = 0U;
+        raw_syndrome = 0U;
         bits_in_block = 0U;
         expected_position = 0U;
         group = {};
@@ -850,6 +1015,7 @@ public:
     bool push(bool bit)
     {
         raw_block = ((raw_block << 1U) | static_cast<uint32_t>(bit)) & kBlockMask;
+        raw_syndrome = polynomial_push_bit(raw_syndrome, bit);
         ++bits_in_block;
         if(bits_in_block < 26U)
         {
@@ -858,6 +1024,7 @@ public:
 
         bits_in_block = 0U;
         DecodeResult const result = decode_current_block(expected_position);
+        raw_syndrome = 0U;
         record_block(expected_position, result);
         bool const synchronized = record_validity(result.valid);
         expected_position = static_cast<uint8_t>((expected_position + 1U) & 3U);
@@ -957,16 +1124,37 @@ void rds_reset()
 
     s_group_head.store(0U, std::memory_order_relaxed);
     s_group_tail.store(0U, std::memory_order_relaxed);
+    s_group_dropped.store(0U, std::memory_order_relaxed);
 }
 
 void rds_poll()
 {
+    uint32_t const dropped = s_group_dropped.exchange(0U, std::memory_order_relaxed);
+    if(dropped != 0U)
+    {
+        std::printf("RDS: dropped %lu group(s)\r\n",
+                    static_cast<unsigned long>(dropped));
+    }
+
     uint32_t tail = s_group_tail.load(std::memory_order_relaxed);
     uint32_t const head = s_group_head.load(std::memory_order_acquire);
     while(tail != head)
     {
         Group const group = s_group_queue[tail & kGroupQueueMask];
+        uint16_t const block_b = group.words[1U];
+        unsigned int const type = static_cast<unsigned int>((block_b >> 12U) & 0x0FU);
+        char const version = ((block_b & 0x0800U) != 0U) ? 'B' : 'A';
+
         process_clock_time(group);
+        std::printf("RDS: PI=%04X TYPE=%u%c A=%04X B=%04X C=%04X D=%04X CORR=%X\r\n",
+                    static_cast<unsigned int>(group.words[0U]),
+                    type,
+                    version,
+                    static_cast<unsigned int>(group.words[0U]),
+                    static_cast<unsigned int>(group.words[1U]),
+                    static_cast<unsigned int>(group.words[2U]),
+                    static_cast<unsigned int>(group.words[3U]),
+                    static_cast<unsigned int>(group.corrected_mask));
         ++tail;
         s_group_tail.store(tail, std::memory_order_release);
     }
