@@ -33,6 +33,11 @@ extern "C" {
 #define UI_MODE_TEXT_Y     0U
 #define UI_MODE_TEXT_WIDTH (4U * Font_11x18.width)
 #define UI_MODE_TEXT_HEIGHT Font_11x18.height
+#define UI_REC_TEXT_X      UI_MODE_TEXT_X
+#define UI_REC_TEXT_Y      (UI_MODE_TEXT_Y + UI_MODE_TEXT_HEIGHT)
+#define UI_REC_TEXT_WIDTH  UI_MODE_TEXT_WIDTH
+#define UI_REC_TEXT_HEIGHT Font_11x18.height
+#define UI_REC_BLINK_MS    500U
 #define UI_TRIANGLE_Y      1U
 #define UI_VOL_ROW_Y       40U
 #define UI_GAIN_ROW_Y      60U
@@ -146,6 +151,9 @@ static demodulation_mode_t s_displayed_demod_mode = DEMODULATION_MODE_COUNT;
 static uint8_t s_volume = UI_VOLUME_DEFAULT;
 static int8_t s_tlv320_gain_db_x2 = UI_TLV320_GAIN_DEFAULT_DB_X2;
 static bool s_redraw_all = true;
+static volatile bool s_recording = false;
+static bool s_displayed_recording = false;
+static bool s_recording_blink_inverted = false;
 
 typedef enum
 {
@@ -273,7 +281,7 @@ static void ui_splash_exit_to_waterfall(void)
     s_splash_spec_poly_valid = false;
 }
 
-static void ui_handle_button_press(void)
+extern "C" void ui_handle_button_press(void)
 {
     if(s_display_mode == UI_DISPLAY_SPLASH)
     {
@@ -304,6 +312,11 @@ static void ui_handle_button_press(void)
     }
 
     s_active_control = (ui_control_t)((uint32_t)s_active_control + 1U);
+}
+
+extern "C" void ui_handle_button_long_press(void)
+{
+    s_recording = !s_recording;
 }
 
 static void ui_draw_selected_frequency_digit(uint64_t freq_hz)
@@ -371,6 +384,37 @@ static void ui_draw_mode_control(void)
     ST7789_WriteString(UI_MODE_TEXT_X, UI_MODE_TEXT_Y, ui_demod_mode_text(), Font_11x18, fg, bg);
 }
 
+static void ui_draw_recording_indicator(bool recording)
+{
+    if(!recording)
+    {
+        ST7789_Fill(UI_REC_TEXT_X,
+                    UI_REC_TEXT_Y,
+                    (uint16_t)(UI_REC_TEXT_X + UI_REC_TEXT_WIDTH - 1U),
+                    (uint16_t)(UI_REC_TEXT_Y + UI_REC_TEXT_HEIGHT - 1U),
+                    BLACK);
+    }
+    else
+    {
+        uint16_t const fg = s_recording_blink_inverted ? BLACK : RED;
+        uint16_t const bg = s_recording_blink_inverted ? RED : BLACK;
+        ST7789_WriteString(UI_REC_TEXT_X, UI_REC_TEXT_Y, "REC ", Font_11x18, fg, bg);
+    }
+
+    s_displayed_recording = recording;
+}
+
+static void ui_update_recording_indicator(void)
+{
+    bool const recording = s_recording;
+
+    if(recording != s_displayed_recording)
+    {
+        s_recording_blink_inverted = false;
+        ui_draw_recording_indicator(recording);
+    }
+}
+
 static void ui_draw_progress_row(uint16_t y, char const *label, int16_t value, int16_t min, int16_t max, bool active)
 {
     uint16_t color = active ? YELLOW : WHITE;
@@ -424,6 +468,12 @@ static void ui_draw_header(uint64_t freq_hz)
     }
 
     ui_draw_mode_control();
+    bool const recording = s_recording;
+    if(recording != s_displayed_recording)
+    {
+        s_recording_blink_inverted = false;
+    }
+    ui_draw_recording_indicator(recording);
     ui_draw_frequency(freq_hz);
     ui_draw_progress_row(UI_VOL_ROW_Y,
                          "VOL",
@@ -1095,6 +1145,9 @@ void UI_Init(void)
     s_volume = UI_VOLUME_DEFAULT;
     s_tlv320_gain_db_x2 = UI_TLV320_GAIN_DEFAULT_DB_X2;
     s_redraw_all = true;
+    s_recording = false;
+    s_displayed_recording = false;
+    s_recording_blink_inverted = false;
     s_display_mode = UI_DISPLAY_SPLASH;
     s_splash_band_dirty = true;
     s_splash_button_phase = 0U;
@@ -1116,11 +1169,6 @@ void UI_Draw(void)
 {
     int16_t encoder_delta = encoder_take_delta();
     uint64_t freq_hz = si5351_hw_clk0_get_freq_hz();
-
-    if(encoder_take_button_press())
-    {
-        ui_handle_button_press();
-    }
 
     ui_sync_display_hw_for_mode();
 
@@ -1149,6 +1197,19 @@ void UI_Draw(void)
         {
             ui_draw_header(freq_hz);
         }
+
+        ui_update_recording_indicator();
+
+        static PeriodicTrigger RecordingBlink{UI_REC_BLINK_MS, []() {
+            if(!s_recording)
+            {
+                return;
+            }
+
+            s_recording_blink_inverted = !s_recording_blink_inverted;
+            ui_draw_recording_indicator(true);
+        }};
+        RecordingBlink();
         
         static PeriodicTrigger FFTDraw{1000U / 60U, []() {
             UI_FFT_Compute();

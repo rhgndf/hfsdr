@@ -1,10 +1,11 @@
 #include "encoder.h"
 
 #include "hw/pinout.h"
+#include "ui/ui.h"
 
 #include <stdatomic.h>
-#include <stdbool.h>
 
+#include "ch32v30x_exti.h"
 #include "ch32v30x_gpio.h"
 #include "ch32v30x_misc.h"
 #include "ch32v30x_rcc.h"
@@ -17,18 +18,27 @@
 #define ENCODER_COUNTER_MIDPOINT  0x8000U
 #define ENCODER_COUNTS_PER_DETENT 4
 #define ENCODER_BUTTON_DEBOUNCE_MS 30U
+#define ENCODER_BUTTON_LONG_PRESS_MS 1000U
+#define ENCODER_BUTTON_EXTI_LINE  EXTI_Line15
+#define ENCODER_BUTTON_EXTI_IRQn  EXTI15_10_IRQn
 
-/* Encoder switch: IPD, high when pressed (tied to VCC). */
-#define ENC_BTN_PRESSED(st) ((st) != 0U)
+/* Encoder switch: IPU, low when pressed (tied to GND). */
+#define ENC_BTN_PRESSED(st) ((st) == 0U)
+
+typedef enum
+{
+    ENCODER_BUTTON_STATE_IDLE = 0,
+    ENCODER_BUTTON_STATE_PRESSED,
+} encoder_button_state_t;
 
 static volatile uint16_t s_encoder_last_counter = ENCODER_COUNTER_MIDPOINT;
 static atomic_int_fast32_t s_encoder_pending_raw_delta = 0;
 static volatile int32_t s_encoder_raw_position = 0;
 static int16_t s_encoder_detent_remainder = 0;
-static uint8_t s_button_raw_state = 0U;
-static uint8_t s_button_stable_state = 0U;
-static uint64_t s_button_last_change_tick = 0U;
-static bool s_button_pressed = false;
+static volatile encoder_button_state_t s_button_state = ENCODER_BUTTON_STATE_IDLE;
+static volatile uint64_t s_button_press_start_tick = 0U;
+static volatile uint64_t s_button_debounce_ticks;
+static volatile uint64_t s_button_long_press_ticks;
 
 static uint64_t encoder_ticks_from_ms(uint32_t ms)
 {
@@ -51,35 +61,48 @@ static int16_t encoder_sync_delta(void)
     return delta;
 }
 
-static void encoder_poll_button(void)
+__attribute__((interrupt)) void EXTI15_10_IRQHandler(void)
 {
-    uint64_t now_tick = SysTick->CNT;
+    if(EXTI_GetITStatus(ENCODER_BUTTON_EXTI_LINE) == RESET)
+    {
+        return;
+    }
+
+    EXTI_ClearITPendingBit(ENCODER_BUTTON_EXTI_LINE);
+
     uint8_t raw_state = (uint8_t)GPIO_ReadInputDataBit(ENC_BTN_GPIO_PORT, ENC_BTN_GPIO_PIN);
+    uint64_t now_tick = SysTick->CNT;
 
-    if(raw_state != s_button_raw_state)
+    if(ENC_BTN_PRESSED(raw_state))
     {
-        s_button_raw_state = raw_state;
-        s_button_last_change_tick = now_tick;
-    }
-
-    if((now_tick - s_button_last_change_tick) < encoder_ticks_from_ms(ENCODER_BUTTON_DEBOUNCE_MS))
-    {
-        return;
-    }
-
-    if(s_button_stable_state == s_button_raw_state)
-    {
-        return;
-    }
-
-    {
-        uint8_t const prev_stable = s_button_stable_state;
-
-        s_button_stable_state = s_button_raw_state;
-        if(!ENC_BTN_PRESSED(prev_stable) && ENC_BTN_PRESSED(s_button_stable_state))
+        if(s_button_state == ENCODER_BUTTON_STATE_IDLE)
         {
-            s_button_pressed = true;
+            s_button_press_start_tick = now_tick;
+            s_button_state = ENCODER_BUTTON_STATE_PRESSED;
         }
+        return;
+    }
+
+    if(s_button_state != ENCODER_BUTTON_STATE_PRESSED)
+    {
+        return;
+    }
+
+    uint64_t press_ticks = now_tick - s_button_press_start_tick;
+    s_button_state = ENCODER_BUTTON_STATE_IDLE;
+
+    if(press_ticks < s_button_debounce_ticks)
+    {
+        return;
+    }
+
+    if(press_ticks < s_button_long_press_ticks)
+    {
+        ui_handle_button_press();
+    }
+    else
+    {
+        ui_handle_button_long_press();
     }
 }
 
@@ -113,11 +136,12 @@ __attribute__((interrupt)) void TIM10_CC_IRQHandler(void)
 void encoder_init(void)
 {
     GPIO_InitTypeDef gpio = {0};
-    TIM_TimeBaseInitTypeDef tim = {0};
-    TIM_ICInitTypeDef ic = {0};
-    NVIC_InitTypeDef nvic = {0};
 
-    RCC_APB2PeriphClockCmd(ENCODER_GPIO_PERIPH | ENCODER_TIMER_PERIPH | RCC_APB2Periph_GPIOC, ENABLE);
+    RCC_APB2PeriphClockCmd(ENCODER_GPIO_PERIPH |
+                          ENCODER_TIMER_PERIPH |
+                          RCC_APB2Periph_GPIOC |
+                          RCC_APB2Periph_AFIO,
+                          ENABLE);
 
     gpio.GPIO_Pin = ENC_A_GPIO_PIN | ENC_B_GPIO_PIN;
     gpio.GPIO_Mode = GPIO_Mode_IN_FLOATING;
@@ -125,11 +149,12 @@ void encoder_init(void)
     GPIO_Init(ENC_A_GPIO_PORT, &gpio);
 
     gpio.GPIO_Pin = ENC_BTN_GPIO_PIN;
-    gpio.GPIO_Mode = GPIO_Mode_IPD;
+    gpio.GPIO_Mode = GPIO_Mode_IPU;
     GPIO_Init(ENC_BTN_GPIO_PORT, &gpio);
 
     TIM_DeInit(ENCODER_TIMER);
 
+    TIM_TimeBaseInitTypeDef tim = {0};
     TIM_TimeBaseStructInit(&tim);
     tim.TIM_Prescaler = 0U;
     tim.TIM_Period = 0xFFFFU;
@@ -137,6 +162,7 @@ void encoder_init(void)
     tim.TIM_CounterMode = TIM_CounterMode_Up;
     TIM_TimeBaseInit(ENCODER_TIMER, &tim);
 
+    TIM_ICInitTypeDef ic = {0};
     TIM_ICStructInit(&ic);
     ic.TIM_ICPolarity = TIM_ICPolarity_Falling;
     ic.TIM_ICSelection = TIM_ICSelection_DirectTI;
@@ -159,11 +185,12 @@ void encoder_init(void)
     TIM_ITConfig(ENCODER_TIMER, TIM_IT_CC1 | TIM_IT_CC2, ENABLE);
     TIM_ClearFlag(ENCODER_TIMER, TIM_FLAG_Update);
 
-    nvic.NVIC_IRQChannel = TIM10_CC_IRQn;
-    nvic.NVIC_IRQChannelPreemptionPriority = 2;
-    nvic.NVIC_IRQChannelSubPriority = 0;
-    nvic.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Init(&nvic);
+    NVIC_InitTypeDef encoder_nvic = {0};
+    encoder_nvic.NVIC_IRQChannel = TIM10_CC_IRQn;
+    encoder_nvic.NVIC_IRQChannelPreemptionPriority = 2;
+    encoder_nvic.NVIC_IRQChannelSubPriority = 0;
+    encoder_nvic.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&encoder_nvic);
 
     TIM_Cmd(ENCODER_TIMER, ENABLE);
 
@@ -171,10 +198,29 @@ void encoder_init(void)
     atomic_store_explicit(&s_encoder_pending_raw_delta, 0, memory_order_relaxed);
     s_encoder_raw_position = 0;
     s_encoder_detent_remainder = 0;
-    s_button_raw_state = (uint8_t)GPIO_ReadInputDataBit(ENC_BTN_GPIO_PORT, ENC_BTN_GPIO_PIN);
-    s_button_stable_state = s_button_raw_state;
-    s_button_last_change_tick = SysTick->CNT;
-    s_button_pressed = false;
+    s_button_state = ENCODER_BUTTON_STATE_IDLE;
+    s_button_press_start_tick = 0U;
+    s_button_debounce_ticks = encoder_ticks_from_ms(ENCODER_BUTTON_DEBOUNCE_MS);
+    s_button_long_press_ticks = encoder_ticks_from_ms(ENCODER_BUTTON_LONG_PRESS_MS);
+
+    GPIO_EXTILineConfig(GPIO_PortSourceGPIOC, GPIO_PinSource15);
+
+    EXTI_InitTypeDef button_exti = {
+        .EXTI_Line = ENCODER_BUTTON_EXTI_LINE,
+        .EXTI_Mode = EXTI_Mode_Interrupt,
+        .EXTI_Trigger = EXTI_Trigger_Rising_Falling,
+        .EXTI_LineCmd = ENABLE,
+    };
+    EXTI_Init(&button_exti);
+    EXTI_ClearITPendingBit(ENCODER_BUTTON_EXTI_LINE);
+    NVIC_ClearPendingIRQ(ENCODER_BUTTON_EXTI_IRQn);
+
+    NVIC_InitTypeDef button_nvic = {0};
+    button_nvic.NVIC_IRQChannel = ENCODER_BUTTON_EXTI_IRQn;
+    button_nvic.NVIC_IRQChannelPreemptionPriority = 2;
+    button_nvic.NVIC_IRQChannelSubPriority = 1;
+    button_nvic.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&button_nvic);
 }
 
 int16_t encoder_take_delta(void)
@@ -196,15 +242,6 @@ int16_t encoder_take_delta(void)
     }
 
     return (int16_t)detent_delta;
-}
-
-bool encoder_take_button_press(void)
-{
-    encoder_poll_button();
-    bool pressed = s_button_pressed;
-
-    s_button_pressed = false;
-    return pressed;
 }
 
 int32_t encoder_get_position(void)
