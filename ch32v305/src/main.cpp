@@ -289,7 +289,7 @@ int main(void)
 
     SystemCoreClockUpdate();
     Delay_Init();
-    rtc_init();
+    //rtc_init();
     detect_hardware_rev();
 
     usb_hw_init();
@@ -391,7 +391,7 @@ int main(void)
         //cst328_hw_poll();
         blinky_task();
         SDCardPoll();
-        demod::rds_poll();
+        //demod::rds_poll();
         watchdog_kick();
     }
 }

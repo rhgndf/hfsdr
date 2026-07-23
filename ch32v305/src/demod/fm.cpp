@@ -100,7 +100,7 @@ static void fm_process_frames(const uint16_t *words, size_t frame_count, uint32_
         int32_t fm_q31 = -atan2_q29(num, den);
         if constexpr(MODE == DEMODULATION_MODE_WBFM)
         {
-            demod::rds_push_sample(fm_q31);
+            //demod::rds_push_sample(fm_q31);
         }
         int32_t audio_cic_q31 = s_audio_cic.push(fm_q31);
         uint16_t const dac12 = demod::audio_to_dac12(s_deemph.push(audio_cic_q31, deemph_alpha_q31),
