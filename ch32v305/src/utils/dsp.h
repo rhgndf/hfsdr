@@ -90,14 +90,12 @@ public:
     }
 };
 
-template<typename T, size_t N>
+template<typename T, size_t N, typename Sum = WiderInt_t<T>>
 class CICComplexFilter
 {
     static_assert(N > 0 && (N & (N - 1)) == 0, "N must be a power of two");
     static constexpr size_t kShift = std::countr_zero(N);
     static constexpr size_t kMask = N - 1U;
-
-    using Sum = WiderInt_t<T>;
 
     /* Interleaved [i0,q0,i1,q1,...] so each tap fits in one cache line and the index/mask is shared. */
     T hist[2 * N] = {0};

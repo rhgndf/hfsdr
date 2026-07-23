@@ -41,6 +41,7 @@ extern "C" {
 }
 
 #include "feature/iq_calibration/iq_calibration.h"
+#include "demod/rds.h"
 #include "hw/sdcard/sdcard.h"
 #include "utils/utils.h"
 
@@ -388,6 +389,7 @@ int main(void)
         //cst328_hw_poll();
         blinky_task();
         SDCardPoll();
+        demod::rds_poll();
         watchdog_kick();
     }
 }

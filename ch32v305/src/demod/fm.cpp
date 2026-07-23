@@ -1,4 +1,5 @@
 #include "demod/demod_internal.h"
+#include "demod/rds.h"
 
 #include "utils/dsp.h"
 
@@ -97,6 +98,10 @@ static void fm_process_frames(const uint16_t *words, size_t frame_count, uint32_
                     + (int32_t)(((int64_t)q_filt * (int64_t)s_q_prev) >> 32);
 
         int32_t fm_q31 = -atan2_q29(num, den);
+        if constexpr(MODE == DEMODULATION_MODE_WBFM)
+        {
+            demod::rds_push_sample(fm_q31);
+        }
         int32_t audio_cic_q31 = s_audio_cic.push(fm_q31);
         uint16_t const dac12 = demod::audio_to_dac12(s_deemph.push(audio_cic_q31, deemph_alpha_q31),
                                                      gain_q16,
@@ -118,6 +123,7 @@ void fm_reset()
     s_audio_cic.reset();
     s_iq_cic.reset();
     s_deemph.reset();
+    rds_reset();
 }
 
 void fm_process_wbfm_i2s_words(const uint16_t *words, size_t frame_count, uint32_t gain_q16)
