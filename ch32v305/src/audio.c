@@ -50,9 +50,7 @@ void audio_usb_mic_write_isr(volatile uint16_t const* src_words, size_t word_cou
     return;
   }
 
-  /* Each I2S 32-bit sample lands as two LE uint16_t (MS half-word first), so
-   * a 32-bit load yields bytes [b2 b3 b0 b1]; rotating by 16 bits reorders
-   * them to [b0 b1 b2 b3] which is the LE 32-bit slot the host expects.
+  /* The I2S producer has already normalized each 32-bit sample in place.
    * The FIFO byte buffer is uint16_t-aligned by tinyusb (TUD_EPBUF_DEF
    * uses 4-byte alignment), so the linear segment always splits on a
    * 4-byte boundary in this 8-bytes-per-frame stream. */
@@ -61,14 +59,12 @@ void audio_usb_mic_write_isr(volatile uint16_t const* src_words, size_t word_cou
   size_t const head = (linear_samples < sample_count) ? linear_samples : sample_count;
   uint32_t* dst = (uint32_t*)(uintptr_t)info.linear.ptr;
   for (size_t i = 0U; i < head; ++i) {
-    uint32_t const raw = src32[i];
-    dst[i] = (raw << 16) | (raw >> 16);
+    dst[i] = src32[i];
   }
   if (head < sample_count) {
     uint32_t* wrap = (uint32_t*)(uintptr_t)info.wrapped.ptr;
     for (size_t i = head; i < sample_count; ++i) {
-      uint32_t const raw = src32[i];
-      wrap[i - head] = (raw << 16) | (raw >> 16);
+      wrap[i - head] = src32[i];
     }
   }
 

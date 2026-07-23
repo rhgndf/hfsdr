@@ -105,14 +105,14 @@ static void i2s_hw_dma_irq_deinit(void)
     NVIC_Init(&nvic);
 }
 
-static void i2s_bitslip_detect(uint16_t const *src_words)
+static void i2s_bitslip_detect(volatile uint16_t const *src_words)
 {
     if(s_i2s_needs_reset)
     {
         return;
     }
 
-    uint32_t const *src32 = (uint32_t const *)(uintptr_t)src_words;
+    volatile uint32_t const *src32 = (volatile uint32_t const *)(uintptr_t)src_words;
     for(size_t i = 0; i < I2S_RX_DMA_CHUNK_WORDS / 2U; i++)
     {
         uint32_t raw = src32[i];
@@ -126,20 +126,23 @@ static void i2s_bitslip_detect(uint16_t const *src_words)
     }
 }
 
-static void i2s_process_buf(uint16_t const *src_words)
+static void i2s_process_buf(volatile uint16_t *src_words)
 {
     if(s_bitslip_detect_enabled)
     {
         i2s_bitslip_detect(src_words);
     }
 
+    usb_hw_vendor_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
+
     uint32_t fft_idx = s_fft_sample_cnt;
     constexpr uint32_t fft_cap = I2S_HW_COMPLEX_SAMPLE_COUNT * 2U;
-    uint32_t const *src32 = (uint32_t const *)(uintptr_t)src_words;
+    volatile uint32_t *src32 = (volatile uint32_t *)(uintptr_t)src_words;
     for(size_t i = 0; i < I2S_RX_DMA_CHUNK_WORDS / 2U; i++)
     {
         uint32_t raw = src32[i];
         uint32_t sample_32 = (raw << 16) | (raw >> 16);
+        src32[i] = sample_32;
         if(fft_idx < fft_cap)
         {
             i2s_fft_sample_arr[fft_idx++] = (int32_t)sample_32;
@@ -148,7 +151,6 @@ static void i2s_process_buf(uint16_t const *src_words)
     s_fft_sample_cnt = fft_idx;
 
     s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
-    usb_hw_vendor_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
     audio_usb_mic_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
     demod_process_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
 }
@@ -403,10 +405,11 @@ bool i2s_needs_reset(void)
     bool ret = s_i2s_needs_reset;
     if(ret)
     {
-        uint32_t sample_320 = ((uint32_t)s_rx_dma_buf[0] << 16) | s_rx_dma_buf[1];
-        uint32_t sample_321 = ((uint32_t)s_rx_dma_buf[2] << 16) | s_rx_dma_buf[3];
-        uint32_t sample_322 = ((uint32_t)s_rx_dma_buf[4] << 16) | s_rx_dma_buf[5];
-        uint32_t sample_323 = ((uint32_t)s_rx_dma_buf[6] << 16) | s_rx_dma_buf[7];
+        volatile uint32_t const *samples = (volatile uint32_t const *)(uintptr_t)s_rx_dma_buf;
+        uint32_t sample_320 = samples[0];
+        uint32_t sample_321 = samples[1];
+        uint32_t sample_322 = samples[2];
+        uint32_t sample_323 = samples[3];
         printf("muted-ch1 pattern failure, sample: %08lX %08lX %08lX %08lX\n", sample_320, sample_321, sample_322, sample_323);
     }
     s_i2s_needs_reset = false;
@@ -429,13 +432,13 @@ void DMA1_Channel4_IRQHandler(void)
     if(DMA_GetITStatus(I2S_RX_DMA_HT_IT) != RESET)
     {
         DMA_ClearITPendingBit(I2S_RX_DMA_HT_IT);
-        i2s_process_buf((uint16_t const *)&s_rx_dma_buf[0]);
+        i2s_process_buf(&s_rx_dma_buf[0]);
     }
 
     if(DMA_GetITStatus(I2S_RX_DMA_TC_IT) != RESET)
     {
         DMA_ClearITPendingBit(I2S_RX_DMA_TC_IT);
-        i2s_process_buf((uint16_t const *)&s_rx_dma_buf[I2S_RX_DMA_CHUNK_WORDS]);
+        i2s_process_buf(&s_rx_dma_buf[I2S_RX_DMA_CHUNK_WORDS]);
     }
 
     if(DMA_GetITStatus(I2S_RX_DMA_TE_IT) != RESET)

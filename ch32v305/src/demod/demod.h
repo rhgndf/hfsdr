@@ -25,7 +25,7 @@ void demod_set_mode(demodulation_mode_t mode);
 demodulation_mode_t demod_get_mode(void);
 
 /*
- * Process one I2S DMA chunk (16-bit words in groups of 4 per IQ frame).
+ * Process one normalized I2S DMA chunk (two 32-bit samples per IQ frame).
  * Returns true when the chunk was consumed by the demodulator path.
  */
 bool demod_process_isr(volatile uint16_t const *src_words, size_t word_count);

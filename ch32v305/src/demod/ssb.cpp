@@ -92,15 +92,13 @@ static void ssb_process_frames(const uint16_t *words, size_t frame_count, uint32
 {
     static_assert((MODE == DEMODULATION_MODE_USB) || (MODE == DEMODULATION_MODE_LSB));
 
-    uint32_t const *words32 = (uint32_t const *)(uintptr_t)words;
+    int32_t const *samples = (int32_t const *)(uintptr_t)words;
     size_t mixer_idx = s_mixer_idx;
 
     for(size_t i = 0U; i < frame_count; ++i)
     {
-        uint32_t raw_i = words32[i * 2U];
-        uint32_t raw_q = words32[i * 2U + 1U];
-        int32_t i_now = (int32_t)((raw_i << 16) | (raw_i >> 16)) >> kInputShift;
-        int32_t q_now = (int32_t)((raw_q << 16) | (raw_q >> 16)) >> kInputShift;
+        int32_t i_now = samples[i * 2U] >> kInputShift;
+        int32_t q_now = samples[i * 2U + 1U] >> kInputShift;
         if constexpr(MODE == DEMODULATION_MODE_LSB)
         {
             q_now = -q_now;

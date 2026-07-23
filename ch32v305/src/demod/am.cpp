@@ -86,16 +86,14 @@ void am_reset()
 
 void am_process_i2s_words(const uint16_t *words, size_t frame_count, uint32_t gain_q16)
 {
-    uint32_t const *words32 = (uint32_t const *)(uintptr_t)words;
+    int32_t const *samples = (int32_t const *)(uintptr_t)words;
     int32_t carrier = s_carrier_lpf.value();
     uint32_t norm_gain_q30 = s_norm_gain_q30;
 
     for(size_t i = 0U; i < frame_count; ++i)
     {
-        uint32_t raw_i = words32[i * 2U];
-        uint32_t raw_q = words32[i * 2U + 1U];
-        int32_t i_now = (int32_t)((raw_i << 16) | (raw_i >> 16));
-        int32_t q_now = (int32_t)((raw_q << 16) | (raw_q >> 16));
+        int32_t i_now = samples[i * 2U];
+        int32_t q_now = samples[i * 2U + 1U];
         int32_t i_filt = s_i_lpf.push(i_now >> kInputShift);
         int32_t q_filt = s_q_lpf.push(q_now >> kInputShift);
 

@@ -71,13 +71,11 @@ static void fm_process_frames(const uint16_t *words, size_t frame_count, uint32_
         : kDeemphAlpha50UsQ31;
     constexpr uint8_t dac_shift = (MODE == DEMODULATION_MODE_NBFM) ? 13U : 17U;
 
-    uint32_t const *words32 = (uint32_t const *)(uintptr_t)words;
+    int32_t const *samples = (int32_t const *)(uintptr_t)words;
     for(size_t i = 0U; i < frame_count; ++i)
     {
-        uint32_t raw_i = words32[i * 2U];
-        uint32_t raw_q = words32[i * 2U + 1U];
-        int32_t i_now = (int32_t)((raw_i << 16) | (raw_i >> 16));
-        int32_t q_now = (int32_t)((raw_q << 16) | (raw_q >> 16));
+        int32_t i_now = samples[i * 2U];
+        int32_t q_now = samples[i * 2U + 1U];
 
         int32_t i_filt;
         int32_t q_filt;
