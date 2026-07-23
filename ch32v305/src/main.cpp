@@ -34,6 +34,7 @@ extern "C" {
 #include "hw/usb.h"
 #include "hw/watchdog.h"
 #include "hw/adc.h"
+#include "hw/rtc.h"
 #include "hw/trng.h"
 #include "feature/blinky/blinky.h"
 #include "demod/demod.h"
@@ -288,6 +289,7 @@ int main(void)
 
     SystemCoreClockUpdate();
     Delay_Init();
+    rtc_init();
     detect_hardware_rev();
 
     usb_hw_init();

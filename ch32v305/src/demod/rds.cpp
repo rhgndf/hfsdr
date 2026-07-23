@@ -1,5 +1,6 @@
 #include "demod/rds.h"
 
+#include "hw/rtc.h"
 #include "utils/dsp.h"
 
 #include <array>
@@ -44,6 +45,14 @@ constexpr size_t kMaxBasebandSamplesPerSymbol =
     (kSymbolPhaseModulus + kSymbolPhaseIncrement - 1U) / kSymbolPhaseIncrement;
 constexpr size_t kGroupQueueCapacity = 16U;
 constexpr size_t kGroupQueueMask = kGroupQueueCapacity - 1U;
+constexpr uint32_t kUnixEpochMjd = 40587U;
+constexpr uint32_t kMaximumMjd = 99999U;
+constexpr uint32_t kSecondsPerMinute = 60U;
+constexpr uint32_t kMinutesPerHour = 60U;
+constexpr uint32_t kHoursPerDay = 24U;
+constexpr uint32_t kSecondsPerHour = kMinutesPerHour * kSecondsPerMinute;
+constexpr uint32_t kSecondsPerDay = kHoursPerDay * kSecondsPerHour;
+constexpr uint8_t kMaximumLocalOffsetHalfHours = 24U;
 constexpr size_t kCorrectableBurstCount =
     26U + 25U + (24U * 2U) + (23U * 4U) + (22U * 8U);
 constexpr int64_t kMixerMagnitudeBound =
@@ -449,13 +458,171 @@ public:
 struct Group
 {
     std::array<uint16_t, 4U> words{};
-    uint8_t corrected_mask = 0U;
 };
+
+struct ClockTime
+{
+    uint32_t mjd = 0U;
+    uint32_t utc_seconds = 0U;
+    int16_t local_offset_minutes = 0;
+    uint8_t hour = 0U;
+    uint8_t minute = 0U;
+    bool valid = false;
+};
+
+constexpr ClockTime decode_clock_time(uint16_t block_b,
+                                      uint16_t block_c,
+                                      uint16_t block_d)
+{
+    if((block_b & 0xF800U) != 0x4000U)
+    {
+        return {};
+    }
+
+    uint32_t const mjd =
+        (static_cast<uint32_t>(block_b & 0x0003U) << 15U) |
+        (static_cast<uint32_t>(block_c) >> 1U);
+    uint8_t const hour = static_cast<uint8_t>(
+        ((block_c & 0x0001U) << 4U) | ((block_d >> 12U) & 0x000FU));
+    uint8_t const minute = static_cast<uint8_t>((block_d >> 6U) & 0x003FU);
+    uint8_t const offset_half_hours = static_cast<uint8_t>(block_d & 0x001FU);
+
+    if((mjd < kUnixEpochMjd) || (mjd > kMaximumMjd) ||
+       (hour >= kHoursPerDay) || (minute >= kMinutesPerHour) ||
+       (offset_half_hours > kMaximumLocalOffsetHalfHours))
+    {
+        return {};
+    }
+
+    uint64_t const utc_seconds =
+        static_cast<uint64_t>(mjd - kUnixEpochMjd) * kSecondsPerDay +
+        static_cast<uint64_t>(hour) * kSecondsPerHour +
+        static_cast<uint64_t>(minute) * kSecondsPerMinute;
+    if(utc_seconds > std::numeric_limits<uint32_t>::max())
+    {
+        return {};
+    }
+
+    int16_t local_offset_minutes =
+        static_cast<int16_t>(offset_half_hours * 30U);
+    if((block_d & 0x0020U) != 0U)
+    {
+        local_offset_minutes = static_cast<int16_t>(-local_offset_minutes);
+    }
+
+    return {
+        mjd,
+        static_cast<uint32_t>(utc_seconds),
+        local_offset_minutes,
+        hour,
+        minute,
+        true,
+    };
+}
+
+constexpr uint16_t make_clock_time_block_b(uint32_t mjd)
+{
+    return static_cast<uint16_t>(0x4000U | ((mjd >> 15U) & 0x0003U));
+}
+
+constexpr uint16_t make_clock_time_block_c(uint32_t mjd, uint8_t hour)
+{
+    return static_cast<uint16_t>(((mjd & 0x7FFFU) << 1U) |
+                                 ((hour >> 4U) & 0x0001U));
+}
+
+constexpr uint16_t make_clock_time_block_d(uint8_t hour,
+                                            uint8_t minute,
+                                            bool negative_offset,
+                                            uint8_t offset_half_hours)
+{
+    return static_cast<uint16_t>(
+        ((hour & 0x0FU) << 12U) |
+        ((minute & 0x3FU) << 6U) |
+        (negative_offset ? 0x0020U : 0U) |
+        (offset_half_hours & 0x1FU));
+}
+
+constexpr ClockTime kUnixEpochClockTime = decode_clock_time(
+    make_clock_time_block_b(kUnixEpochMjd),
+    make_clock_time_block_c(kUnixEpochMjd, 0U),
+    make_clock_time_block_d(0U, 0U, false, 0U));
+static_assert(kUnixEpochClockTime.valid);
+static_assert(kUnixEpochClockTime.utc_seconds == 0U);
+
+constexpr ClockTime kBoundaryClockTime = decode_clock_time(
+    make_clock_time_block_b(65535U),
+    make_clock_time_block_c(65535U, 23U),
+    make_clock_time_block_d(23U, 59U, true, 1U));
+static_assert(kBoundaryClockTime.valid);
+static_assert(kBoundaryClockTime.mjd == 65535U);
+static_assert(kBoundaryClockTime.hour == 23U);
+static_assert(kBoundaryClockTime.minute == 59U);
+static_assert(kBoundaryClockTime.local_offset_minutes == -30);
+
+static_assert(!decode_clock_time(
+                   make_clock_time_block_b(0U),
+                   make_clock_time_block_c(0U, 0U),
+                   make_clock_time_block_d(0U, 0U, false, 0U)).valid);
+static_assert(!decode_clock_time(
+                   make_clock_time_block_b(kUnixEpochMjd),
+                   make_clock_time_block_c(kUnixEpochMjd, 24U),
+                   make_clock_time_block_d(24U, 0U, false, 0U)).valid);
+static_assert(!decode_clock_time(
+                   make_clock_time_block_b(kUnixEpochMjd),
+                   make_clock_time_block_c(kUnixEpochMjd, 0U),
+                   make_clock_time_block_d(0U, 60U, false, 0U)).valid);
+static_assert(!decode_clock_time(
+                   make_clock_time_block_b(kUnixEpochMjd),
+                   make_clock_time_block_c(kUnixEpochMjd, 0U),
+                   make_clock_time_block_d(0U, 0U, false, 25U)).valid);
+static_assert(!decode_clock_time(
+                   make_clock_time_block_b(kMaximumMjd),
+                   make_clock_time_block_c(kMaximumMjd, 0U),
+                   make_clock_time_block_d(0U, 0U, false, 0U)).valid);
+static_assert(!decode_clock_time(
+                   static_cast<uint16_t>(
+                       make_clock_time_block_b(kUnixEpochMjd) | 0x0800U),
+                   make_clock_time_block_c(kUnixEpochMjd, 0U),
+                   make_clock_time_block_d(0U, 0U, false, 0U)).valid);
 
 static std::array<Group, kGroupQueueCapacity> s_group_queue{};
 static std::atomic<uint32_t> s_group_head{0U};
 static std::atomic<uint32_t> s_group_tail{0U};
-static std::atomic<uint32_t> s_group_dropped{0U};
+
+static void process_clock_time(const Group &group)
+{
+    uint16_t const block_b = group.words[1U];
+    if((block_b & 0xF800U) != 0x4000U)
+    {
+        return;
+    }
+
+    ClockTime const clock_time =
+        decode_clock_time(block_b, group.words[2U], group.words[3U]);
+    if(!clock_time.valid)
+    {
+        std::printf("RDS: CT invalid B=%04X C=%04X D=%04X\r\n",
+                    static_cast<unsigned int>(block_b),
+                    static_cast<unsigned int>(group.words[2U]),
+                    static_cast<unsigned int>(group.words[3U]));
+        return;
+    }
+
+    rtc_set_utc(clock_time.utc_seconds, clock_time.local_offset_minutes);
+
+    int const offset = static_cast<int>(clock_time.local_offset_minutes);
+    unsigned int const offset_magnitude =
+        static_cast<unsigned int>((offset < 0) ? -offset : offset);
+    std::printf("RDS: CT MJD=%lu UTC=%02u:%02u LTO=%c%02u:%02u RTC=%lu\r\n",
+                static_cast<unsigned long>(clock_time.mjd),
+                static_cast<unsigned int>(clock_time.hour),
+                static_cast<unsigned int>(clock_time.minute),
+                (offset < 0) ? '-' : '+',
+                offset_magnitude / 60U,
+                offset_magnitude % 60U,
+                static_cast<unsigned long>(clock_time.utc_seconds));
+}
 
 static void enqueue_group(const Group &group)
 {
@@ -463,7 +630,6 @@ static void enqueue_group(const Group &group)
     uint32_t const tail = s_group_tail.load(std::memory_order_acquire);
     if((head - tail) >= kGroupQueueCapacity)
     {
-        s_group_dropped.fetch_add(1U, std::memory_order_relaxed);
         return;
     }
 
@@ -639,11 +805,6 @@ class LinkDecoder
             if(result.valid)
             {
                 group.words[position] = result.information;
-                if(result.corrected)
-                {
-                    group.corrected_mask =
-                        static_cast<uint8_t>(group.corrected_mask | (1U << position));
-                }
             }
         }
 
@@ -796,36 +957,16 @@ void rds_reset()
 
     s_group_head.store(0U, std::memory_order_relaxed);
     s_group_tail.store(0U, std::memory_order_relaxed);
-    s_group_dropped.store(0U, std::memory_order_relaxed);
 }
 
 void rds_poll()
 {
-    uint32_t const dropped = s_group_dropped.exchange(0U, std::memory_order_relaxed);
-    if(dropped != 0U)
-    {
-        std::printf("RDS: dropped %lu group(s)\r\n",
-                    static_cast<unsigned long>(dropped));
-    }
-
     uint32_t tail = s_group_tail.load(std::memory_order_relaxed);
     uint32_t const head = s_group_head.load(std::memory_order_acquire);
     while(tail != head)
     {
         Group const group = s_group_queue[tail & kGroupQueueMask];
-        uint16_t const block_b = group.words[1U];
-        unsigned int const type = static_cast<unsigned int>((block_b >> 12U) & 0x0FU);
-        char const version = ((block_b & 0x0800U) != 0U) ? 'B' : 'A';
-
-        std::printf("RDS: PI=%04X TYPE=%u%c A=%04X B=%04X C=%04X D=%04X CORR=%X\r\n",
-                    static_cast<unsigned int>(group.words[0U]),
-                    type,
-                    version,
-                    static_cast<unsigned int>(group.words[0U]),
-                    static_cast<unsigned int>(group.words[1U]),
-                    static_cast<unsigned int>(group.words[2U]),
-                    static_cast<unsigned int>(group.words[3U]),
-                    static_cast<unsigned int>(group.corrected_mask));
+        process_clock_time(group);
         ++tail;
         s_group_tail.store(tail, std::memory_order_release);
     }
