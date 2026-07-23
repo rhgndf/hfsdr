@@ -16,8 +16,6 @@
  PA0 push-pull output.
 
 */
-
-
 #include "debug.h"
 #include "main.h"
 #include <stddef.h>
@@ -242,7 +240,7 @@ static void ADC_Poll(void)
            temp_raw, (long)temp_c);
 }
 
-static void SDCard_PrintCIDAndSector0(void)
+static void SDCard_Poll(void)
 {
     if(sdcard::detect() != READY)
     {
@@ -267,23 +265,6 @@ static void SDCard_PrintCIDAndSector0(void)
            s.bus_width_bits,
            (unsigned long)s.clock_hz,
            s.high_speed ? 1U : 0U);
-
-    alignas(4) static uint8_t buf[512];
-    if(sdcard::read_sector(0, buf) == READY)
-    {
-        printf("SD: sector 0:\r\n");
-        for(uint32_t row = 0; row < 2; ++row)
-        {
-            printf("%03lX:", (unsigned long)(row * 32U));
-            for(uint32_t col = 0; col < 32; ++col)
-                printf(" %02X", buf[row * 32U + col]);
-            printf("\r\n");
-        }
-    }
-    else
-    {
-        printf("SD: sector 0 read failed\r\n");
-    }
 }
 
 /*********************************************************************
@@ -368,7 +349,7 @@ int main(void)
     PeriodicTrigger I2CBusScan{1000U, Scan_I2CBus_EverySecond};
     PeriodicTrigger SysTickReportUSB{1000U, SysTick_Report_USB_EverySecond};
     PeriodicTrigger ADCPoll{1000U, ADC_Poll};
-    PeriodicTrigger SDCardPoll{1000U, SDCard_PrintCIDAndSector0};
+    PeriodicTrigger SDCardPoll{1000U, SDCard_Poll};
     PeriodicTrigger DACBufferAdjust{1000U, dac_hw_stream_adjust_buffer};
     si5351_hw_clk0_set_freq_hz(InitialCalibrationFreq);
 
@@ -406,7 +387,7 @@ int main(void)
         //ADCPoll();
         //cst328_hw_poll();
         blinky_task();
-        //SDCardPoll();
+        SDCardPoll();
         watchdog_kick();
     }
 }

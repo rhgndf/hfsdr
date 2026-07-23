@@ -19,6 +19,7 @@ constexpr uint32_t CMD_TIMEOUT    = 0x00010000U;
 constexpr uint32_t DATA_TIMEOUT   = 0x00100000U;
 constexpr uint32_t FIFO_TIMEOUT   = 0x10000000U;
 constexpr uint32_t DMA_TIMEOUT    = 0x10000000U;
+constexpr uint32_t PROGRAM_TIMEOUT = 0x00100000U;
 constexpr uint32_t ICR_ALL        = 0x00C007FFU;
 constexpr uint32_t ACMD41_RETRIES = 1000U;
 
@@ -30,9 +31,16 @@ constexpr uint32_t ACMD41_HCS     = 1U << 30;
 constexpr uint32_t ACMD41_VOLTAGE = 0x1FFU << 15;
 constexpr uint32_t OCR_BUSY       = 1U << 31;
 constexpr uint32_t OCR_CCS        = 1U << 30;
+constexpr uint32_t R1_ERROR_MASK  = 0xFDFFE008U;
+constexpr uint32_t R1_READY_FOR_DATA = 1U << 8;
+constexpr uint32_t R1_CURRENT_STATE_MASK = 0xFU << 9;
+constexpr uint32_t R1_CURRENT_STATE_TRANSFER = 4U << 9;
 
-constexpr uint32_t ERR_FLAGS = SDIO_FLAG_RXOVERR | SDIO_FLAG_DCRCFAIL |
-                               SDIO_FLAG_DTIMEOUT | SDIO_FLAG_STBITERR;
+constexpr uint32_t DATA_ERROR_FLAGS = SDIO_FLAG_RXOVERR |
+                                      SDIO_FLAG_TXUNDERR |
+                                      SDIO_FLAG_DCRCFAIL |
+                                      SDIO_FLAG_DTIMEOUT |
+                                      SDIO_FLAG_STBITERR;
 
 Status s_status = {.detected = false, .bus_width_bits = 1, .clock_hz = 400000U, .high_speed = false};
 
@@ -68,7 +76,7 @@ void reset_data_path()
     clear_flags();
 }
 
-void stop_dma_read()
+void stop_dma()
 {
     SDIO_DMACmd(DISABLE);
     DMA_Cmd(DMA2_Channel4, DISABLE);
@@ -76,7 +84,7 @@ void stop_dma_read()
 
 void configure_dma_read(std::span<uint8_t> buf)
 {
-    stop_dma_read();
+    stop_dma();
     DMA_ClearFlag(DMA2_FLAG_GL4);
 
     DMA_InitTypeDef dma = {};
@@ -94,9 +102,30 @@ void configure_dma_read(std::span<uint8_t> buf)
     DMA_Init(DMA2_Channel4, &dma);
 }
 
-bool dma_buffer_aligned(std::span<uint8_t> buf)
+void configure_dma_write(std::span<const uint8_t> buf)
 {
-    return (reinterpret_cast<uint32_t>(buf.data()) & 3U) == 0U &&
+    stop_dma();
+    DMA_ClearFlag(DMA2_FLAG_GL4);
+
+    DMA_InitTypeDef dma = {};
+    dma.DMA_PeripheralBaseAddr = reinterpret_cast<uint32_t>(&SDIO->FIFO);
+    dma.DMA_MemoryBaseAddr     = reinterpret_cast<uint32_t>(buf.data());
+    dma.DMA_DIR                = DMA_DIR_PeripheralDST;
+    dma.DMA_BufferSize         = static_cast<uint32_t>(buf.size()) / 4U;
+    dma.DMA_PeripheralInc      = DMA_PeripheralInc_Disable;
+    dma.DMA_MemoryInc          = DMA_MemoryInc_Enable;
+    dma.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Word;
+    dma.DMA_MemoryDataSize     = DMA_MemoryDataSize_Word;
+    dma.DMA_Mode               = DMA_Mode_Normal;
+    dma.DMA_Priority           = DMA_Priority_VeryHigh;
+    dma.DMA_M2M                = DMA_M2M_Disable;
+    DMA_Init(DMA2_Channel4, &dma);
+}
+
+template<typename T>
+bool dma_buffer_aligned(std::span<T> buf)
+{
+    return (reinterpret_cast<uintptr_t>(buf.data()) & 3U) == 0U &&
            (buf.size() & 3U) == 0U;
 }
 
@@ -346,7 +375,7 @@ ErrorStatus read_fifo(std::span<uint8_t> buf, uint32_t end_flag)
         }
     };
 
-    while(!(SDIO->STA & (ERR_FLAGS | end_flag)) && timeout)
+    while(!(SDIO->STA & (DATA_ERROR_FLAGS | end_flag)) && timeout)
     {
         uint32_t sta = SDIO->STA;
         if(sta & SDIO_FLAG_RXFIFOHF)
@@ -369,7 +398,7 @@ ErrorStatus read_fifo(std::span<uint8_t> buf, uint32_t end_flag)
     while(SDIO->STA & SDIO_FLAG_RXDAVL)
         store_word(SDIO->FIFO);
 
-    if(!timeout || (SDIO->STA & ERR_FLAGS))
+    if(!timeout || (SDIO->STA & DATA_ERROR_FLAGS))
     {
         clear_flags();
         return NoREADY;
@@ -385,7 +414,7 @@ ErrorStatus read_fifo(std::span<uint8_t> buf, uint32_t end_flag)
     return READY;
 }
 
-ErrorStatus wait_dma_read(uint32_t end_flag)
+ErrorStatus wait_dma_transfer(uint32_t end_flag)
 {
     uint32_t timeout = DMA_TIMEOUT;
     while(timeout)
@@ -394,12 +423,12 @@ ErrorStatus wait_dma_read(uint32_t end_flag)
             break;
 
         uint32_t sta = SDIO->STA;
-        if(sta & ERR_FLAGS)
+        if(sta & DATA_ERROR_FLAGS)
             break;
 
         if(DMA_GetFlagStatus(DMA2_FLAG_TC4) != RESET)
         {
-            while(!(SDIO->STA & (ERR_FLAGS | end_flag)) && timeout)
+            while(!(SDIO->STA & (DATA_ERROR_FLAGS | end_flag)) && timeout)
                 --timeout;
             break;
         }
@@ -409,11 +438,11 @@ ErrorStatus wait_dma_read(uint32_t end_flag)
 
     bool ok = timeout &&
               DMA_GetFlagStatus(DMA2_FLAG_TE4) == RESET &&
-              (SDIO->STA & ERR_FLAGS) == 0U &&
+              (SDIO->STA & DATA_ERROR_FLAGS) == 0U &&
               (SDIO->STA & end_flag) &&
               DMA_GetCurrDataCounter(DMA2_Channel4) == 0U;
 
-    stop_dma_read();
+    stop_dma();
     DMA_ClearFlag(DMA2_FLAG_GL4);
     clear_flags();
     return ok ? READY : NoREADY;
@@ -439,14 +468,14 @@ ErrorStatus read_switch_status(uint32_t arg, std::span<uint8_t, 64> status)
     auto r = cmd_r1(6, arg);
     if(!r)
     {
-        stop_dma_read();
+        stop_dma();
         return NoREADY;
     }
 
     SDIO_DMACmd(ENABLE);
     DMA_Cmd(DMA2_Channel4, ENABLE);
 
-    return wait_dma_read(SDIO_FLAG_DBCKEND);
+    return wait_dma_transfer(SDIO_FLAG_DBCKEND);
 }
 
 bool switch_card_high_speed()
@@ -484,6 +513,7 @@ void SDIOTransport::init()
 
 auto SDIOTransport::detect() -> std::expected<DetectResult, ErrorStatus>
 {
+    rca_ = 0U;
     init_gpio_1bit();
     reset_slow();
 
@@ -546,6 +576,8 @@ auto SDIOTransport::detect() -> std::expected<DetectResult, ErrorStatus>
     if(!sdhc)
         if(!cmd_r1(16, 512U))
             return std::unexpected(NoREADY);
+
+    rca_ = rca;
     return DetectResult{parse_cid(*cid_r2), sdhc};
 }
 
@@ -574,7 +606,7 @@ ErrorStatus SDIOTransport::read_blocks(uint32_t addr, std::span<uint8_t> buf)
     auto r = cmd_r1(multi ? 18U : 17U, addr);
     if(!r)
     {
-        stop_dma_read();
+        stop_dma();
         return NoREADY;
     }
 
@@ -585,12 +617,107 @@ ErrorStatus SDIOTransport::read_blocks(uint32_t addr, std::span<uint8_t> buf)
     }
 
     uint32_t end_flag = multi ? SDIO_FLAG_DATAEND : SDIO_FLAG_DBCKEND;
-    ErrorStatus result = use_dma ? wait_dma_read(end_flag) : read_fifo(buf, end_flag);
+    ErrorStatus result =
+        use_dma ? wait_dma_transfer(end_flag) : read_fifo(buf, end_flag);
 
     if(multi)
         cmd_r1(12, 0);
 
     return result;
+}
+
+ErrorStatus SDIOTransport::wait_ready()
+{
+    if(rca_ == 0U)
+    {
+        return NoREADY;
+    }
+
+    for(uint32_t timeout = PROGRAM_TIMEOUT; timeout != 0U; --timeout)
+    {
+        auto response = cmd_r1(13U, static_cast<uint32_t>(rca_) << 16);
+        if(!response || (*response & R1_ERROR_MASK) != 0U)
+        {
+            return NoREADY;
+        }
+
+        bool ready = (*response & R1_READY_FOR_DATA) != 0U;
+        bool transfer_state =
+            (*response & R1_CURRENT_STATE_MASK) == R1_CURRENT_STATE_TRANSFER;
+        if(ready && transfer_state)
+        {
+            return READY;
+        }
+    }
+
+    return NoREADY;
+}
+
+ErrorStatus SDIOTransport::write_blocks(uint32_t addr,
+                                        std::span<const uint8_t> buf)
+{
+    if(buf.empty() || buf.size() % 512U != 0U ||
+       buf.size() > max_blocks_per_transfer * 512U ||
+       !dma_buffer_aligned(buf))
+    {
+        return NoREADY;
+    }
+    if(wait_ready() != READY)
+    {
+        return NoREADY;
+    }
+
+    bool multi = buf.size() > 512U;
+
+    clear_flags();
+    reset_data_path();
+    SDIO->DCTRL = 0x0;
+    configure_dma_write(buf);
+
+    auto response = cmd_r1(multi ? 25U : 24U, addr);
+    if(!response || (*response & R1_ERROR_MASK) != 0U)
+    {
+        stop_dma();
+        return NoREADY;
+    }
+
+    // Arm DMA before enabling the data-path state machine. A fast card can
+    // otherwise request data before DMA is ready and raise TXUNDERR.
+    SDIO_DMACmd(ENABLE);
+    DMA_Cmd(DMA2_Channel4, ENABLE);
+
+    SDIO_DataInitTypeDef data = {};
+    data.SDIO_DataTimeOut   = DATA_TIMEOUT;
+    data.SDIO_DataLength    = static_cast<uint32_t>(buf.size());
+    data.SDIO_DataBlockSize = SDIO_DataBlockSize_512b;
+    data.SDIO_TransferDir   = SDIO_TransferDir_ToCard;
+    data.SDIO_TransferMode  = SDIO_TransferMode_Block;
+    data.SDIO_DPSM          = SDIO_DPSM_Enable;
+    SDIO_DataConfig(&data);
+
+    ErrorStatus result = wait_dma_transfer(SDIO_FLAG_DATAEND);
+
+    if(multi)
+    {
+        auto stop_response = cmd_r1(12U, 0U);
+        if(!stop_response || (*stop_response & R1_ERROR_MASK) != 0U)
+        {
+            result = NoREADY;
+        }
+    }
+
+    if(result != READY)
+    {
+        reset_data_path();
+        return NoREADY;
+    }
+
+    return wait_ready();
+}
+
+ErrorStatus SDIOTransport::sync()
+{
+    return wait_ready();
 }
 
 Status SDIOTransport::status() const

@@ -13,6 +13,7 @@
 static constexpr uint16_t ST7789_PANEL_LONG_SIDE = 320U;
 static constexpr uint16_t ST7789_PANEL_SHORT_SIDE = 240U;
 static constexpr size_t ST7789_RGB565_BYTES_PER_PIXEL = 2U;
+static constexpr uint16_t ST7789_BITMAP_CHUNK_PIXELS = 64U;
 
 static uint16_t s_scroll_top = 0U;
 static uint16_t s_scroll_bottom = ST7789_HEIGHT;
@@ -744,7 +745,8 @@ void ST7789_DrawImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint
 void ST7789_DrawBitmap1bpp(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                            const uint8_t *bits, uint16_t fg, uint16_t bg)
 {
-	uint8_t row_buf[ST7789_PANEL_LONG_SIDE * ST7789_RGB565_BYTES_PER_PIXEL];
+	std::array<uint8_t,
+	           ST7789_BITMAP_CHUNK_PIXELS * ST7789_RGB565_BYTES_PER_PIXEL> pixel_buf{};
 
 	if ((bits == nullptr) || (w == 0U) || (h == 0U) || (w > ST7789_PANEL_LONG_SIDE))
 		return;
@@ -759,13 +761,28 @@ void ST7789_DrawBitmap1bpp(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
 
 	for (uint16_t row = 0U; row < h; ++row) {
 		const uint8_t *row_bits = bits + (uint32_t)row * (uint32_t)row_bytes;
-		for (uint16_t col = 0U; col < w; ++col) {
-			bool const bit = ST7789_ReadBitmap1bppBit(row_bits, col);
-			row_buf[2U * col]      = bit ? fg_hi : bg_hi;
-			row_buf[2U * col + 1U] = bit ? fg_lo : bg_lo;
+		for (uint16_t first_col = 0U; first_col < w;
+		     first_col = (uint16_t)(first_col + ST7789_BITMAP_CHUNK_PIXELS)) {
+			// The previous transfer can still reference pixel_buf after
+			// ST7789_WriteData returns, so wait before reusing it.
+			spi_hw_wait_dma();
+
+			const uint16_t pixel_count =
+				std::min<uint16_t>(ST7789_BITMAP_CHUNK_PIXELS,
+				                   (uint16_t)(w - first_col));
+			for (uint16_t offset = 0U; offset < pixel_count; ++offset) {
+				bool const bit =
+					ST7789_ReadBitmap1bppBit(row_bits, (uint16_t)(first_col + offset));
+				pixel_buf[2U * offset]      = bit ? fg_hi : bg_hi;
+				pixel_buf[2U * offset + 1U] = bit ? fg_lo : bg_lo;
+			}
+			ST7789_WriteData(pixel_buf.data(),
+			                 (size_t)pixel_count * ST7789_RGB565_BYTES_PER_PIXEL);
 		}
-		ST7789_WriteData(row_buf, (size_t)w * ST7789_RGB565_BYTES_PER_PIXEL);
 	}
+
+	// pixel_buf is stack-backed and must outlive the final asynchronous DMA.
+	spi_hw_wait_dma();
 }
 
 /**

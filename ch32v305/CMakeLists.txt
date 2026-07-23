@@ -50,12 +50,18 @@ file(GLOB_RECURSE SRC_FILES_RECURSE CONFIGURE_DEPENDS
   lib/tinyusb/src/*.c
 )
 
+set(FATFS_SOURCES
+  lib/fatfs/source/ff.c
+  lib/fatfs/source/ffunicode.c
+)
+
 add_executable(${EXECUTABLE} 
   lib/Startup/startup_ch32v30x_D8C.S
   lib/Core/core_riscv.c
   
   ${SRC_FILES}
   ${SRC_FILES_RECURSE}
+  ${FATFS_SOURCES}
 
 )
 
@@ -64,6 +70,7 @@ target_include_directories(${EXECUTABLE} PRIVATE
   lib/Core/
   lib/Debug/
   lib/Peripheral/inc
+  lib/fatfs/source
   lib/tinyusb/src
   ${NMSIS_ROOT}/Core/Include
   ${NMSIS_ROOT}/DSP/Include
@@ -93,7 +100,7 @@ target_compile_options(${EXECUTABLE} PRIVATE
   -Wunused -Wuninitialized
 
   -MMD -MP
-  -flto
+  -flto=2
   -Wall
   -g3
   -Ofast
@@ -130,7 +137,7 @@ target_link_options(${EXECUTABLE} PRIVATE
   -lstdc++
   -lsupc++
   -ffreestanding
-  -flto
+  -flto=2
   -Wl,-Map=${PROJECT_NAME}.map,--cref
   -Wl,--gc-sections
   -Wl,--print-memory-usage
