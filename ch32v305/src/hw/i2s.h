@@ -14,10 +14,11 @@
  * SPI2 MCK pin is intentionally left unused here.
  *
  * RX uses DMA1 Channel4 in circular mode. DMA half/full-transfer interrupts
- * increment a cumulative word counter and hand each completed half-buffer
- * chunk straight into the TinyUSB microphone FIFO.
+ * notify the high-priority I2S task with the completed half-buffer address.
+ * The task performs all sample, demodulator, and USB FIFO processing.
  */
 
+void i2s_task(void *parameters);
 void i2s_hw_init(void);
 void i2s_hw_deinit(void);
 void i2s_hw_enable(FunctionalState state);

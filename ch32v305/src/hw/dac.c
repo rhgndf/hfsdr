@@ -230,7 +230,7 @@ void dac_hw_stream_fm_start(uint32_t sample_rate_hz)
     dac_stream_dma_start(sample_rate_hz);
 }
 
-void dac_hw_stream_fm_push_sample_isr(uint16_t sample)
+void dac_hw_stream_fm_push_sample(uint16_t sample)
 {
     uint32_t idx = s_write_idx;
     s_dac_stream_buf[idx] = dac_pack_dual_12(sample);

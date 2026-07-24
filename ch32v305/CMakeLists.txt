@@ -38,6 +38,10 @@ set(DISABLEFLOAT16 ON CACHE BOOL "Disable NMSIS float16 kernels" FORCE)
 # Work around a lowercase ${project} reference in NMSIS DSP's CMakeLists.txt.
 set(project NMSISDSP)
 add_subdirectory(lib/NMSIS/NMSIS/DSP/Source)
+target_compile_options(NMSISDSP PRIVATE
+  -fstack-usage
+  -Wstack-usage=512
+)
 
 file(GLOB SRC_FILES CONFIGURE_DEPENDS
   lib/Peripheral/src/*.c
@@ -55,6 +59,16 @@ set(FATFS_SOURCES
   lib/fatfs/source/ffunicode.c
 )
 
+set(FREERTOS_KERNEL_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/lib/FreeRTOS-Kernel)
+set(FREERTOS_SOURCES
+  ${FREERTOS_KERNEL_ROOT}/tasks.c
+  ${FREERTOS_KERNEL_ROOT}/queue.c
+  ${FREERTOS_KERNEL_ROOT}/list.c
+  ${FREERTOS_KERNEL_ROOT}/portable/GCC/RISC-V/port.c
+  ${FREERTOS_KERNEL_ROOT}/portable/GCC/RISC-V/portASM.S
+  src/freertos/port_ch32v30x.S
+)
+
 add_executable(${EXECUTABLE} 
   lib/Startup/startup_ch32v30x_D8C.S
   lib/Core/core_riscv.c
@@ -62,11 +76,16 @@ add_executable(${EXECUTABLE}
   ${SRC_FILES}
   ${SRC_FILES_RECURSE}
   ${FATFS_SOURCES}
+  ${FREERTOS_SOURCES}
 
 )
 
 target_include_directories(${EXECUTABLE} PRIVATE 
   src
+  src/freertos
+  ${FREERTOS_KERNEL_ROOT}/include
+  ${FREERTOS_KERNEL_ROOT}/portable/GCC/RISC-V
+  ${FREERTOS_KERNEL_ROOT}/portable/GCC/RISC-V/chip_specific_extensions/RISCV_no_extensions
   lib/Core/
   lib/Debug/
   lib/Peripheral/inc
@@ -81,6 +100,8 @@ target_compile_definitions(${EXECUTABLE} PRIVATE
   -DHSE_VALUE=24000000
   -DCFG_TUD_WCH_USBIP_USBHS=1
   -DCFG_TUSB_MCU=OPT_MCU_CH32V307
+  configENABLE_FPU=1
+  configENABLE_VPU=0
 )
 
 target_compile_options(${EXECUTABLE} PRIVATE

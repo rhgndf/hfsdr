@@ -3,6 +3,9 @@
 #include <assert.h>
 #include <stddef.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include "debug.h"
 #include "demod/demod.h"
 #include "main.h"
@@ -41,6 +44,7 @@ static volatile uint32_t s_rx_word_count = 0U;
 static volatile uint16_t s_rx_dma_buf[I2S_RX_DMA_BUFFER_WORDS];
 static volatile bool s_i2s_needs_reset = false;
 static volatile bool s_bitslip_detect_enabled = true;
+static TaskHandle_t s_i2s_task_handle;
 
 typedef enum
 {
@@ -53,7 +57,10 @@ int32_t i2s_fft_sample_arr[I2S_HW_COMPLEX_SAMPLE_COUNT * 2];
 static volatile uint32_t s_fft_sample_cnt = 0U;
 
 void DMA1_Channel4_IRQHandler(void) __attribute__((interrupt));
-extern void audio_usb_mic_write_isr(volatile uint16_t const *src_words, size_t word_count);
+extern void audio_usb_mic_write(volatile uint16_t const *src_words, size_t word_count);
+
+static_assert(sizeof(uintptr_t) <= sizeof(uint32_t),
+              "I2S task notifications must hold a DMA buffer pointer");
 
 static void i2s_hw_rx_flush(void)
 {
@@ -133,7 +140,7 @@ static void i2s_process_buf(volatile uint16_t *src_words)
         i2s_bitslip_detect(src_words);
     }
 
-    usb_hw_vendor_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
+    usb_hw_vendor_write(src_words, I2S_RX_DMA_CHUNK_WORDS);
 
     uint32_t fft_idx = s_fft_sample_cnt;
     constexpr uint32_t fft_cap = I2S_HW_COMPLEX_SAMPLE_COUNT * 2U;
@@ -151,8 +158,29 @@ static void i2s_process_buf(volatile uint16_t *src_words)
     s_fft_sample_cnt = fft_idx;
 
     s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
-    audio_usb_mic_write_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
-    demod_process_isr(src_words, I2S_RX_DMA_CHUNK_WORDS);
+    audio_usb_mic_write(src_words, I2S_RX_DMA_CHUNK_WORDS);
+    demod_process(src_words, I2S_RX_DMA_CHUNK_WORDS);
+}
+
+void i2s_task(void *parameters)
+{
+    (void)parameters;
+    configASSERT(s_i2s_task_handle == NULL);
+    s_i2s_task_handle = xTaskGetCurrentTaskHandle();
+
+    for(;;)
+    {
+        uint32_t notified_value;
+        BaseType_t notified =
+            xTaskNotifyWait(0U, UINT32_MAX, &notified_value, portMAX_DELAY);
+
+        if(notified == pdTRUE)
+        {
+            volatile uint16_t *buffer =
+                (volatile uint16_t *)(uintptr_t)notified_value;
+            i2s_process_buf(buffer);
+        }
+    }
 }
 
 void i2s_sync_check_disable(void)
@@ -429,20 +457,31 @@ void i2s_hw_enable(FunctionalState state)
 
 void DMA1_Channel4_IRQHandler(void)
 {
+    BaseType_t higher_priority_task_woken = pdFALSE;
+
     if(DMA_GetITStatus(I2S_RX_DMA_HT_IT) != RESET)
     {
         DMA_ClearITPendingBit(I2S_RX_DMA_HT_IT);
-        i2s_process_buf(&s_rx_dma_buf[0]);
+        (void)xTaskNotifyFromISR(s_i2s_task_handle,
+                                 (uint32_t)(uintptr_t)&s_rx_dma_buf[0],
+                                 eSetValueWithOverwrite,
+                                 &higher_priority_task_woken);
     }
 
     if(DMA_GetITStatus(I2S_RX_DMA_TC_IT) != RESET)
     {
         DMA_ClearITPendingBit(I2S_RX_DMA_TC_IT);
-        i2s_process_buf(&s_rx_dma_buf[I2S_RX_DMA_CHUNK_WORDS]);
+        (void)xTaskNotifyFromISR(
+            s_i2s_task_handle,
+            (uint32_t)(uintptr_t)&s_rx_dma_buf[I2S_RX_DMA_CHUNK_WORDS],
+            eSetValueWithOverwrite,
+            &higher_priority_task_woken);
     }
 
     if(DMA_GetITStatus(I2S_RX_DMA_TE_IT) != RESET)
     {
         DMA_ClearITPendingBit(I2S_RX_DMA_TE_IT);
     }
+
+    portYIELD_FROM_ISR(higher_priority_task_woken);
 }

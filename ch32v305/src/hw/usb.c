@@ -2,6 +2,9 @@
 
 #include <string.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include "debug.h"
 #include "si5351.h"
 #include "tlv320adc6120.h"
@@ -95,7 +98,7 @@ static void usb_send_connected_banner(void)
     usb_send_data(msg, sizeof(msg) - 1U);
 }
 
-void usb_hw_vendor_write_isr(volatile uint16_t const *src_words, size_t word_count)
+void usb_hw_vendor_write(volatile uint16_t const *src_words, size_t word_count)
 {
     if((src_words == 0) || (word_count == 0U))
     {
@@ -191,7 +194,7 @@ ErrorStatus usb_hw_get_clk_freq_status(void)
     return usb_hw_clk_freq_status;
 }
 
-void usb_hw_init(void)
+static void usb_hw_init(void)
 {
     RCC_USBCLK48MConfig(RCC_USBCLK48MCLKSource_USBPHY);
     RCC_USBHSPLLCLKConfig(RCC_HSBHSPLLCLKSource_HSE);
@@ -206,7 +209,20 @@ void usb_hw_init(void)
         .speed = TUSB_SPEED_AUTO
     };
 
-    tusb_init(USB_ROOT_HUB_PORT, &dev_init);
+    NVIC_SetPriority(USBHS_IRQn, 0x00U);
+    configASSERT(tusb_init(USB_ROOT_HUB_PORT, &dev_init));
+}
+
+void usb_task(void *parameters)
+{
+    (void)parameters;
+
+    usb_hw_init();
+
+    for(;;)
+    {
+        tud_task();
+    }
 }
 
 uint32_t usb_send_data(uint8_t const *buffer, uint32_t len)

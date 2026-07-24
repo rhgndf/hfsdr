@@ -358,9 +358,13 @@ handle_reset:
 /* Enable interrupt nesting and hardware stack */
 	li t0, 0x0b
 	csrw 0x804, t0
-/* Enable floating point and global interrupt, configure privileged mode */
-   	li t0, 0x6088           
-   	csrw mstatus, t0
+/*
+ * FreeRTOS manipulates machine CSRs while creating tasks and in critical
+ * sections, so enter main in M-mode with interrupts disabled.  This matches
+ * WCH's CH32V30x FreeRTOS startup: FS=dirty, MPP=M, MPIE=0 and MIE=0.
+ */
+	li t0, 0x7800
+	csrw mstatus, t0
 /* Configure the interrupt vector table recognition mode and entry address mode */
  	la t0, _vector_base
     ori t0, t0, 3           
@@ -370,5 +374,3 @@ handle_reset:
 	la t0, main
 	csrw mepc, t0
 	mret
-
-

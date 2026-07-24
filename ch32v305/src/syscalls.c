@@ -38,7 +38,12 @@ void Delay_Init(void)
     SysTick->SR = 0;
     SysTick->CNT = 0;
     SysTick->CMP = 0xFFFFFFFFFFFFFFFFULL;
-    SysTick->CTLR = 0x0FU;
+    /*
+     * Free-run at HCLK (144 MHz).  Leave STIE and STRE clear here; the
+     * FreeRTOS port installs the first absolute compare and enables only STIE
+     * when the scheduler starts.
+     */
+    SysTick->CTLR = 0x05U;
 }
 
 /*********************************************************************

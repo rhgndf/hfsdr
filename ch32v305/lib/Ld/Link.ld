@@ -168,8 +168,8 @@ SECTIONS
 	PROVIDE( _heap_end = ORIGIN(RAM) + LENGTH(RAM) - __stack_size );
 	PROVIDE( _susrstack = _heap_end );
 	PROVIDE( _eusrstack = ORIGIN(RAM) + LENGTH(RAM) );
+	PROVIDE( __freertos_irq_stack_top = _eusrstack );
 
 	ASSERT( _end <= _heap_end, "RAM overflow: .data/.bss/heap overlap stack" )
 
 }
-

@@ -26,13 +26,11 @@ static volatile uint32_t s_usb_drop_frame_count = 0U;
   return s_streaming_alt != 0U;
 }
 
-void audio_usb_mic_write_isr(volatile uint16_t const* src_words, size_t word_count)
+void audio_usb_mic_write(volatile uint16_t const* src_words, size_t word_count)
 {
   size_t const frame_count = word_count / 4U;
-  size_t const sample_count = frame_count * 2U;
   size_t const total_bytes = frame_count * AUDIO_USB_FRAME_BYTES;
   tu_fifo_t* fifo;
-  tu_fifo_buffer_info_t info;
 
   if ((!audio_usb_tx_ready()) || (src_words == 0) || (frame_count == 0U)) {
     return;
@@ -44,31 +42,18 @@ void audio_usb_mic_write_isr(volatile uint16_t const* src_words, size_t word_cou
   }
 
   fifo = tud_audio_get_ep_in_ff();
-  tu_fifo_get_write_info(fifo, &info);
-  if ((info.linear.len + info.wrapped.len) < total_bytes) {
+  if (tu_fifo_remaining(fifo) < total_bytes) {
     s_usb_drop_frame_count += (uint32_t)frame_count;
     return;
   }
 
-  /* The I2S producer has already normalized each 32-bit sample in place.
-   * The FIFO byte buffer is uint16_t-aligned by tinyusb (TUD_EPBUF_DEF
-   * uses 4-byte alignment), so the linear segment always splits on a
-   * 4-byte boundary in this 8-bytes-per-frame stream. */
-  uint32_t const* src32 = (uint32_t const*)(uintptr_t)src_words;
-  size_t const linear_samples = info.linear.len / sizeof(uint32_t);
-  size_t const head = (linear_samples < sample_count) ? linear_samples : sample_count;
-  uint32_t* dst = (uint32_t*)(uintptr_t)info.linear.ptr;
-  for (size_t i = 0U; i < head; ++i) {
-    dst[i] = src32[i];
+  /* The capacity check preserves the all-or-drop DMA-chunk policy.  The USB
+   * consumer can only increase the available space before this write. */
+  uint16_t const written =
+      tud_audio_write((void const*)(uintptr_t)src_words, (uint16_t)total_bytes);
+  if (written != total_bytes) {
+    s_usb_drop_frame_count += (uint32_t)frame_count;
   }
-  if (head < sample_count) {
-    uint32_t* wrap = (uint32_t*)(uintptr_t)info.wrapped.ptr;
-    for (size_t i = head; i < sample_count; ++i) {
-      wrap[i - head] = src32[i];
-    }
-  }
-
-  tu_fifo_advance_write_pointer(fifo, (uint16_t)total_bytes);
 }
 
 static bool audio_clock_get_request(uint8_t rhport, tusb_control_request_t const* request) {

@@ -21,6 +21,9 @@
 #include <stddef.h>
 
 extern "C" {
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include "hw/pinout.h"
 #include "hw/dac.h"
 #include "hw/encoder.h"
@@ -45,6 +48,7 @@ extern "C" {
 #include "demod/rds.h"
 #include "hw/sdcard/sdcard.h"
 #include "utils/utils.h"
+#include "freertos/task_stacks.h"
 
 
 constexpr uint64_t InitialCalibrationFreq = 144020000ULL;
@@ -52,6 +56,15 @@ constexpr uint64_t InitialFMFreq = 92400000ULL;
 static void Boot_Display_InitLandscape(void);
 
 static hardware_rev_t s_hardware_rev = HARDWARE_REV_UNKNOWN;
+static StaticTask_t s_i2s_task_tcb;
+static StackType_t s_i2s_task_stack[I2S_TASK_STACK_WORDS]
+    __attribute__((aligned(portBYTE_ALIGNMENT)));
+static StaticTask_t s_usb_task_tcb;
+static StackType_t s_usb_task_stack[USB_TASK_STACK_WORDS]
+    __attribute__((aligned(portBYTE_ALIGNMENT)));
+static StaticTask_t s_application_task_tcb;
+static StackType_t s_application_task_stack[APP_TASK_STACK_WORDS]
+    __attribute__((aligned(portBYTE_ALIGNMENT)));
 
 void detect_hardware_rev(void)
 {
@@ -269,32 +282,13 @@ static void SDCard_Poll(void)
            s.high_speed ? 1U : 0U);
 }
 
-/*********************************************************************
- * @fn      main
- *
- * @brief   Main program.
- *
- * @return  none
- */
-int main(void)
+static void Application_Task(void *parameters)
 {
-    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
-    NVIC_ClearPendingIRQ(Software_IRQn);
-    NVIC_InitTypeDef software_irq{};
-    software_irq.NVIC_IRQChannel = Software_IRQn;
-    software_irq.NVIC_IRQChannelPreemptionPriority = 3;
-    software_irq.NVIC_IRQChannelSubPriority = 1;
-    software_irq.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Init(&software_irq);
+    (void)parameters;
 
-    SystemCoreClockUpdate();
-    Delay_Init();
     //rtc_init();
     detect_hardware_rev();
-
-    usb_hw_init();
     
-    //SysTick_Config(SystemCoreClock / 1000);	
     printf("SystemClk:%ld\r\n", SystemCoreClock);
     printf( "ChipID:%08lx\r\n", DBGMCU_GetCHIPID() );
     printf("Hardware rev:v%u\r\n", (unsigned int)get_hardware_rev());
@@ -362,6 +356,7 @@ int main(void)
     while(s_i2s_bitslip_check)
     {
         TLV320_I2S_CheckBitslip();
+        vTaskDelay(pdMS_TO_TICKS(1U));
     }
     (void)tlv320adc6120_ch1_mute(false);
     trng_hw_deinit();
@@ -393,5 +388,57 @@ int main(void)
         SDCardPoll();
         //demod::rds_poll();
         watchdog_kick();
+        vTaskDelay(pdMS_TO_TICKS(2U));
+    }
+}
+
+/*********************************************************************
+ * @fn      main
+ *
+ * @brief   Configure the scheduler and create all statically allocated tasks.
+ *
+ * @return  none
+ */
+int main(void)
+{
+    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
+    SystemCoreClockUpdate();
+    configASSERT(SystemCoreClock == configCPU_CLOCK_HZ);
+    Delay_Init();
+
+    TaskHandle_t i2s_task_handle =
+        xTaskCreateStatic(i2s_task,
+                          "i2s",
+                          I2S_TASK_STACK_WORDS,
+                          nullptr,
+                          3U,
+                          s_i2s_task_stack,
+                          &s_i2s_task_tcb);
+    configASSERT(i2s_task_handle != nullptr);
+
+    TaskHandle_t usb_task_handle =
+        xTaskCreateStatic(usb_task,
+                          "usb",
+                          USB_TASK_STACK_WORDS,
+                          nullptr,
+                          2U,
+                          s_usb_task_stack,
+                          &s_usb_task_tcb);
+    configASSERT(usb_task_handle != nullptr);
+
+    TaskHandle_t application_task =
+        xTaskCreateStatic(Application_Task,
+                          "application",
+                          APP_TASK_STACK_WORDS,
+                          nullptr,
+                          1U,
+                          s_application_task_stack,
+                          &s_application_task_tcb);
+    configASSERT(application_task != nullptr);
+
+    vTaskStartScheduler();
+    configASSERT(false);
+    for(;;)
+    {
     }
 }

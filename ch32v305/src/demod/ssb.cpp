@@ -113,7 +113,7 @@ static void ssb_process_frames(const uint16_t *words, size_t frame_count, uint32
         int32_t audio = q30_mul(filt_i, cos_q30) - q30_mul(filt_q, sin_q30);
 
         uint16_t const dac12 = demod::audio_to_dac12(audio, gain_q16, kDacShift);
-        dac_hw_stream_fm_push_sample_isr(dac12);
+        dac_hw_stream_fm_push_sample(dac12);
 
         mixer_idx = (mixer_idx + 1U) & kOscillatorMask;
     }

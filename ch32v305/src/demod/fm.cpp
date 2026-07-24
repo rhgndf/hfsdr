@@ -106,7 +106,7 @@ static void fm_process_frames(const uint16_t *words, size_t frame_count, uint32_
         uint16_t const dac12 = demod::audio_to_dac12(s_deemph.push(audio_cic_q31, deemph_alpha_q31),
                                                      gain_q16,
                                                      dac_shift);
-        dac_hw_stream_fm_push_sample_isr(dac12);
+        dac_hw_stream_fm_push_sample(dac12);
 
         s_i_prev = i_filt;
         s_q_prev = q_filt;

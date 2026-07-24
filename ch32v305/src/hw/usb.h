@@ -8,8 +8,8 @@
 
 #define USB_HW_PLL_LOCK_STATE_SIZE 2U
 
-void usb_hw_init(void);
-void usb_hw_vendor_write_isr(volatile uint16_t const *src_words, size_t word_count);
+void usb_task(void *parameters);
+void usb_hw_vendor_write(volatile uint16_t const *src_words, size_t word_count);
 uint32_t usb_hw_vendor_total_words(void);
 uint32_t usb_hw_vendor_dropped_words(void);
 

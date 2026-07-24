@@ -75,7 +75,7 @@ extern "C" void demod_init(void)
     dac_hw_stream_fm_start(demod::kSampleRateHz);
 }
 
-extern "C" bool demod_process_isr(volatile uint16_t const *src_words, size_t word_count)
+extern "C" bool demod_process(volatile uint16_t const *src_words, size_t word_count)
 {
     if((src_words == nullptr) || (word_count < 4U))
     {

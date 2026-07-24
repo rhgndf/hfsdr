@@ -44,3 +44,30 @@ wchisp flash ch32v305_sdr.elf
 
 - Link-time output includes `--print-memory-usage`.
 - A post-build `riscv-none-elf-size` report is also printed.
+- FreeRTOS Kernel is a submodule pinned to V11.3.0. Initialize submodules before
+  building a fresh checkout:
+
+  ```bash
+  git submodule update --init --recursive
+  ```
+- All FreeRTOS objects and tasks use static allocation. The task layout is:
+
+  | Task | Priority | Stack |
+  | --- | ---: | ---: |
+  | I2S processing | 3 | 256 words / 1024 bytes |
+  | TinyUSB device | 2 | 384 words / 1536 bytes |
+  | Application/UI | 1 | 512 words / 2048 bytes |
+  | FreeRTOS idle | 0 | 192 words / 768 bytes |
+
+- The firmware and NMSIS DSP library are built with `-fstack-usage`. With
+  release LTO, the emitted linked call paths measured 320 bytes for I2S, 576
+  bytes for USB, 1040 bytes for the application, and 128 bytes for idle. The
+  allocations include the largest
+  compiler-reported nested interrupt path, the 256-byte RISC-V integer/FPU
+  switch frame, and extra margin for prebuilt newlib calls not represented in
+  this target's `.su` records.
+- The kernel tick is 1 kHz, derived from a free-running 144 MHz CH32 SysTick.
+  Tickless idle installs an absolute compare but intentionally busy-waits
+  instead of executing `WFI`. The wait tests `CNT >= deadline` as well as
+  enabled PFIC pending interrupts, so a missed equality compare cannot stall
+  until the 64-bit counter wraps.

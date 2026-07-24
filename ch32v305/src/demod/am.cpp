@@ -103,7 +103,7 @@ void am_process_i2s_words(const uint16_t *words, size_t frame_count, uint32_t ga
         int32_t audio = s_audio_cic.push(normalized_audio);
 
         uint16_t const dac12 = demod::audio_to_dac12(audio, gain_q16, kDacShift);
-        dac_hw_stream_fm_push_sample_isr(dac12);
+        dac_hw_stream_fm_push_sample(dac12);
     }
 
     s_norm_gain_q30 = carrier_norm_gain_q30(carrier);

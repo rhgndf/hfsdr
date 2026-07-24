@@ -7,3 +7,6 @@
 [submodule "ch32v305/lib/NMSIS"]
 	path = ch32v305/lib/NMSIS
 	url = https://github.com/Nuclei-Software/NMSIS.git
+[submodule "ch32v305/lib/FreeRTOS-Kernel"]
+	path = ch32v305/lib/FreeRTOS-Kernel
+	url = https://github.com/FreeRTOS/FreeRTOS-Kernel.git
