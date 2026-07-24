@@ -56,7 +56,7 @@ wchisp flash ch32v305_sdr.elf
   | --- | ---: | ---: |
   | I2S processing | 3 | 192 words / 768 bytes |
   | TinyUSB device | 2 | 256 words / 1024 bytes |
-  | Application/UI | 1 | 384 words / 1536 bytes |
+  | Application/UI | 1 | 456 words / 1824 bytes |
   | FreeRTOS idle | 0 | 192 words / 768 bytes |
 
 - The firmware and NMSIS DSP library are built with `-fstack-usage`. With

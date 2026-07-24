@@ -366,10 +366,10 @@ static void Application_Task(void *parameters)
     i2s_sync_check_disable();
 
     (void)tlv320adc6120_hw_set_ch_gain_db_x2(-100);
-    while(iq_calibration_run())
+    /*while(iq_calibration_run())
     {
         iq_calibration_display();
-    }
+    }*/
 
     (void)tlv320adc6120_hw_set_ch_gain_db_x2(0);
     usb_hw_set_clk_freq_hz(InitialFMFreq);
