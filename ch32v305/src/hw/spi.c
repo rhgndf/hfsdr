@@ -1,20 +1,31 @@
 #include "spi.h"
 
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include "debug.h"
+#include "main.h"
 #include "pinout.h"
 
 #include "ch32v30x_dma.h"
+#include "ch32v30x_misc.h"
 #include "ch32v30x_rcc.h"
 #include "ch32v30x_spi.h"
 
-#define SPI3_TX_DMA_CHANNEL DMA2_Channel2
-#define SPI3_TX_DMA_FLAG_GL DMA2_FLAG_GL2
-#define SPI3_TX_DMA_FLAG_TC DMA2_FLAG_TC2
-#define SPI3_TX_DMA_FLAG_TE DMA2_FLAG_TE2
-#define SPI3_TX_DMA_MAX_LEN 65535U
+#define SPI3_TX_DMA_CHANNEL            DMA2_Channel2
+#define SPI3_TX_DMA_IRQn               DMA2_Channel2_IRQn
+#define SPI3_TX_DMA_FLAG_GL            DMA2_FLAG_GL2
+#define SPI3_TX_DMA_FLAG_TC            DMA2_FLAG_TC2
+#define SPI3_TX_DMA_FLAG_TE            DMA2_FLAG_TE2
+#define SPI3_TX_DMA_IT_GL              DMA2_IT_GL2
+#define SPI3_TX_DMA_IT_TC              DMA2_IT_TC2
+#define SPI3_TX_DMA_IT_TE              DMA2_IT_TE2
+#define SPI3_TX_DMA_MAX_LEN            65535U
 
 static uint16_t s_spi3_data_size = SPI_DataSize_8b;
 static uint16_t s_spi3_tx_repeat_word = 0U;
+
+void DMA2_Channel2_IRQHandler(void) __attribute__((interrupt));
 
 static void spi_hw_set_data_size(uint16_t data_size)
 {
@@ -35,16 +46,27 @@ static void spi_hw_set_data_size(uint16_t data_size)
 
 void spi_hw_wait_dma(void)
 {
+
+    bool const dma_in_progress =
+        ((SPI3_TX_DMA_CHANNEL->CFGR & DMA_CFGR1_EN) != 0U) &&
+        (DMA_GetCurrDataCounter(SPI3_TX_DMA_CHANNEL) > 0U);
+
+    if(dma_in_progress)
+    {
+        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    }
+
+    /* DMA completion means the last word reached DATAR, not necessarily the
+     * wire.  The remaining BSY interval is at most one SPI frame. */
     while(SPI_I2S_GetFlagStatus(SPI3, SPI_I2S_FLAG_BSY) != RESET)
     {
     }
 
-    while(DMA_GetCurrDataCounter(SPI3_TX_DMA_CHANNEL) > 0)
-    {
-    }
-    DMA_Cmd(SPI3_TX_DMA_CHANNEL, DISABLE);
     SPI_I2S_DMACmd(SPI3, SPI_I2S_DMAReq_Tx, DISABLE);
+    DMA_ITConfig(SPI3_TX_DMA_CHANNEL, DMA_IT_TC | DMA_IT_TE, DISABLE);
+    DMA_Cmd(SPI3_TX_DMA_CHANNEL, DISABLE);
     DMA_ClearFlag(SPI3_TX_DMA_FLAG_GL | SPI3_TX_DMA_FLAG_TC | SPI3_TX_DMA_FLAG_TE);
+    NVIC_ClearPendingIRQ(SPI3_TX_DMA_IRQn);
 }
 
 void spi_hw_init(void)
@@ -82,6 +104,15 @@ void spi_hw_init(void)
     DMA_Cmd(SPI3_TX_DMA_CHANNEL, DISABLE);
     DMA_DeInit(SPI3_TX_DMA_CHANNEL);
     DMA_ClearFlag(SPI3_TX_DMA_FLAG_GL | SPI3_TX_DMA_FLAG_TC | SPI3_TX_DMA_FLAG_TE);
+    NVIC_ClearPendingIRQ(SPI3_TX_DMA_IRQn);
+
+    NVIC_InitTypeDef dma_irq = {0};
+    dma_irq.NVIC_IRQChannel = SPI3_TX_DMA_IRQn;
+    dma_irq.NVIC_IRQChannelPreemptionPriority = 2U;
+    dma_irq.NVIC_IRQChannelSubPriority = 0U;
+    dma_irq.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&dma_irq);
+
     s_spi3_data_size = SPI_DataSize_8b;
 }
 
@@ -125,6 +156,7 @@ static void spi_hw_transfer_dma_chunk(const uint8_t *tx_buf, uint16_t len)
     dma_init.DMA_M2M = DMA_M2M_Disable;
     DMA_Init(SPI3_TX_DMA_CHANNEL, &dma_init);
 
+    DMA_ITConfig(SPI3_TX_DMA_CHANNEL, DMA_IT_TC | DMA_IT_TE, ENABLE);
     DMA_Cmd(SPI3_TX_DMA_CHANNEL, ENABLE);
     SPI_I2S_DMACmd(SPI3, SPI_I2S_DMAReq_Tx, ENABLE);
 }
@@ -157,6 +189,7 @@ static void spi_hw_transfer_dma_repeat_u16_chunk(uint16_t tx_word, uint16_t coun
     dma_init.DMA_M2M = DMA_M2M_Disable;
     DMA_Init(SPI3_TX_DMA_CHANNEL, &dma_init);
 
+    DMA_ITConfig(SPI3_TX_DMA_CHANNEL, DMA_IT_TC | DMA_IT_TE, ENABLE);
     DMA_Cmd(SPI3_TX_DMA_CHANNEL, ENABLE);
     SPI_I2S_DMACmd(SPI3, SPI_I2S_DMAReq_Tx, ENABLE);
 }
@@ -188,8 +221,29 @@ static void spi_hw_transfer_dma_u16_chunk(const uint16_t *tx_buf, uint16_t count
     dma_init.DMA_M2M = DMA_M2M_Disable;
     DMA_Init(SPI3_TX_DMA_CHANNEL, &dma_init);
 
+    DMA_ITConfig(SPI3_TX_DMA_CHANNEL, DMA_IT_TC | DMA_IT_TE, ENABLE);
     DMA_Cmd(SPI3_TX_DMA_CHANNEL, ENABLE);
     SPI_I2S_DMACmd(SPI3, SPI_I2S_DMAReq_Tx, ENABLE);
+}
+
+void DMA2_Channel2_IRQHandler(void)
+{
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    bool const transfer_ended =
+        (DMA_GetITStatus(SPI3_TX_DMA_IT_TC) != RESET) ||
+        (DMA_GetITStatus(SPI3_TX_DMA_IT_TE) != RESET);
+
+    DMA_ClearITPendingBit(SPI3_TX_DMA_IT_GL |
+                          SPI3_TX_DMA_IT_TC |
+                          SPI3_TX_DMA_IT_TE);
+
+    if(transfer_ended)
+    {
+        vTaskNotifyGiveFromISR(g_application_task_handle,
+                               &higher_priority_task_woken);
+    }
+
+    portYIELD_FROM_ISR(higher_priority_task_woken);
 }
 
 void spi_hw_transfer_dma(const uint8_t *tx_buf, size_t len)

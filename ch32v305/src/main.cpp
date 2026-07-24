@@ -65,6 +65,7 @@ static StackType_t s_usb_task_stack[USB_TASK_STACK_WORDS]
 static StaticTask_t s_application_task_tcb;
 static StackType_t s_application_task_stack[APP_TASK_STACK_WORDS]
     __attribute__((aligned(portBYTE_ALIGNMENT)));
+TaskHandle_t g_application_task_handle;
 
 void detect_hardware_rev(void)
 {
@@ -426,7 +427,7 @@ int main(void)
                           &s_usb_task_tcb);
     configASSERT(usb_task_handle != nullptr);
 
-    TaskHandle_t application_task =
+    g_application_task_handle =
         xTaskCreateStatic(Application_Task,
                           "application",
                           APP_TASK_STACK_WORDS,
@@ -434,7 +435,7 @@ int main(void)
                           1U,
                           s_application_task_stack,
                           &s_application_task_tcb);
-    configASSERT(application_task != nullptr);
+    configASSERT(g_application_task_handle != nullptr);
 
     vTaskStartScheduler();
     configASSERT(false);

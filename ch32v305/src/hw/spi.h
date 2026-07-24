@@ -18,6 +18,9 @@ uint8_t spi_hw_transfer_u8(uint8_t tx_byte);
 void spi_hw_transfer_dma(const uint8_t *tx_buf, size_t len);
 void spi_hw_transfer_dma_u16(const uint16_t *tx_buf, size_t count);
 void spi_hw_transfer_dma_repeat_u16(uint16_t tx_word, size_t count);
+/* Blocks only the calling FreeRTOS task while an SPI3 TX DMA transfer is
+ * active. It returns immediately when the DMA channel has no work pending,
+ * then waits for the final SPI frame to leave the shifter. */
 void spi_hw_wait_dma(void);
 
 #ifdef __cplusplus
