@@ -22,7 +22,7 @@ typedef struct
     uint8_t usb_data_seen;
     uint8_t freq_changed_seen;
     uint32_t last_vendor_total_words;
-    uint64_t initial_frequency_hz;
+    uint32_t initial_frequency_hz;
     uint64_t activity_window_until_tick;
     uint64_t activity_led1_until_tick;
     uint8_t led_duty_percent[2];
@@ -122,7 +122,7 @@ static void led_update_activity_gates(uint64_t now_tick)
 {
     uint32_t vendor_total_words_now = usb_hw_vendor_total_words();
     uint32_t vendor_delta_words = vendor_total_words_now - g_led_ctrl.last_vendor_total_words;
-    uint64_t freq_now_hz = si5351_hw_clk0_get_freq_hz();
+    uint32_t freq_now_hz = si5351_hw_clk0_get_freq_hz();
 
     if(vendor_delta_words > 0U)
     {

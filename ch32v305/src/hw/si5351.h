@@ -22,13 +22,13 @@
 #define SI5351_I2C_ADDR_7BIT 0x60U
 
 /* Si5351A practical lower clock-output limit. */
-#define SI5351_MIN_OUTPUT_HZ 2500ULL
+#define SI5351_MIN_OUTPUT_HZ 2500U
 
 #include "debug.h"
 
 ErrorStatus si5351_init();
-ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz_hz);
-uint64_t si5351_hw_clk0_get_freq_hz();
+ErrorStatus si5351_hw_clk0_set_freq_hz(uint32_t hz);
+uint32_t si5351_hw_clk0_get_freq_hz();
 ErrorStatus si5351_hw_get_plla_lock(uint8_t *locked);
 
 #endif

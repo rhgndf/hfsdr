@@ -68,7 +68,7 @@ extern "C" {
 #define UI_SPLASH_TEXT_BASELINE_DY  1
 #define UI_SPLASH_TEXT_SHEAR_NUM   (-1)
 #define UI_SPLASH_TEXT_SHEAR_DEN   36
-#define UI_SPLASH_FREQ_STEP_HZ 100000ULL
+#define UI_SPLASH_FREQ_STEP_HZ 100000U
 
 /* Landscape waveform scope quad (same vertex order as MHz quad). */
 #define UI_SPLASH_WAVE_X0    188U
@@ -132,7 +132,7 @@ static bool s_splash_band_dirty = true;
 static ui_splash_appearance_t s_splash_appearance = UI_SPLASH_APPEARANCE_NORMAL;
 static ui_splash_appearance_t s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
 static uint8_t s_splash_button_phase = 0U;
-static uint64_t s_displayed_splash_freq_hz = UINT64_MAX;
+static uint32_t s_displayed_splash_freq_hz = UINT32_MAX;
 static int32_t s_splash_wave_display_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS;
 static uint16_t s_splash_wave_prev_x[UI_SPLASH_WAVE_DISPLAY_COLS];
 static uint16_t s_splash_wave_prev_y[UI_SPLASH_WAVE_DISPLAY_COLS];
@@ -143,7 +143,7 @@ static bool s_splash_spec_poly_valid = false;
 /* Last MADCTL value applied by UI (0xFF = never synced this session). */
 static uint8_t s_hw_madctl = 0xFFU;
 
-static uint64_t s_displayed_freq_hz = UINT64_MAX;
+static uint32_t s_displayed_freq_hz = UINT32_MAX;
 static uint8_t s_displayed_volume = UINT8_MAX;
 static int8_t s_displayed_tlv320_gain_db_x2 = INT8_MAX;
 static demodulation_mode_t s_demod_mode = DEMODULATION_MODE_WBFM;
@@ -176,22 +176,22 @@ static bool ui_control_is_frequency(ui_control_t control)
     return control <= UI_CONTROL_FREQ_1_KHZ;
 }
 
-static uint64_t ui_frequency_step_hz(ui_control_t control)
+static uint32_t ui_frequency_step_hz(ui_control_t control)
 {
     switch(control)
     {
         case UI_CONTROL_FREQ_1_KHZ:
-            return 1000ULL;
+            return 1000U;
         case UI_CONTROL_FREQ_10_KHZ:
-            return 10000ULL;
+            return 10000U;
         case UI_CONTROL_FREQ_100_KHZ:
-            return 100000ULL;
+            return 100000U;
         case UI_CONTROL_FREQ_1_MHZ:
-            return 1000000ULL;
+            return 1000000U;
         case UI_CONTROL_FREQ_10_MHZ:
-            return 10000000ULL;
+            return 10000000U;
         default:
-            return 100000ULL;
+            return 100000U;
     }
 }
 
@@ -214,16 +214,17 @@ static uint8_t ui_frequency_digit_power(ui_control_t control)
     }
 }
 
-static uint64_t ui_apply_frequency_delta(uint64_t freq_hz, int16_t delta, uint64_t step_hz)
+static uint32_t ui_apply_frequency_delta(uint32_t freq_hz, int16_t delta, uint32_t step_hz)
 {
     int64_t next_freq_hz = (int64_t)freq_hz + ((int64_t)delta * (int64_t)step_hz);
 
-    if(next_freq_hz < (int64_t)SI5351_MIN_OUTPUT_HZ)
+    if((next_freq_hz < (int64_t)SI5351_MIN_OUTPUT_HZ) ||
+       (next_freq_hz > (int64_t)UINT32_MAX))
     {
         return freq_hz;
     }
 
-    return (uint64_t)next_freq_hz;
+    return (uint32_t)next_freq_hz;
 }
 
 static uint8_t ui_apply_delta_u8(uint8_t value, int16_t delta, uint8_t min, uint8_t max)
@@ -272,7 +273,7 @@ static void ui_splash_exit_to_waterfall(void)
     s_active_control = UI_CONTROL_FREQ_10_MHZ;
     s_splash_band_dirty = false;
     s_splash_button_phase = 0U;
-    s_displayed_splash_freq_hz = UINT64_MAX;
+    s_displayed_splash_freq_hz = UINT32_MAX;
     s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
     s_redraw_all = true;
     s_displayed_active_control = UI_CONTROL_COUNT;
@@ -296,7 +297,7 @@ extern "C" void ui_handle_button_press(void)
         s_splash_appearance = (s_splash_button_phase == 1U) ? UI_SPLASH_APPEARANCE_INVERTED
                                                             : UI_SPLASH_APPEARANCE_NORMAL;
         s_splash_band_dirty = true;
-        s_displayed_splash_freq_hz = UINT64_MAX;
+        s_displayed_splash_freq_hz = UINT32_MAX;
         s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
         return;
     }
@@ -306,7 +307,7 @@ extern "C" void ui_handle_button_press(void)
         s_display_mode = UI_DISPLAY_SPLASH;
         s_splash_band_dirty = true;
         s_splash_button_phase = 0U;
-        s_displayed_splash_freq_hz = UINT64_MAX;
+        s_displayed_splash_freq_hz = UINT32_MAX;
         s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
         return;
     }
@@ -319,7 +320,7 @@ extern "C" void ui_handle_button_long_press(void)
     s_recording = !s_recording;
 }
 
-static void ui_draw_selected_frequency_digit(uint64_t freq_hz)
+static void ui_draw_selected_frequency_digit(uint32_t freq_hz)
 {
     uint8_t digit_power = ui_frequency_digit_power(s_active_control);
     uint16_t digit_index = (uint16_t)(UI_FREQ_DIGITS - 1U - digit_power);
@@ -333,7 +334,7 @@ static void ui_draw_selected_frequency_digit(uint64_t freq_hz)
                               YELLOW);
 }
 
-static void ui_draw_frequency(uint64_t freq_hz)
+static void ui_draw_frequency(uint32_t freq_hz)
 {
     char freq_text[24];
 
@@ -460,7 +461,7 @@ static void ui_draw_progress_row(uint16_t y, char const *label, int16_t value, i
     }
 }
 
-static void ui_draw_header(uint64_t freq_hz)
+static void ui_draw_header(uint32_t freq_hz)
 {
     if(s_redraw_all)
     {
@@ -988,19 +989,19 @@ static void ui_draw_splash_spectrum(void)
     i2s_fft_sample_arr_reset();
 }
 
-static void ui_draw_splash_freq_overlay(uint64_t freq_hz)
+static void ui_draw_splash_freq_overlay(uint32_t freq_hz)
 {
     char text[20];
-    if(freq_hz >= 1000000ULL)
+    if(freq_hz >= 1000000U)
     {
-        unsigned long mhz = (unsigned long)(freq_hz / 1000000ULL);
-        unsigned long mhz_frac = (unsigned long)((freq_hz % 1000000ULL) / 100000ULL);
+        unsigned long mhz = (unsigned long)(freq_hz / 1000000U);
+        unsigned long mhz_frac = (unsigned long)((freq_hz % 1000000U) / 100000U);
         snprintf(text, sizeof(text), "%lu.%lu MHz", mhz, mhz_frac);
     }
-    else if(freq_hz >= 1000ULL)
+    else if(freq_hz >= 1000U)
     {
-        unsigned long khz = (unsigned long)(freq_hz / 1000ULL);
-        unsigned long khz_frac = (unsigned long)((freq_hz % 1000ULL) / 100ULL);
+        unsigned long khz = (unsigned long)(freq_hz / 1000U);
+        unsigned long khz_frac = (unsigned long)((freq_hz % 1000U) / 100U);
         snprintf(text, sizeof(text), "%lu.%lu kHz", khz, khz_frac);
     }
     else
@@ -1036,7 +1037,7 @@ static void ui_draw_splash_freq_overlay(uint64_t freq_hz)
                               UI_SPLASH_TEXT_SHEAR_DEN);
 }
 
-static void ui_draw_splash_fullscreen_landscape(uint64_t freq_hz)
+static void ui_draw_splash_fullscreen_landscape(uint32_t freq_hz)
 {
     s_splash_wave_poly_valid = false;
     s_splash_spec_poly_valid = false;
@@ -1059,7 +1060,7 @@ static void ui_draw_splash_fullscreen_landscape(uint64_t freq_hz)
     ui_draw_splash_spectrum();
 }
 
-static void ui_apply_encoder_delta(int16_t delta, uint64_t freq_hz, uint64_t *next_freq_hz)
+static void ui_apply_encoder_delta(int16_t delta, uint32_t freq_hz, uint32_t *next_freq_hz)
 {
     *next_freq_hz = freq_hz;
 
@@ -1076,7 +1077,8 @@ static void ui_apply_encoder_delta(int16_t delta, uint64_t freq_hz, uint64_t *ne
         case UI_CONTROL_FREQ_1_MHZ:
         case UI_CONTROL_FREQ_10_MHZ:
         {
-            uint64_t requested_freq_hz = ui_apply_frequency_delta(freq_hz, delta, ui_frequency_step_hz(s_active_control));
+            uint32_t requested_freq_hz =
+                ui_apply_frequency_delta(freq_hz, delta, ui_frequency_step_hz(s_active_control));
 
             if(usb_hw_set_clk_freq_hz(requested_freq_hz) == READY)
             {
@@ -1135,7 +1137,7 @@ static void ui_apply_encoder_delta(int16_t delta, uint64_t freq_hz, uint64_t *ne
 
 void UI_Init(void)
 {
-    s_displayed_freq_hz = UINT64_MAX;
+    s_displayed_freq_hz = UINT32_MAX;
     s_displayed_volume = UINT8_MAX;
     s_displayed_tlv320_gain_db_x2 = INT8_MAX;
     s_demod_mode = DEMODULATION_MODE_WBFM;
@@ -1151,7 +1153,7 @@ void UI_Init(void)
     s_display_mode = UI_DISPLAY_SPLASH;
     s_splash_band_dirty = true;
     s_splash_button_phase = 0U;
-    s_displayed_splash_freq_hz = UINT64_MAX;
+    s_displayed_splash_freq_hz = UINT32_MAX;
     s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
     s_splash_spec_poly_valid = false;
     UI_FFT_Init();
@@ -1168,7 +1170,7 @@ bool UI_ShouldDrawFft(void)
 void UI_Draw(void)
 {
     int16_t encoder_delta = encoder_take_delta();
-    uint64_t freq_hz = si5351_hw_clk0_get_freq_hz();
+    uint32_t freq_hz = si5351_hw_clk0_get_freq_hz();
 
     ui_sync_display_hw_for_mode();
 
@@ -1178,7 +1180,8 @@ void UI_Draw(void)
     }
     else if(encoder_delta != 0)
     {
-        uint64_t requested_freq_hz = ui_apply_frequency_delta(freq_hz, encoder_delta, UI_SPLASH_FREQ_STEP_HZ);
+        uint32_t requested_freq_hz =
+            ui_apply_frequency_delta(freq_hz, encoder_delta, UI_SPLASH_FREQ_STEP_HZ);
 
         if(usb_hw_set_clk_freq_hz(requested_freq_hz) == READY)
         {

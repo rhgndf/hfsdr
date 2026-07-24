@@ -13,21 +13,21 @@
 #include <stdint.h>
 
 /* Etherkit-style internal scaling: frequencies in 0.01 Hz units (×100). */
-#define SI5351_FREQ_MULT 100ULL
+#define SI5351_FREQ_MULT 100U
 
 /* Si5351 / Etherkit limits (Hz at output, before R-div scaling in algorithm). */
-#define SI5351_CLKOUT_MAX_HZ   225000000ULL
-#define SI5351_PLL_VCO_MIN_HZ  400000000ULL
-#define SI5351_PLL_TARGET_HZ   900000000ULL
-#define SI5351_PLL_VCO_MAX_HZ  1000000000ULL
+#define SI5351_CLKOUT_MAX_HZ   225000000U
+#define SI5351_PLL_VCO_MIN_HZ  400000000U
+#define SI5351_PLL_TARGET_HZ   900000000U
+#define SI5351_PLL_VCO_MAX_HZ  1000000000U
 #define SI5351_PLL_DENOM_MAX   1048575U
 #define SI5351_MULTISYNTH_A_MIN 6U
 #define SI5351_MULTISYNTH_A_MAX 1800U
 #define SI5351_PHASE_REG_MS_MAX 126U
 #define SI5351_PLL_A_MIN       15U
 #define SI5351_PLL_A_MAX       90U
-#define SI5351_PHASE_REG_MIN_OUTPUT_HZ 3174604ULL
-#define SI5351_TEMP_OFFSET_HZ  250ULL
+#define SI5351_PHASE_REG_MIN_OUTPUT_HZ 3174604U
+#define SI5351_TEMP_OFFSET_HZ  250U
 #define SI5351_TIM6_MAX_TICKS  65536UL
 #define SI5351_TIM6_PRESCALER_DIV_MAX 65536UL
 #define SI5351_PLL_LOCK_POLL_HZ 1000UL
@@ -95,7 +95,7 @@ enum si5351_tim6_state
     SI5351_TIM6_ARMED_FINALIZE_CLK1 = 2
 };
 
-static uint64_t si5351_actual_frequency;
+static uint32_t si5351_actual_frequency_hz;
 static volatile enum si5351_tim6_state si5351_tim6_state;
 static volatile uint32_t si5351_tim6_phase_ticks;
 static volatile uint32_t si5351_tim6_lock_polls_remaining;
@@ -234,7 +234,7 @@ static uint8_t si5351_r_div_factor(uint8_t r_div)
 
 static uint8_t si5351_select_r_div(uint64_t freq_scaled)
 {
-    uint64_t min_vco_scaled = SI5351_PLL_VCO_MIN_HZ * SI5351_FREQ_MULT;
+    uint64_t min_vco_scaled = (uint64_t)SI5351_PLL_VCO_MIN_HZ * SI5351_FREQ_MULT;
     for(uint8_t r_div = SI5351_R_DIV_1; r_div <= SI5351_R_DIV_128; ++r_div)
     {
         uint64_t r_factor = si5351_r_div_factor(r_div);
@@ -294,7 +294,7 @@ static uint32_t si5351_select_temp_b1_denominator(uint64_t final_output_scaled, 
      * Clamp c >= 2 so b/c stays below 1 and the temporary integer part
      * remains a. TIM6 is later timed from the actual chosen-c delta.
      */
-    uint64_t target_delta_scaled = SI5351_TEMP_OFFSET_HZ * SI5351_FREQ_MULT;
+    uint64_t target_delta_scaled = (uint64_t)SI5351_TEMP_OFFSET_HZ * SI5351_FREQ_MULT;
     if((target_delta_scaled == 0U) || (div == 0U) || (final_output_scaled <= target_delta_scaled))
     {
         return 2U;
@@ -354,7 +354,8 @@ static ErrorStatus si5351_calculate_clk0_config(uint64_t freq_scaled, uint32_t m
     out_conf->allow_integer_mode = 1U;
     out_conf->phase_offset = 0U;
 
-    uint64_t calculated_div = (SI5351_PLL_TARGET_HZ * SI5351_FREQ_MULT / 2U) / output_clock_scaled * 2U;
+    uint64_t calculated_div =
+        ((uint64_t)SI5351_PLL_TARGET_HZ * SI5351_FREQ_MULT / 2U) / output_clock_scaled * 2U;
     if(calculated_div < 4U)
     {
         calculated_div = 4U;
@@ -369,8 +370,8 @@ static ErrorStatus si5351_calculate_clk0_config(uint64_t freq_scaled, uint32_t m
                                       : (struct si5351_ms){128U * out_conf->div - 512, 0U, 1U};
 
     uint64_t vco_freq = output_clock_scaled * calculated_div;
-    if((vco_freq < (SI5351_PLL_VCO_MIN_HZ * SI5351_FREQ_MULT)) ||
-       (vco_freq > (SI5351_PLL_VCO_MAX_HZ * SI5351_FREQ_MULT)))
+    if((vco_freq < ((uint64_t)SI5351_PLL_VCO_MIN_HZ * SI5351_FREQ_MULT)) ||
+       (vco_freq > ((uint64_t)SI5351_PLL_VCO_MAX_HZ * SI5351_FREQ_MULT)))
     {
         return NoREADY;
     }
@@ -387,13 +388,14 @@ static ErrorStatus si5351_calculate_clk0_config(uint64_t freq_scaled, uint32_t m
     pll_conf->denom = base_den;
     pll_conf->ms = si5351_calc_pll_ms(pll_conf);
     uint64_t actual_vco_scaled = si5351_pll_actual_vco_scaled(pll_conf);
-    si5351_actual_frequency = actual_vco_scaled / ((uint64_t)calculated_div * (uint64_t)out_conf->r_div_factor);
-    printf("div: %lu r:%u pll: %lu %lu %lu\n",
-           (unsigned long)out_conf->div,
-           (unsigned int)out_conf->r_div_factor,
-           (unsigned long)pll_conf->mult,
-           (unsigned long)pll_conf->num,
-           (unsigned long)pll_conf->denom);
+    uint64_t actual_frequency_hz =
+        actual_vco_scaled /
+        ((uint64_t)calculated_div * (uint64_t)out_conf->r_div_factor * SI5351_FREQ_MULT);
+    if(actual_frequency_hz > UINT32_MAX)
+    {
+        return NoREADY;
+    }
+    si5351_actual_frequency_hz = (uint32_t)actual_frequency_hz;
     return READY;
 }
 
@@ -803,13 +805,13 @@ static ErrorStatus si5351_enable_quadrature_outputs(void)
     return READY;
 }
 
-static ErrorStatus si5351_hw_clk0_phase_register_set_freq_hz(uint64_t hz)
+static ErrorStatus si5351_hw_clk0_phase_register_set_freq_hz(uint32_t hz)
 {
     struct si5351_pll_config pll_conf;
     struct si5351_output_config clk0_conf;
     struct si5351_output_config clk1_conf;
 
-    uint64_t freq_scaled = hz * SI5351_FREQ_MULT;
+    uint64_t freq_scaled = (uint64_t)hz * SI5351_FREQ_MULT;
     if(si5351_calculate_clk0_config(freq_scaled, SI5351_PHASE_REG_MS_MAX, false,
                                     &pll_conf, &clk0_conf) != READY)
     {
@@ -835,7 +837,7 @@ static ErrorStatus si5351_hw_clk0_phase_register_set_freq_hz(uint64_t hz)
     return si5351_enable_quadrature_outputs();
 }
 
-static ErrorStatus si5351_hw_clk0_timed_set_freq_hz(uint64_t hz)
+static ErrorStatus si5351_hw_clk0_timed_set_freq_hz(uint32_t hz)
 {
     struct si5351_pll_config pll_conf;
     struct si5351_output_config clk0_conf;
@@ -845,7 +847,7 @@ static ErrorStatus si5351_hw_clk0_timed_set_freq_hz(uint64_t hz)
     uint8_t clk1_temp_buf[8];
     uint32_t phase_ticks;
 
-    uint64_t freq_scaled = hz * SI5351_FREQ_MULT;
+    uint64_t freq_scaled = (uint64_t)hz * SI5351_FREQ_MULT;
     if(si5351_calculate_clk0_config(freq_scaled, SI5351_MULTISYNTH_A_MAX, true,
                                     &pll_conf, &clk0_conf) != READY)
     {
@@ -878,9 +880,9 @@ static ErrorStatus si5351_hw_clk0_timed_set_freq_hz(uint64_t hz)
                                            phase_ticks);
 }
 
-static ErrorStatus si5351_hw_clk0_quadrature_set_freq_hz(uint64_t hz)
+static ErrorStatus si5351_hw_clk0_quadrature_set_freq_hz(uint32_t hz)
 {
-    if(hz == 0ULL)
+    if(hz == 0U)
     {
         return NoREADY;
     }
@@ -931,7 +933,7 @@ ErrorStatus si5351_init()
     return READY;
 }
 
-ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz)
+ErrorStatus si5351_hw_clk0_set_freq_hz(uint32_t hz)
 {
     // I2C will randomly fail, quick hack to make it working
     // We should actually reduce clock speed though
@@ -946,9 +948,9 @@ ErrorStatus si5351_hw_clk0_set_freq_hz(uint64_t hz)
     return NoREADY;
 }
 
-uint64_t si5351_hw_clk0_get_freq_hz()
+uint32_t si5351_hw_clk0_get_freq_hz()
 {
-    return si5351_actual_frequency / SI5351_FREQ_MULT;
+    return si5351_actual_frequency_hz;
 }
 
 ErrorStatus si5351_hw_get_plla_lock(uint8_t *locked)

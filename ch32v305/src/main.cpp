@@ -51,8 +51,8 @@ extern "C" {
 #include "freertos/task_stacks.h"
 
 
-constexpr uint64_t InitialCalibrationFreq = 144020000ULL;
-constexpr uint64_t InitialFMFreq = 92400000ULL;
+constexpr uint32_t InitialCalibrationFreq = 144020000U;
+constexpr uint32_t InitialFMFreq = 92400000U;
 static void Boot_Display_InitLandscape(void);
 
 static hardware_rev_t s_hardware_rev = HARDWARE_REV_UNKNOWN;

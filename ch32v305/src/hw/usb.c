@@ -75,7 +75,7 @@ static void usb_u64_to_le(uint64_t value, uint8_t *buf)
 static void usb_hw_prepare_clk_freq_state(void)
 {
     usb_hw_clk_freq_state[0] = (uint8_t)usb_hw_clk_freq_status;
-    usb_u64_to_le(si5351_hw_clk0_get_freq_hz(), &usb_hw_clk_freq_state[1]);
+    usb_u64_to_le((uint64_t)si5351_hw_clk0_get_freq_hz(), &usb_hw_clk_freq_state[1]);
 }
 
 ErrorStatus usb_hw_get_pll_lock(uint8_t *locked)
@@ -128,7 +128,7 @@ uint32_t usb_hw_vendor_dropped_words(void)
     return usb_hw_vendor_dropped_word_count;
 }
 
-ErrorStatus usb_hw_set_clk_freq_hz(uint64_t hz)
+ErrorStatus usb_hw_set_clk_freq_hz(uint32_t hz)
 {
     usb_hw_clk_freq_status = si5351_hw_clk0_set_freq_hz(hz);
     if(usb_hw_clk_freq_status == READY)
@@ -302,7 +302,13 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
                     }
                     if(stage == CONTROL_STAGE_DATA)
                     {
-                        return (usb_hw_set_clk_freq_hz(usb_u64_from_le(usb_hw_clk_freq_req)) == READY);
+                        uint64_t wire_frequency_hz = usb_u64_from_le(usb_hw_clk_freq_req);
+                        if(wire_frequency_hz > UINT32_MAX)
+                        {
+                            usb_hw_clk_freq_status = NoREADY;
+                            return false;
+                        }
+                        return (usb_hw_set_clk_freq_hz((uint32_t)wire_frequency_hz) == READY);
                     }
                     return true;
 
@@ -320,7 +326,11 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
                         return false;
                     }
 
-                    /* Returns 1 status byte followed by uint64_t little-endian frequency in Hz. */
+                    /*
+                     * Returns one status byte followed by a legacy uint64_t
+                     * little-endian container. The tracked uint32_t frequency
+                     * is zero-extended, so the upper four bytes are always zero.
+                     */
                     usb_hw_prepare_clk_freq_state();
                     return tud_control_xfer(rhport, request, usb_hw_clk_freq_state, sizeof(usb_hw_clk_freq_state));
 
