@@ -2,6 +2,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "freertos/port_isr.h"
 
 #include "debug.h"
 #include "main.h"
@@ -24,8 +25,6 @@
 
 static uint16_t s_spi3_data_size = SPI_DataSize_8b;
 static uint16_t s_spi3_tx_repeat_word = 0U;
-
-void DMA2_Channel2_IRQHandler(void) __attribute__((interrupt));
 
 static void spi_hw_set_data_size(uint16_t data_size)
 {
@@ -226,7 +225,7 @@ static void spi_hw_transfer_dma_u16_chunk(const uint16_t *tx_buf, uint16_t count
     SPI_I2S_DMACmd(SPI3, SPI_I2S_DMAReq_Tx, ENABLE);
 }
 
-void DMA2_Channel2_IRQHandler(void)
+PORT_ISR_BODY(DMA2_Channel2_IRQHandler)
 {
     BaseType_t higher_priority_task_woken = pdFALSE;
     bool const transfer_ended =

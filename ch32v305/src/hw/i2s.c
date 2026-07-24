@@ -8,6 +8,7 @@
 
 #include "debug.h"
 #include "demod/demod.h"
+#include "freertos/port_isr.h"
 #include "main.h"
 #include "pinout.h"
 #include "usb.h"
@@ -56,7 +57,6 @@ typedef enum
 int32_t i2s_fft_sample_arr[I2S_HW_COMPLEX_SAMPLE_COUNT * 2];
 static volatile uint32_t s_fft_sample_cnt = 0U;
 
-void DMA1_Channel4_IRQHandler(void) __attribute__((interrupt));
 extern void audio_usb_mic_write(volatile uint16_t const *src_words, size_t word_count);
 
 static_assert(sizeof(uintptr_t) <= sizeof(uint32_t),
@@ -455,7 +455,7 @@ void i2s_hw_enable(FunctionalState state)
     i2s_dma_rx_start();
 }
 
-void DMA1_Channel4_IRQHandler(void)
+PORT_ISR_BODY(DMA1_Channel4_IRQHandler)
 {
     BaseType_t higher_priority_task_woken = pdFALSE;
 

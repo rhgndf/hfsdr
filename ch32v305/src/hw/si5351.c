@@ -1,5 +1,6 @@
 #include "si5351.h"
 
+#include "freertos/port_isr.h"
 #include "hw/i2c.h"
 
 #include "debug.h"
@@ -610,7 +611,7 @@ static void si5351_tim6_handle_finalize_wait(void)
     si5351_tim6_finalize_clk1();
 }
 
-__attribute__((interrupt)) void TIM6_IRQHandler(void)
+PORT_ISR_BODY(TIM6_IRQHandler)
 {
     if(TIM_GetITStatus(TIM6, TIM_IT_Update) == RESET)
     {

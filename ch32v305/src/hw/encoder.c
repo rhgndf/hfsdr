@@ -1,5 +1,6 @@
 #include "encoder.h"
 
+#include "freertos/port_isr.h"
 #include "hw/pinout.h"
 #include "ui/ui.h"
 
@@ -61,7 +62,7 @@ static int16_t encoder_sync_delta(void)
     return delta;
 }
 
-__attribute__((interrupt)) void EXTI15_10_IRQHandler(void)
+PORT_ISR_BODY(EXTI15_10_IRQHandler)
 {
     if(EXTI_GetITStatus(ENCODER_BUTTON_EXTI_LINE) == RESET)
     {
@@ -106,7 +107,7 @@ __attribute__((interrupt)) void EXTI15_10_IRQHandler(void)
     }
 }
 
-__attribute__((interrupt)) void TIM10_CC_IRQHandler(void)
+PORT_ISR_BODY(TIM10_CC_IRQHandler)
 {
     uint8_t have_cc1 = (uint8_t)(TIM_GetITStatus(ENCODER_TIMER, TIM_IT_CC1) != RESET);
     uint8_t have_cc2 = (uint8_t)(TIM_GetITStatus(ENCODER_TIMER, TIM_IT_CC2) != RESET);

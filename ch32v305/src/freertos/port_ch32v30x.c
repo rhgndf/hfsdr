@@ -2,6 +2,7 @@
 #include "task.h"
 
 #include "debug.h"
+#include "port_isr.h"
 
 #include <stdint.h>
 
@@ -59,6 +60,8 @@ static BaseType_t pfic_has_enabled_pending_irq(void)
 void vPortYield(void)
 {
     NVIC_SetPendingIRQ(Software_IRQn);
+    /* Publish the PFIC MMIO write before execution can continue past a yield. */
+    __asm volatile("fence iorw, iorw" ::: "memory");
 }
 
 void vPortSetupTimerInterrupt(void)
@@ -85,8 +88,7 @@ void vPortSetupTimerInterrupt(void)
                     CH32_SYSTICK_CTLR_STCLK;
 }
 
-void SysTick_Handler(void) __attribute__((interrupt));
-void SysTick_Handler(void)
+PORT_ISR_BODY(SysTick_Handler)
 {
     UBaseType_t saved_mie = portSET_INTERRUPT_MASK_FROM_ISR();
     BaseType_t switch_required = pdFALSE;

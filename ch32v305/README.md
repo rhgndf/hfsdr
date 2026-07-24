@@ -54,18 +54,22 @@ wchisp flash ch32v305_sdr.elf
 
   | Task | Priority | Stack |
   | --- | ---: | ---: |
-  | I2S processing | 3 | 256 words / 1024 bytes |
-  | TinyUSB device | 2 | 384 words / 1536 bytes |
-  | Application/UI | 1 | 512 words / 2048 bytes |
+  | I2S processing | 3 | 192 words / 768 bytes |
+  | TinyUSB device | 2 | 256 words / 1024 bytes |
+  | Application/UI | 1 | 384 words / 1536 bytes |
   | FreeRTOS idle | 0 | 192 words / 768 bytes |
 
 - The firmware and NMSIS DSP library are built with `-fstack-usage`. With
   release LTO, the emitted linked call paths measured 320 bytes for I2S, 576
   bytes for USB, 1040 bytes for the application, and 128 bytes for idle. The
-  allocations include the largest
-  compiler-reported nested interrupt path, the 256-byte RISC-V integer/FPU
-  switch frame, and extra margin for prebuilt newlib calls not represented in
-  this target's `.su` records.
+  allocations include the 256-byte RISC-V integer/FPU switch frame and extra
+  margin for prebuilt newlib calls not represented in this target's `.su`
+  records. Returning maskable ISRs use the 2 KiB startup stack as a dedicated
+  post-scheduler interrupt stack; their assembly wrappers preserve the
+  caller-saved FPU state before calling ordinary C bodies. The release/LTO
+  compiler call graph reports 608 bytes for the worst priority-compatible
+  three-active-interrupt path including all wrapper frames, leaving 1440 bytes
+  of static margin in that stack.
 - The kernel tick is 1 kHz, derived from a free-running 144 MHz CH32 SysTick.
   Tickless idle installs an absolute compare but intentionally busy-waits
   instead of executing `WFI`. The wait tests `CNT >= deadline` as well as

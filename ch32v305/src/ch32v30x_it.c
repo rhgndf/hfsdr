@@ -10,6 +10,7 @@
 * microcontroller manufactured by Nanjing Qinheng Microelectronics.
 *******************************************************************************/
 #include "ch32v30x_it.h"
+#include "freertos/port_isr.h"
 #include "tusb.h"
 
 void NMI_Handler(void) __attribute__((interrupt));
@@ -44,6 +45,7 @@ void HardFault_Handler(void)
   }
 }
 
-__attribute__((interrupt)) void USBHS_IRQHandler(void) {
+PORT_ISR_BODY(USBHS_IRQHandler)
+{
   tud_int_handler(0);
 }

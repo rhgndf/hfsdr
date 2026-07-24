@@ -168,8 +168,15 @@ SECTIONS
 	PROVIDE( _heap_end = ORIGIN(RAM) + LENGTH(RAM) - __stack_size );
 	PROVIDE( _susrstack = _heap_end );
 	PROVIDE( _eusrstack = ORIGIN(RAM) + LENGTH(RAM) );
+	PROVIDE( __freertos_irq_stack_bottom = _susrstack );
 	PROVIDE( __freertos_irq_stack_top = _eusrstack );
 
 	ASSERT( _end <= _heap_end, "RAM overflow: .data/.bss/heap overlap stack" )
+	ASSERT( (__freertos_irq_stack_bottom & 15) == 0,
+		"FreeRTOS IRQ stack bottom must be 16-byte aligned" )
+	ASSERT( (__freertos_irq_stack_top & 15) == 0,
+		"FreeRTOS IRQ stack top must be 16-byte aligned" )
+	ASSERT( (__freertos_irq_stack_top - __freertos_irq_stack_bottom) == __stack_size,
+		"FreeRTOS IRQ stack bounds must cover the startup stack" )
 
 }
