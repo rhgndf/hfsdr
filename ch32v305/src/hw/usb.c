@@ -194,8 +194,10 @@ ErrorStatus usb_hw_get_clk_freq_status(void)
     return usb_hw_clk_freq_status;
 }
 
-static void usb_hw_init(void)
+void usb_task(void *parameters)
 {
+    (void)parameters;
+
     RCC_USBCLK48MConfig(RCC_USBCLK48MCLKSource_USBPHY);
     RCC_USBHSPLLCLKConfig(RCC_HSBHSPLLCLKSource_HSE);
     /* Board is fixed at 24 MHz HSE, so keep the USBHS PHY divider aligned to an 8 MHz ref. */
@@ -211,13 +213,6 @@ static void usb_hw_init(void)
 
     NVIC_SetPriority(USBHS_IRQn, 0x00U);
     configASSERT(tusb_init(USB_ROOT_HUB_PORT, &dev_init));
-}
-
-void usb_task(void *parameters)
-{
-    (void)parameters;
-
-    usb_hw_init();
 
     for(;;)
     {

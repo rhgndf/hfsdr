@@ -357,7 +357,7 @@ static void Application_Task(void *parameters)
     while(s_i2s_bitslip_check)
     {
         TLV320_I2S_CheckBitslip();
-        vTaskDelay(pdMS_TO_TICKS(1U));
+        vPortYield();
     }
     (void)tlv320adc6120_ch1_mute(false);
     trng_hw_deinit();
@@ -389,7 +389,6 @@ static void Application_Task(void *parameters)
         SDCardPoll();
         //demod::rds_poll();
         watchdog_kick();
-        vTaskDelay(pdMS_TO_TICKS(2U));
     }
 }
 

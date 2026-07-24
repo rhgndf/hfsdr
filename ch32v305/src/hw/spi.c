@@ -66,6 +66,8 @@ void spi_hw_wait_dma(void)
     DMA_Cmd(SPI3_TX_DMA_CHANNEL, DISABLE);
     DMA_ClearFlag(SPI3_TX_DMA_FLAG_GL | SPI3_TX_DMA_FLAG_TC | SPI3_TX_DMA_FLAG_TE);
     NVIC_ClearPendingIRQ(SPI3_TX_DMA_IRQn);
+
+    (void)ulTaskNotifyTake(pdTRUE, 0);
 }
 
 void spi_hw_init(void)
