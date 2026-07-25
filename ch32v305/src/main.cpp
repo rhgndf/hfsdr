@@ -327,7 +327,7 @@ static void Application_Task(void *parameters)
     }
     else
     {
-        printf("CST328: init failed (check wiring / I2C 0x1A / TP_RST PC13 / IRQ PA12)\r\n");
+        printf("CST328: init failed, touchscreen not present\r\n");
     }
 
     i2s_hw_init();
