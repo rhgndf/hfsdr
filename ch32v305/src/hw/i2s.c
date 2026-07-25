@@ -8,6 +8,7 @@
 
 #include "debug.h"
 #include "demod/demod.h"
+#include "dac.h"
 #include "freertos/port_isr.h"
 #include "main.h"
 #include "pinout.h"

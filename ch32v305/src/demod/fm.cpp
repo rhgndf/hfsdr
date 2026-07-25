@@ -123,7 +123,7 @@ void fm_reset()
     s_audio_cic.reset();
     s_iq_cic.reset();
     s_deemph.reset();
-    rds_reset();
+    //rds_reset();
 }
 
 void fm_process_wbfm_i2s_words(const uint16_t *words, size_t frame_count, uint32_t gain_q16)

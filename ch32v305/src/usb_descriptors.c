@@ -77,6 +77,8 @@ uint8_t const * tud_descriptor_device_cb(void)
 // Configuration Descriptor
 //--------------------------------------------------------------------+
 #define CONFIG_TOTAL_LEN    	(TUD_CONFIG_DESC_LEN + CFG_TUD_AUDIO * TUD_AUDIO_MIC_STEREO_DESC_LEN + CFG_TUD_CDC * TUD_CDC_DESC_LEN + CFG_TUD_VENDOR * TUD_VENDOR_DESC_LEN)
+#define HFSDR_OTHER_SPEED_CONFIG_DESCRIPTOR(config_num, _itfcount, _stridx, _total_len, _attribute, _power_ma) \
+    9, TUSB_DESC_OTHER_SPEED_CONFIG, U16_TO_U8S_LE(_total_len), _itfcount, config_num, _stridx, TU_BIT(7) | _attribute, (_power_ma) / 2
 
 #define EPNUM_AUDIO_IN    0x01
 #define EPNUM_CDC_NOTIF   0x83
@@ -108,8 +110,27 @@ uint8_t const desc_hs_configuration[] = {
     TUD_VENDOR_DESCRIPTOR(ITF_NUM_VENDOR, 5, EPNUM_VENDOR_OUT, 0x80 | EPNUM_VENDOR_IN, 512)
 };
 
-// other speed configuration
-uint8_t desc_other_speed_config[CONFIG_TOTAL_LEN];
+// Other-speed configurations are immutable so they remain in flash.
+uint8_t const desc_fs_other_speed_configuration[] = {
+    HFSDR_OTHER_SPEED_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0x00, 100),
+
+    TUD_AUDIO_MIC_STEREO_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, 4, EPNUM_AUDIO_IN | 0x80, CFG_TUD_AUDIO_FUNC_1_FORMAT_1_EP_SZ_IN),
+    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, 6, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
+    TUD_VENDOR_DESCRIPTOR(ITF_NUM_VENDOR, 5, EPNUM_VENDOR_OUT, 0x80 | EPNUM_VENDOR_IN, 64)
+};
+
+uint8_t const desc_hs_other_speed_configuration[] = {
+    HFSDR_OTHER_SPEED_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0x00, 100),
+
+    TUD_AUDIO_MIC_STEREO_DESCRIPTOR(ITF_NUM_AUDIO_CONTROL, 4, EPNUM_AUDIO_IN | 0x80, CFG_TUD_AUDIO_FUNC_1_FORMAT_1_EP_SZ_IN),
+    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, 6, EPNUM_CDC_NOTIF, 8, EPNUM_CDC_OUT, EPNUM_CDC_IN, 512),
+    TUD_VENDOR_DESCRIPTOR(ITF_NUM_VENDOR, 5, EPNUM_VENDOR_OUT, 0x80 | EPNUM_VENDOR_IN, 512)
+};
+
+TU_VERIFY_STATIC(sizeof(desc_fs_other_speed_configuration) == CONFIG_TOTAL_LEN,
+                 "Incorrect full-speed other-speed configuration size");
+TU_VERIFY_STATIC(sizeof(desc_hs_other_speed_configuration) == CONFIG_TOTAL_LEN,
+                 "Incorrect high-speed other-speed configuration size");
 
 // device qualifier is mostly similar to device descriptor since we don't change configuration based on speed
 tusb_desc_device_qualifier_t const desc_device_qualifier = {
@@ -140,15 +161,10 @@ uint8_t const *tud_descriptor_device_qualifier_cb(void) {
 uint8_t const *tud_descriptor_other_speed_configuration_cb(uint8_t index) {
   (void) index; // for multiple configurations
 
-  // if link speed is high return fullspeed config, and vice versa
-  // Note: the descriptor type is OHER_SPEED_CONFIG instead of CONFIG
-  memcpy(desc_other_speed_config,
-         (tud_speed_get() == TUSB_SPEED_HIGH) ? desc_fs_configuration : desc_hs_configuration,
-         CONFIG_TOTAL_LEN);
-
-  desc_other_speed_config[1] = TUSB_DESC_OTHER_SPEED_CONFIG;
-
-  return desc_other_speed_config;
+  // If link speed is high return the full-speed config, and vice versa.
+  return (tud_speed_get() == TUSB_SPEED_HIGH)
+             ? desc_fs_other_speed_configuration
+             : desc_hs_other_speed_configuration;
 }
 
 #endif // highspeed

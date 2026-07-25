@@ -102,6 +102,8 @@ extern "C" {
 #define UI_SPLASH_SPEC_MIN_DB (-100.0f)
 #define UI_SPLASH_SPEC_MAX_DB (0.0f)
 
+#define UI_SPLASH_TRACE_X_ORIGIN 64U
+
 typedef struct
 {
     uint16_t x0;
@@ -113,6 +115,14 @@ typedef struct
     uint16_t x3;
     uint16_t y3;
 } ui_splash_quad_t;
+
+typedef struct
+{
+    uint8_t x_offset;
+    uint8_t y;
+} ui_splash_trace_point_t;
+
+static_assert(sizeof(ui_splash_trace_point_t) == 2U);
 
 typedef enum
 {
@@ -134,11 +144,9 @@ static ui_splash_appearance_t s_displayed_splash_appearance = UI_SPLASH_APPEARAN
 static uint8_t s_splash_button_phase = 0U;
 static uint32_t s_displayed_splash_freq_hz = UINT32_MAX;
 static int32_t s_splash_wave_display_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS;
-static uint16_t s_splash_wave_prev_x[UI_SPLASH_WAVE_DISPLAY_COLS];
-static uint16_t s_splash_wave_prev_y[UI_SPLASH_WAVE_DISPLAY_COLS];
+static ui_splash_trace_point_t s_splash_wave_prev[UI_SPLASH_WAVE_DISPLAY_COLS];
 static bool s_splash_wave_poly_valid = false;
-static uint16_t s_splash_spec_prev_x[UI_SPLASH_SPEC_DISPLAY_COLS];
-static uint16_t s_splash_spec_prev_y[UI_SPLASH_SPEC_DISPLAY_COLS];
+static ui_splash_trace_point_t s_splash_spec_prev[UI_SPLASH_SPEC_DISPLAY_COLS];
 static bool s_splash_spec_poly_valid = false;
 /* Last MADCTL value applied by UI (0xFF = never synced this session). */
 static uint8_t s_hw_madctl = 0xFFU;
@@ -748,6 +756,31 @@ static uint16_t ui_splash_clamp_u16(int32_t v, uint16_t max_u)
     return (uint16_t)v;
 }
 
+static ui_splash_trace_point_t ui_splash_trace_point(uint16_t x, uint16_t y)
+{
+    uint16_t x_offset = (x > UI_SPLASH_TRACE_X_ORIGIN)
+                            ? (uint16_t)(x - UI_SPLASH_TRACE_X_ORIGIN)
+                            : 0U;
+    if(x_offset > UINT8_MAX)
+    {
+        x_offset = UINT8_MAX;
+    }
+    if(y > UINT8_MAX)
+    {
+        y = UINT8_MAX;
+    }
+
+    return {
+        .x_offset = (uint8_t)x_offset,
+        .y = (uint8_t)y,
+    };
+}
+
+static uint16_t ui_splash_trace_x(ui_splash_trace_point_t point)
+{
+    return (uint16_t)(UI_SPLASH_TRACE_X_ORIGIN + point.x_offset);
+}
+
 
 static int32_t ui_waveform_get(size_t idx)
 {
@@ -764,7 +797,7 @@ static void ui_draw_splash_waveform(void)
 
     ui_splash_colors(&scope_fill, &trace_color);
 
-    size_t n = 2048;
+    size_t const n = DAC_HW_STREAM_RING_SAMPLES;
     if((n < 2U) || (display_cols < 2U))
     {
         s_splash_wave_poly_valid = false;
@@ -821,10 +854,10 @@ static void ui_draw_splash_waveform(void)
     {
         for(size_t i = 1U; i < display_cols; ++i)
         {
-            ST7789_DrawLineFills(s_splash_wave_prev_x[i - 1U],
-                                 s_splash_wave_prev_y[i - 1U],
-                                 s_splash_wave_prev_x[i],
-                                 s_splash_wave_prev_y[i],
+            ST7789_DrawLineFills(ui_splash_trace_x(s_splash_wave_prev[i - 1U]),
+                                 s_splash_wave_prev[i - 1U].y,
+                                 ui_splash_trace_x(s_splash_wave_prev[i]),
+                                 s_splash_wave_prev[i].y,
                                  scope_fill);
         }
     }
@@ -862,8 +895,7 @@ static void ui_draw_splash_waveform(void)
         {
             ST7789_DrawLineFills(prev_px, prev_py, curr_px, curr_py, trace_color);
         }
-        s_splash_wave_prev_x[i] = curr_px;
-        s_splash_wave_prev_y[i] = curr_py;
+        s_splash_wave_prev[i] = ui_splash_trace_point(curr_px, curr_py);
         prev_px = curr_px;
         prev_py = curr_py;
     }
@@ -939,10 +971,10 @@ static void ui_draw_splash_spectrum(void)
     {
         for(size_t i = 1U; i < display_cols; ++i)
         {
-            ST7789_DrawLineFills(s_splash_spec_prev_x[i - 1U],
-                                 s_splash_spec_prev_y[i - 1U],
-                                 s_splash_spec_prev_x[i],
-                                 s_splash_spec_prev_y[i],
+            ST7789_DrawLineFills(ui_splash_trace_x(s_splash_spec_prev[i - 1U]),
+                                 s_splash_spec_prev[i - 1U].y,
+                                 ui_splash_trace_x(s_splash_spec_prev[i]),
+                                 s_splash_spec_prev[i].y,
                                  scope_fill);
         }
     }
@@ -978,8 +1010,7 @@ static void ui_draw_splash_spectrum(void)
             ST7789_DrawLineFills(prev_px, prev_py, curr_px, curr_py, trace_color);
         }
 
-        s_splash_spec_prev_x[i] = curr_px;
-        s_splash_spec_prev_y[i] = curr_py;
+        s_splash_spec_prev[i] = ui_splash_trace_point(curr_px, curr_py);
         prev_px = curr_px;
         prev_py = curr_py;
         bin += bin_step;

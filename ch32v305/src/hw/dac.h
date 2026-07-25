@@ -17,6 +17,8 @@ void dac_hw_set_both_12(uint16_t value);
  * The DMA buffer is the SPSC ring: dac_hw_stream_fm_push_sample writes one
  * packed dual-12 word per call, DMA reads them out cyclically at sample_rate_hz.
  * No HT/TC interrupts; producer and consumer rates must be locked to the same clock. */
+#define DAC_HW_STREAM_RING_SAMPLES 1024U
+
 void dac_hw_stream_fm_start(uint32_t sample_rate_hz);
 void dac_hw_stream_fm_push_sample(uint16_t sample);
 [[nodiscard]] volatile uint32_t const *dac_hw_stream_ring_samples(void);
