@@ -18,10 +18,15 @@ extern "C" {
 #include "ch32v30x.h"
 #include "system_ch32v30x.h"
 
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <optional>
+#include <utility>
 
 #define UI_HEADER_BOTTOM_Y 79U
 #define UI_FREQ_TEXT_Y     10U
@@ -56,86 +61,78 @@ extern "C" {
 #define UI_WATERFALL_BOTTOM  320U
 
 /* Landscape splash_freq.png MHz readout quad (clockwise from top-left). */
-#define UI_SPLASH_TEXT_X0    77U
-#define UI_SPLASH_TEXT_Y0    24U
-#define UI_SPLASH_TEXT_X1    167U
-#define UI_SPLASH_TEXT_Y1    33U
-#define UI_SPLASH_TEXT_X2    166U
-#define UI_SPLASH_TEXT_Y2    74U
-#define UI_SPLASH_TEXT_X3    76U
-#define UI_SPLASH_TEXT_Y3    60U
-#define UI_SPLASH_TEXT_BASELINE_DX  10
-#define UI_SPLASH_TEXT_BASELINE_DY  1
-#define UI_SPLASH_TEXT_SHEAR_NUM   (-1)
-#define UI_SPLASH_TEXT_SHEAR_DEN   36
-#define UI_SPLASH_FREQ_STEP_HZ 100000U
+static constexpr int32_t kSplashTextBaselineDx = 10;
+static constexpr int32_t kSplashTextBaselineDy = 1;
+static constexpr int32_t kSplashTextShearNumerator = -1;
+static constexpr int32_t kSplashTextShearDenominator = 36;
+static constexpr uint32_t kSplashFrequencyStepHz = 100000U;
 
-/* Landscape waveform scope quad (same vertex order as MHz quad). */
-#define UI_SPLASH_WAVE_X0    188U
-#define UI_SPLASH_WAVE_Y0    34U
-#define UI_SPLASH_WAVE_X1    185U
-#define UI_SPLASH_WAVE_Y1    102U
-#define UI_SPLASH_WAVE_X2    314U
-#define UI_SPLASH_WAVE_Y2    121U
-#define UI_SPLASH_WAVE_X3    319U
-#define UI_SPLASH_WAVE_Y3    48U
-#define UI_SPLASH_WAVE_DISPLAY_COLS  128U
-#define UI_SPLASH_WAVE_PERIOD_MS     36U
-#define UI_SPLASH_WAVE_MIN_PEAK_ABS  120
-#define UI_SPLASH_WAVE_PEAK_CEILING 2400 /* cap AGC so loud FM does not flatten trace */
-#define UI_SPLASH_WAVE_DEFLECT_MUL   1600 /* 10x vs 320; paired with DIV along thickness vector */
-#define UI_SPLASH_WAVE_DEFLECT_DIV   3072
+static constexpr size_t kSplashWaveDisplayColumns = 128U;
+static constexpr uint32_t kSplashWavePeriodMs = 36U;
+static constexpr int32_t kSplashWaveMinimumPeak = 120;
+static constexpr int32_t kSplashWavePeakCeiling = 2400;
+static constexpr int32_t kSplashWaveDeflectionMultiplier = 1600;
+static constexpr int32_t kSplashWaveDeflectionDivisor = 3072;
 
-/* Landscape spectrum quad (same vertex order as waveform quad). */
-#define UI_SPLASH_SPEC_X0    186U
-#define UI_SPLASH_SPEC_Y0    126U
-#define UI_SPLASH_SPEC_X1    184U
-#define UI_SPLASH_SPEC_Y1    176U
-#define UI_SPLASH_SPEC_X2    314U
-#define UI_SPLASH_SPEC_Y2    196U
-#define UI_SPLASH_SPEC_X3    317U
-#define UI_SPLASH_SPEC_Y3    145U
-#define UI_SPLASH_SPEC_DISPLAY_COLS 128U
-#define UI_SPLASH_SPEC_SAMPLE_RATE_HZ 192000
-#define UI_SPLASH_SPEC_MIN_HZ (-20000)
-#define UI_SPLASH_SPEC_MAX_HZ 30000
-#define UI_SPLASH_SPEC_MIN_DB (-100.0f)
-#define UI_SPLASH_SPEC_MAX_DB (0.0f)
+static constexpr size_t kSplashSpectrumDisplayColumns = 128U;
+static constexpr int32_t kSplashSpectrumSampleRateHz = 192000;
+static constexpr int32_t kSplashSpectrumMinimumHz = -20000;
+static constexpr int32_t kSplashSpectrumMaximumHz = 30000;
+static constexpr float kSplashSpectrumMinimumDb = -100.0f;
+static constexpr float kSplashSpectrumMaximumDb = 0.0f;
 
-#define UI_SPLASH_TRACE_X_ORIGIN 64U
+static constexpr uint16_t kSplashTraceXOrigin = 64U;
 
-typedef struct
+struct SplashPoint
 {
-    uint16_t x0;
-    uint16_t y0;
-    uint16_t x1;
-    uint16_t y1;
-    uint16_t x2;
-    uint16_t y2;
-    uint16_t x3;
-    uint16_t y3;
-} ui_splash_quad_t;
+    uint16_t x;
+    uint16_t y;
+};
 
-typedef struct
+using SplashQuad = std::array<SplashPoint, 4U>;
+
+struct SplashTracePoint
 {
     uint8_t x_offset;
     uint8_t y;
-} ui_splash_trace_point_t;
+};
 
-static_assert(sizeof(ui_splash_trace_point_t) == 2U);
+static_assert(sizeof(SplashTracePoint) == 2U);
 
-typedef enum
+static constexpr SplashQuad kSplashTextQuad{{
+    {77U, 24U},
+    {167U, 33U},
+    {166U, 74U},
+    {76U, 60U},
+}};
+
+/* Landscape waveform scope quad (clockwise from top-left). */
+static constexpr SplashQuad kSplashWaveQuad{{
+    {188U, 34U},
+    {185U, 102U},
+    {314U, 121U},
+    {319U, 48U},
+}};
+
+static constexpr SplashQuad kSplashSpectrumQuad{{
+    {186U, 126U},
+    {184U, 176U},
+    {314U, 196U},
+    {317U, 145U},
+}};
+
+enum ui_splash_appearance_t
 {
     UI_SPLASH_APPEARANCE_NORMAL,
     UI_SPLASH_APPEARANCE_INVERTED,
     UI_SPLASH_APPEARANCE_COUNT
-} ui_splash_appearance_t;
+};
 
-typedef enum
+enum ui_display_mode_t
 {
     UI_DISPLAY_SPLASH,
     UI_DISPLAY_WATERFALL
-} ui_display_mode_t;
+};
 
 static ui_display_mode_t s_display_mode = UI_DISPLAY_SPLASH;
 static bool s_splash_band_dirty = true;
@@ -143,10 +140,10 @@ static ui_splash_appearance_t s_splash_appearance = UI_SPLASH_APPEARANCE_NORMAL;
 static ui_splash_appearance_t s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
 static uint8_t s_splash_button_phase = 0U;
 static uint32_t s_displayed_splash_freq_hz = UINT32_MAX;
-static int32_t s_splash_wave_display_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS;
-static ui_splash_trace_point_t s_splash_wave_prev[UI_SPLASH_WAVE_DISPLAY_COLS];
+static int32_t s_splash_wave_display_peak = kSplashWaveMinimumPeak;
+static std::array<SplashTracePoint, kSplashWaveDisplayColumns> s_splash_wave_prev{};
 static bool s_splash_wave_poly_valid = false;
-static ui_splash_trace_point_t s_splash_spec_prev[UI_SPLASH_SPEC_DISPLAY_COLS];
+static std::array<SplashTracePoint, kSplashSpectrumDisplayColumns> s_splash_spec_prev{};
 static bool s_splash_spec_poly_valid = false;
 /* Last MADCTL value applied by UI (0xFF = never synced this session). */
 static uint8_t s_hw_madctl = 0xFFU;
@@ -163,7 +160,7 @@ static volatile bool s_recording = false;
 static bool s_displayed_recording = false;
 static bool s_recording_blink_inverted = false;
 
-typedef enum
+enum ui_control_t
 {
     UI_CONTROL_FREQ_10_MHZ,
     UI_CONTROL_FREQ_1_MHZ,
@@ -174,7 +171,7 @@ typedef enum
     UI_CONTROL_VOLUME,
     UI_CONTROL_TLV320_GAIN,
     UI_CONTROL_COUNT
-} ui_control_t;
+};
 
 static ui_control_t s_active_control = UI_CONTROL_FREQ_10_MHZ;
 static ui_control_t s_displayed_active_control = UI_CONTROL_COUNT;
@@ -235,36 +232,13 @@ static uint32_t ui_apply_frequency_delta(uint32_t freq_hz, int16_t delta, uint32
     return (uint32_t)next_freq_hz;
 }
 
-static uint8_t ui_apply_delta_u8(uint8_t value, int16_t delta, uint8_t min, uint8_t max)
+template<typename T>
+static T ui_apply_delta(T value, int16_t delta, T minimum, T maximum)
 {
-    int16_t next = (int16_t)value + delta;
-
-    if(next < (int16_t)min)
-    {
-        return min;
-    }
-    if(next > (int16_t)max)
-    {
-        return max;
-    }
-
-    return (uint8_t)next;
-}
-
-static int8_t ui_apply_delta_i8(int8_t value, int16_t delta, int8_t min, int8_t max)
-{
-    int16_t next = (int16_t)value + delta;
-
-    if(next < (int16_t)min)
-    {
-        return min;
-    }
-    if(next > (int16_t)max)
-    {
-        return max;
-    }
-
-    return (int8_t)next;
+    int32_t const next = static_cast<int32_t>(value) + delta;
+    return static_cast<T>(std::clamp(next,
+                                     static_cast<int32_t>(minimum),
+                                     static_cast<int32_t>(maximum)));
 }
 
 static uint32_t ui_volume_gain_q16(uint8_t volume)
@@ -285,7 +259,7 @@ static void ui_splash_exit_to_waterfall(void)
     s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
     s_redraw_all = true;
     s_displayed_active_control = UI_CONTROL_COUNT;
-    s_splash_wave_display_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS;
+    s_splash_wave_display_peak = kSplashWaveMinimumPeak;
     s_splash_wave_poly_valid = false;
     s_splash_spec_poly_valid = false;
 }
@@ -328,12 +302,10 @@ extern "C" void ui_handle_button_long_press(void)
     s_recording = !s_recording;
 }
 
-static void ui_draw_selected_frequency_digit(uint32_t freq_hz)
+static void ui_draw_selected_frequency_digit(void)
 {
     uint8_t digit_power = ui_frequency_digit_power(s_active_control);
     uint16_t digit_index = (uint16_t)(UI_FREQ_DIGITS - 1U - digit_power);
-
-    (void)freq_hz;
 
     uint16_t center_x = (uint16_t)((digit_index * Font_16x26.width) + (Font_16x26.width / 2U));
     ST7789_DrawFilledTriangle((uint16_t)(center_x - 5U), UI_TRIANGLE_Y,
@@ -353,7 +325,7 @@ static void ui_draw_frequency(uint32_t freq_hz)
     ST7789_WriteString(UI_FREQ_SUFFIX_X, UI_FREQ_TEXT_Y, "Hz", Font_16x26, WHITE, BLACK);
     if(ui_control_is_frequency(s_active_control))
     {
-        ui_draw_selected_frequency_digit(freq_hz);
+        ui_draw_selected_frequency_digit();
     }
 }
 
@@ -424,7 +396,12 @@ static void ui_update_recording_indicator(void)
     }
 }
 
-static void ui_draw_progress_row(uint16_t y, char const *label, int16_t value, int16_t min, int16_t max, bool active)
+static void ui_draw_progress_row(uint16_t y,
+                                 char const *label,
+                                 int16_t value,
+                                 int16_t minimum,
+                                 int16_t maximum,
+                                 bool active)
 {
     uint16_t color = active ? YELLOW : WHITE;
     uint16_t fill_color = active ? YELLOW : GREEN;
@@ -432,20 +409,11 @@ static void ui_draw_progress_row(uint16_t y, char const *label, int16_t value, i
     uint16_t inner_width = UI_BAR_WIDTH - 2U;
     uint16_t filled_width = 0U;
 
-    if(max > min)
+    if(maximum > minimum)
     {
-        int16_t clamped = value;
-
-        if(clamped < min)
-        {
-            clamped = min;
-        }
-        if(clamped > max)
-        {
-            clamped = max;
-        }
-
-        filled_width = (uint16_t)(((uint32_t)inner_width * (uint32_t)(clamped - min)) / (uint32_t)(max - min));
+        int16_t const clamped = std::clamp(value, minimum, maximum);
+        filled_width = (uint16_t)(((uint32_t)inner_width * (uint32_t)(clamped - minimum)) /
+                                  (uint32_t)(maximum - minimum));
     }
 
     ST7789_WriteString(0U, y, label, Font_11x18, color, BLACK);
@@ -540,247 +508,141 @@ static void ui_sync_display_hw_for_mode(void)
     s_redraw_all = true;
 }
 
-static void ui_splash_colors(uint16_t *fg, uint16_t *bg)
+static std::pair<uint16_t, uint16_t> ui_splash_colors(void)
 {
     if(s_splash_appearance == UI_SPLASH_APPEARANCE_INVERTED)
     {
-        *fg = BLACK;
-        *bg = WHITE;
+        return {BLACK, WHITE};
     }
-    else
-    {
-        *fg = WHITE;
-        *bg = BLACK;
-    }
+
+    return {WHITE, BLACK};
 }
 
-static int32_t ui_splash_edge_x_at_y(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t y, bool *valid)
+static std::optional<int32_t> ui_splash_edge_x_at_y(SplashPoint first,
+                                                    SplashPoint second,
+                                                    int32_t y)
 {
-    *valid = false;
+    int32_t const x0 = static_cast<int32_t>(first.x);
+    int32_t const y0 = static_cast<int32_t>(first.y);
+    int32_t const x1 = static_cast<int32_t>(second.x);
+    int32_t const y1 = static_cast<int32_t>(second.y);
 
     if(y0 == y1)
     {
-        if(y == y0)
-        {
-            *valid = true;
-            return x0;
-        }
-
-        return 0;
+        return (y == y0) ? std::optional<int32_t>{x0} : std::nullopt;
     }
 
-    int32_t y_min = (y0 < y1) ? y0 : y1;
-    int32_t y_max = (y0 > y1) ? y0 : y1;
-
+    auto const [y_min, y_max] = std::minmax(y0, y1);
     if((y < y_min) || (y > y_max))
     {
-        return 0;
+        return std::nullopt;
     }
 
-    *valid = true;
     return x0 + ((y - y0) * (x1 - x0)) / (y1 - y0);
 }
 
-static void ui_splash_quad_scanline_bounds(const ui_splash_quad_t *quad, int32_t y, int32_t *x_lo, int32_t *x_hi)
+static std::optional<std::pair<int32_t, int32_t>>
+ui_splash_quad_scanline_bounds(SplashQuad const &quad, int32_t y)
 {
-    int32_t xs[4];
-    int32_t n = 0;
+    std::array<int32_t, 4U> intersections{};
+    size_t count = 0U;
 
-    bool valid;
-    int32_t x = ui_splash_edge_x_at_y((int32_t)quad->x0,
-                                      (int32_t)quad->y0,
-                                      (int32_t)quad->x1,
-                                      (int32_t)quad->y1,
-                                      y,
-                                      &valid);
-    if(valid)
+    for(size_t i = 0U; i < quad.size(); ++i)
     {
-        xs[n++] = x;
-    }
-
-    x = ui_splash_edge_x_at_y((int32_t)quad->x1,
-                              (int32_t)quad->y1,
-                              (int32_t)quad->x2,
-                              (int32_t)quad->y2,
-                              y,
-                              &valid);
-    if(valid)
-    {
-        xs[n++] = x;
-    }
-
-    x = ui_splash_edge_x_at_y((int32_t)quad->x2,
-                              (int32_t)quad->y2,
-                              (int32_t)quad->x3,
-                              (int32_t)quad->y3,
-                              y,
-                              &valid);
-    if(valid)
-    {
-        xs[n++] = x;
-    }
-
-    x = ui_splash_edge_x_at_y((int32_t)quad->x3,
-                              (int32_t)quad->y3,
-                              (int32_t)quad->x0,
-                              (int32_t)quad->y0,
-                              y,
-                              &valid);
-    if(valid)
-    {
-        xs[n++] = x;
-    }
-
-    if(n < 2)
-    {
-        *x_lo = 0;
-        *x_hi = -1;
-        return;
-    }
-
-    for(int32_t i = 0; i < (n - 1); ++i)
-    {
-        for(int32_t j = (i + 1); j < n; ++j)
+        std::optional<int32_t> const x =
+            ui_splash_edge_x_at_y(quad[i], quad[(i + 1U) % quad.size()], y);
+        if(x)
         {
-            if(xs[j] < xs[i])
-            {
-                int32_t tmp = xs[i];
-                xs[i] = xs[j];
-                xs[j] = tmp;
-            }
+            intersections[count++] = *x;
         }
     }
 
-    *x_lo = xs[0];
-    *x_hi = xs[n - 1];
+    if(count < 2U)
+    {
+        return std::nullopt;
+    }
+
+    auto const [minimum, maximum] =
+        std::minmax_element(intersections.begin(), intersections.begin() + count);
+    return std::pair{*minimum, *maximum};
 }
 
-static uint16_t ui_splash_quad_y_min(const ui_splash_quad_t *quad)
+static std::pair<uint16_t, uint16_t> ui_splash_quad_y_bounds(SplashQuad const &quad)
 {
-    uint16_t m = quad->y0;
-
-    if(quad->y1 < m)
-    {
-        m = quad->y1;
-    }
-    if(quad->y2 < m)
-    {
-        m = quad->y2;
-    }
-    if(quad->y3 < m)
-    {
-        m = quad->y3;
-    }
-
-    return m;
+    auto const [minimum, maximum] =
+        std::minmax_element(quad.begin(),
+                            quad.end(),
+                            [](SplashPoint const &lhs, SplashPoint const &rhs) {
+                                return lhs.y < rhs.y;
+                            });
+    return {minimum->y, maximum->y};
 }
 
-static uint16_t ui_splash_quad_y_max(const ui_splash_quad_t *quad)
+static void ui_splash_fill_quad(SplashQuad const &quad, uint16_t color)
 {
-    uint16_t m = quad->y0;
+    auto const [y_min, y_max] = ui_splash_quad_y_bounds(quad);
 
-    if(quad->y1 > m)
+    for(int32_t y = static_cast<int32_t>(y_min);
+        y <= static_cast<int32_t>(y_max);
+        ++y)
     {
-        m = quad->y1;
-    }
-    if(quad->y2 > m)
-    {
-        m = quad->y2;
-    }
-    if(quad->y3 > m)
-    {
-        m = quad->y3;
-    }
-
-    return m;
-}
-
-static void ui_splash_fill_quad(const ui_splash_quad_t *quad, uint16_t color)
-{
-    uint16_t y_min = ui_splash_quad_y_min(quad);
-    uint16_t y_max = ui_splash_quad_y_max(quad);
-
-    for(int32_t y = (int32_t)y_min; y <= (int32_t)y_max; ++y)
-    {
-        int32_t x_lo;
-        int32_t x_hi;
-
-        ui_splash_quad_scanline_bounds(quad, y, &x_lo, &x_hi);
-
-        if(x_hi < x_lo)
+        std::optional<std::pair<int32_t, int32_t>> const bounds =
+            ui_splash_quad_scanline_bounds(quad, y);
+        if(!bounds)
         {
             continue;
         }
 
-        if(x_lo < 0)
-        {
-            x_lo = 0;
-        }
+        auto [x_lo, x_hi] = *bounds;
+        x_lo = std::max<int32_t>(x_lo, 0);
 
-        ST7789_Fill((uint16_t)x_lo, (uint16_t)y, (uint16_t)x_hi, (uint16_t)y, color);
+        ST7789_Fill(static_cast<uint16_t>(x_lo),
+                    static_cast<uint16_t>(y),
+                    static_cast<uint16_t>(x_hi),
+                    static_cast<uint16_t>(y),
+                    color);
     }
 }
-
-static const ui_splash_quad_t s_splash_quad_mhz = {
-    UI_SPLASH_TEXT_X0, UI_SPLASH_TEXT_Y0,
-    UI_SPLASH_TEXT_X1, UI_SPLASH_TEXT_Y1,
-    UI_SPLASH_TEXT_X2, UI_SPLASH_TEXT_Y2,
-    UI_SPLASH_TEXT_X3, UI_SPLASH_TEXT_Y3
-};
-
-static const ui_splash_quad_t s_splash_quad_wave = {
-    UI_SPLASH_WAVE_X0, UI_SPLASH_WAVE_Y0,
-    UI_SPLASH_WAVE_X1, UI_SPLASH_WAVE_Y1,
-    UI_SPLASH_WAVE_X2, UI_SPLASH_WAVE_Y2,
-    UI_SPLASH_WAVE_X3, UI_SPLASH_WAVE_Y3
-};
-
-static const ui_splash_quad_t s_splash_quad_spec = {
-    UI_SPLASH_SPEC_X0, UI_SPLASH_SPEC_Y0,
-    UI_SPLASH_SPEC_X1, UI_SPLASH_SPEC_Y1,
-    UI_SPLASH_SPEC_X2, UI_SPLASH_SPEC_Y2,
-    UI_SPLASH_SPEC_X3, UI_SPLASH_SPEC_Y3
-};
 
 static uint16_t ui_splash_clamp_u16(int32_t v, uint16_t max_u)
 {
-    if(v < 0)
-    {
-        return 0U;
-    }
-    if(v > (int32_t)max_u)
-    {
-        return max_u;
-    }
-
-    return (uint16_t)v;
+    return static_cast<uint16_t>(
+        std::clamp<int32_t>(v, 0, max_u));
 }
 
-static ui_splash_trace_point_t ui_splash_trace_point(uint16_t x, uint16_t y)
+static SplashTracePoint ui_splash_trace_point(uint16_t x, uint16_t y)
 {
-    uint16_t x_offset = (x > UI_SPLASH_TRACE_X_ORIGIN)
-                            ? (uint16_t)(x - UI_SPLASH_TRACE_X_ORIGIN)
-                            : 0U;
-    if(x_offset > UINT8_MAX)
-    {
-        x_offset = UINT8_MAX;
-    }
-    if(y > UINT8_MAX)
-    {
-        y = UINT8_MAX;
-    }
+    int32_t const x_offset =
+        std::clamp<int32_t>(static_cast<int32_t>(x) - kSplashTraceXOrigin,
+                            0,
+                            UINT8_MAX);
+    uint16_t const clamped_y =
+        std::min(y, static_cast<uint16_t>(UINT8_MAX));
 
     return {
-        .x_offset = (uint8_t)x_offset,
-        .y = (uint8_t)y,
+        .x_offset = static_cast<uint8_t>(x_offset),
+        .y = static_cast<uint8_t>(clamped_y),
     };
 }
 
-static uint16_t ui_splash_trace_x(ui_splash_trace_point_t point)
+static uint16_t ui_splash_trace_x(SplashTracePoint point)
 {
-    return (uint16_t)(UI_SPLASH_TRACE_X_ORIGIN + point.x_offset);
+    return static_cast<uint16_t>(kSplashTraceXOrigin + point.x_offset);
 }
 
+template<size_t N>
+static void ui_splash_erase_trace(std::array<SplashTracePoint, N> const &trace,
+                                  uint16_t color)
+{
+    for(size_t i = 1U; i < trace.size(); ++i)
+    {
+        ST7789_DrawLineFills(ui_splash_trace_x(trace[i - 1U]),
+                             trace[i - 1U].y,
+                             ui_splash_trace_x(trace[i]),
+                             trace[i].y,
+                             color);
+    }
+}
 
 static int32_t ui_waveform_get(size_t idx)
 {
@@ -791,12 +653,8 @@ static int32_t ui_waveform_get(size_t idx)
 
 static void ui_draw_splash_waveform(void)
 {
-    size_t const display_cols = (size_t)UI_SPLASH_WAVE_DISPLAY_COLS;
-    uint16_t trace_color;
-    uint16_t scope_fill;
-
-    ui_splash_colors(&scope_fill, &trace_color);
-
+    auto const [scope_fill, trace_color] = ui_splash_colors();
+    size_t const display_cols = s_splash_wave_prev.size();
     size_t const n = DAC_HW_STREAM_RING_SAMPLES;
     if((n < 2U) || (display_cols < 2U))
     {
@@ -804,18 +662,11 @@ static void ui_draw_splash_waveform(void)
         return;
     }
 
-    int32_t frame_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS;
+    int32_t frame_peak = kSplashWaveMinimumPeak;
     for(size_t i = 0U; i < n; ++i)
     {
-        int32_t raw = (int32_t)ui_waveform_get(i) - 2048;
-        if(raw < 0)
-        {
-            raw = -raw;
-        }
-        if(raw > frame_peak)
-        {
-            frame_peak = raw;
-        }
+        int32_t const raw = static_cast<int32_t>(ui_waveform_get(i)) - 2048;
+        frame_peak = std::max(frame_peak, std::abs(raw));
     }
 
     if(frame_peak > s_splash_wave_display_peak)
@@ -824,73 +675,70 @@ static void ui_draw_splash_waveform(void)
     }
     else
     {
-        int32_t decay = s_splash_wave_display_peak / 24;
-        if(decay < 6)
-        {
-            decay = 6;
-        }
-        s_splash_wave_display_peak -= decay;
-        if(s_splash_wave_display_peak < (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS)
-        {
-            s_splash_wave_display_peak = (int32_t)UI_SPLASH_WAVE_MIN_PEAK_ABS;
-        }
+        int32_t const decay =
+            std::max<int32_t>(s_splash_wave_display_peak / 24, 6);
+        s_splash_wave_display_peak =
+            std::max(s_splash_wave_display_peak - decay, kSplashWaveMinimumPeak);
     }
 
-    if(s_splash_wave_display_peak > (int32_t)UI_SPLASH_WAVE_PEAK_CEILING)
-    {
-        s_splash_wave_display_peak = (int32_t)UI_SPLASH_WAVE_PEAK_CEILING;
-    }
+    s_splash_wave_display_peak =
+        std::min(s_splash_wave_display_peak, kSplashWavePeakCeiling);
 
-    uint16_t w_lim = (uint16_t)(ST7789_GetWidth() - 1U);
-    uint16_t h_lim = (uint16_t)(ST7789_GetHeight() - 1U);
+    uint16_t const w_lim = static_cast<uint16_t>(ST7789_GetWidth() - 1U);
+    uint16_t const h_lim = static_cast<uint16_t>(ST7789_GetHeight() - 1U);
 
-    int32_t den_plot = (int32_t)(display_cols - 1U);
-    int32_t const dx_top = (int32_t)UI_SPLASH_WAVE_X3 - (int32_t)UI_SPLASH_WAVE_X0;
-    int32_t const dy_top = (int32_t)UI_SPLASH_WAVE_Y3 - (int32_t)UI_SPLASH_WAVE_Y0;
-    int32_t const dx_bot = (int32_t)UI_SPLASH_WAVE_X2 - (int32_t)UI_SPLASH_WAVE_X1;
-    int32_t const dy_bot = (int32_t)UI_SPLASH_WAVE_Y2 - (int32_t)UI_SPLASH_WAVE_Y1;
+    int32_t const den_plot = static_cast<int32_t>(display_cols - 1U);
+    int32_t const dx_top =
+        static_cast<int32_t>(kSplashWaveQuad[3U].x) - kSplashWaveQuad[0U].x;
+    int32_t const dy_top =
+        static_cast<int32_t>(kSplashWaveQuad[3U].y) - kSplashWaveQuad[0U].y;
+    int32_t const dx_bottom =
+        static_cast<int32_t>(kSplashWaveQuad[2U].x) - kSplashWaveQuad[1U].x;
+    int32_t const dy_bottom =
+        static_cast<int32_t>(kSplashWaveQuad[2U].y) - kSplashWaveQuad[1U].y;
 
     if(s_splash_wave_poly_valid)
     {
-        for(size_t i = 1U; i < display_cols; ++i)
-        {
-            ST7789_DrawLineFills(ui_splash_trace_x(s_splash_wave_prev[i - 1U]),
-                                 s_splash_wave_prev[i - 1U].y,
-                                 ui_splash_trace_x(s_splash_wave_prev[i]),
-                                 s_splash_wave_prev[i].y,
-                                 scope_fill);
-        }
+        ui_splash_erase_trace(s_splash_wave_prev, scope_fill);
     }
     else
     {
-        ui_splash_fill_quad(&s_splash_quad_wave, scope_fill);
+        ui_splash_fill_quad(kSplashWaveQuad, scope_fill);
     }
 
     uint16_t prev_px = 0U;
     uint16_t prev_py = 0U;
     for(size_t i = 0U; i < display_cols; ++i)
     {
-        int32_t j = ((int32_t)i * (int32_t)(n - 1U)) / den_plot;
-        uint32_t jm = (uint32_t)j > 0U ? (uint32_t)j - 1U : 0U;
-        uint32_t jp = (uint32_t)j + 1U < n ? (uint32_t)j + 1U : (uint32_t)(n - 1U);
-        int32_t sum3 = (int32_t)ui_waveform_get(jm) + (int32_t)ui_waveform_get(j) + (int32_t)ui_waveform_get(jp);
-        int32_t raw = (sum3 / 3) - 2048;
-        int32_t amp = (raw * (int32_t)UI_SPLASH_WAVE_DEFLECT_MUL) / s_splash_wave_display_peak;
+        size_t const j = (i * (n - 1U)) / static_cast<size_t>(den_plot);
+        size_t const jm = (j > 0U) ? j - 1U : 0U;
+        size_t const jp = std::min(j + 1U, n - 1U);
+        int32_t const sum3 =
+            ui_waveform_get(jm) + ui_waveform_get(j) + ui_waveform_get(jp);
+        int32_t const raw = (sum3 / 3) - 2048;
+        int32_t const amplitude =
+            (raw * kSplashWaveDeflectionMultiplier) / s_splash_wave_display_peak;
 
-        int32_t x_top = (int32_t)UI_SPLASH_WAVE_X0 + (((int32_t)i * dx_top) / den_plot);
-        int32_t y_top = (int32_t)UI_SPLASH_WAVE_Y0 + (((int32_t)i * dy_top) / den_plot);
-        int32_t x_bot = (int32_t)UI_SPLASH_WAVE_X1 + (((int32_t)i * dx_bot) / den_plot);
-        int32_t y_bot = (int32_t)UI_SPLASH_WAVE_Y1 + (((int32_t)i * dy_bot) / den_plot);
-        int32_t x_center = (x_top + x_bot) / 2;
-        int32_t y_center = (y_top + y_bot) / 2;
-        int32_t vx = x_bot - x_top;
-        int32_t vy = y_bot - y_top;
+        int32_t const x_top =
+            kSplashWaveQuad[0U].x + ((static_cast<int32_t>(i) * dx_top) / den_plot);
+        int32_t const y_top =
+            kSplashWaveQuad[0U].y + ((static_cast<int32_t>(i) * dy_top) / den_plot);
+        int32_t const x_bottom =
+            kSplashWaveQuad[1U].x + ((static_cast<int32_t>(i) * dx_bottom) / den_plot);
+        int32_t const y_bottom =
+            kSplashWaveQuad[1U].y + ((static_cast<int32_t>(i) * dy_bottom) / den_plot);
+        int32_t const x_center = (x_top + x_bottom) / 2;
+        int32_t const y_center = (y_top + y_bottom) / 2;
+        int32_t const vx = x_bottom - x_top;
+        int32_t const vy = y_bottom - y_top;
 
-        int32_t px = x_center + ((vx * amp) / (int32_t)UI_SPLASH_WAVE_DEFLECT_DIV);
-        int32_t py = y_center + ((vy * amp) / (int32_t)UI_SPLASH_WAVE_DEFLECT_DIV);
+        int32_t const px =
+            x_center + ((vx * amplitude) / kSplashWaveDeflectionDivisor);
+        int32_t const py =
+            y_center + ((vy * amplitude) / kSplashWaveDeflectionDivisor);
 
-        uint16_t curr_px = ui_splash_clamp_u16(px, w_lim);
-        uint16_t curr_py = ui_splash_clamp_u16(py, h_lim);
+        uint16_t const curr_px = ui_splash_clamp_u16(px, w_lim);
+        uint16_t const curr_py = ui_splash_clamp_u16(py, h_lim);
         if(i > 0U)
         {
             ST7789_DrawLineFills(prev_px, prev_py, curr_px, curr_py, trace_color);
@@ -905,60 +753,46 @@ static void ui_draw_splash_waveform(void)
 
 static float ui_splash_spec_fft_bin_at_hz(int32_t hz, uint32_t bin_count)
 {
-    return (((float)hz + ((float)UI_SPLASH_SPEC_SAMPLE_RATE_HZ * 0.5f)) * (float)bin_count) /
-           (float)UI_SPLASH_SPEC_SAMPLE_RATE_HZ;
+    return ((static_cast<float>(hz) +
+             (static_cast<float>(kSplashSpectrumSampleRateHz) * 0.5f)) *
+            static_cast<float>(bin_count)) /
+           static_cast<float>(kSplashSpectrumSampleRateHz);
 }
 
 static float ui_splash_spec_db_at_bin(const float *fft_buf, uint32_t bin_count, float bin)
 {
-    if(bin < 0.0f)
-    {
-        bin = 0.0f;
-    }
+    float const max_bin = static_cast<float>(bin_count - 2U);
+    bin = std::clamp(bin, 0.0f, max_bin);
 
-    float max_bin = (float)(bin_count - 2U);
-    if(bin > max_bin)
-    {
-        bin = max_bin;
-    }
-
-    uint32_t idx = (uint32_t)bin;
-    float frac = bin - (float)idx;
+    uint32_t const idx = static_cast<uint32_t>(bin);
+    float const frac = bin - static_cast<float>(idx);
 
     return fft_buf[idx] + (frac * (fft_buf[idx + 1U] - fft_buf[idx]));
 }
 
 static uint16_t ui_splash_spec_y_frac(float db)
 {
-    float normalized = (db - UI_SPLASH_SPEC_MIN_DB) / (UI_SPLASH_SPEC_MAX_DB - UI_SPLASH_SPEC_MIN_DB);
+    float const normalized =
+        std::clamp((db - kSplashSpectrumMinimumDb) /
+                       (kSplashSpectrumMaximumDb - kSplashSpectrumMinimumDb),
+                   0.0f,
+                   1.0f);
 
-    if(normalized < 0.0f)
-    {
-        normalized = 0.0f;
-    }
-    if(normalized > 1.0f)
-    {
-        normalized = 1.0f;
-    }
-
-    return (uint16_t)(normalized * 1024.0f);
+    return static_cast<uint16_t>(normalized * 1024.0f);
 }
 
 static void ui_draw_splash_spectrum(void)
 {
-    uint16_t trace_color;
-    uint16_t scope_fill;
-
-    ui_splash_colors(&scope_fill, &trace_color);
+    auto const [scope_fill, trace_color] = ui_splash_colors();
 
     if(!s_splash_spec_poly_valid)
     {
-        ui_splash_fill_quad(&s_splash_quad_spec, scope_fill);
+        ui_splash_fill_quad(kSplashSpectrumQuad, scope_fill);
     }
 
     UI_FFT_Compute();
 
-    const float *fft_buf = UI_FFT_Buffer();
+    float const *fft_buf = UI_FFT_Buffer();
     uint32_t const bin_count = UI_FFT_BinCount();
     if((fft_buf == nullptr) || (bin_count < 2U))
     {
@@ -966,44 +800,53 @@ static void ui_draw_splash_spectrum(void)
         return;
     }
 
-    size_t const display_cols = (size_t)UI_SPLASH_SPEC_DISPLAY_COLS;
+    size_t const display_cols = s_splash_spec_prev.size();
     if(s_splash_spec_poly_valid)
     {
-        for(size_t i = 1U; i < display_cols; ++i)
-        {
-            ST7789_DrawLineFills(ui_splash_trace_x(s_splash_spec_prev[i - 1U]),
-                                 s_splash_spec_prev[i - 1U].y,
-                                 ui_splash_trace_x(s_splash_spec_prev[i]),
-                                 s_splash_spec_prev[i].y,
-                                 scope_fill);
-        }
+        ui_splash_erase_trace(s_splash_spec_prev, scope_fill);
     }
 
-    uint16_t w_lim = (uint16_t)(ST7789_GetWidth() - 1U);
-    uint16_t h_lim = (uint16_t)(ST7789_GetHeight() - 1U);
-    int32_t den_plot = (int32_t)(display_cols - 1U);
-    int32_t const dx_top = (int32_t)UI_SPLASH_SPEC_X3 - (int32_t)UI_SPLASH_SPEC_X0;
-    int32_t const dy_top = (int32_t)UI_SPLASH_SPEC_Y3 - (int32_t)UI_SPLASH_SPEC_Y0;
-    int32_t const dx_bot = (int32_t)UI_SPLASH_SPEC_X2 - (int32_t)UI_SPLASH_SPEC_X1;
-    int32_t const dy_bot = (int32_t)UI_SPLASH_SPEC_Y2 - (int32_t)UI_SPLASH_SPEC_Y1;
-    float const bin_min = ui_splash_spec_fft_bin_at_hz(UI_SPLASH_SPEC_MIN_HZ, bin_count);
-    float const bin_max = ui_splash_spec_fft_bin_at_hz(UI_SPLASH_SPEC_MAX_HZ, bin_count);
-    float const bin_step = (bin_max - bin_min) / (float)den_plot;
+    uint16_t const w_lim = static_cast<uint16_t>(ST7789_GetWidth() - 1U);
+    uint16_t const h_lim = static_cast<uint16_t>(ST7789_GetHeight() - 1U);
+    int32_t const den_plot = static_cast<int32_t>(display_cols - 1U);
+    int32_t const dx_top =
+        static_cast<int32_t>(kSplashSpectrumQuad[3U].x) - kSplashSpectrumQuad[0U].x;
+    int32_t const dy_top =
+        static_cast<int32_t>(kSplashSpectrumQuad[3U].y) - kSplashSpectrumQuad[0U].y;
+    int32_t const dx_bottom =
+        static_cast<int32_t>(kSplashSpectrumQuad[2U].x) - kSplashSpectrumQuad[1U].x;
+    int32_t const dy_bottom =
+        static_cast<int32_t>(kSplashSpectrumQuad[2U].y) - kSplashSpectrumQuad[1U].y;
+    float const bin_min =
+        ui_splash_spec_fft_bin_at_hz(kSplashSpectrumMinimumHz, bin_count);
+    float const bin_max =
+        ui_splash_spec_fft_bin_at_hz(kSplashSpectrumMaximumHz, bin_count);
+    float const bin_step =
+        (bin_max - bin_min) / static_cast<float>(den_plot);
     float bin = bin_min;
 
     uint16_t prev_px = 0U;
     uint16_t prev_py = 0U;
     for(size_t i = 0U; i < display_cols; ++i)
     {
-        int32_t x_top = (int32_t)UI_SPLASH_SPEC_X0 + (((int32_t)i * dx_top) / den_plot);
-        int32_t y_top = (int32_t)UI_SPLASH_SPEC_Y0 + (((int32_t)i * dy_top) / den_plot);
-        int32_t x_bot = (int32_t)UI_SPLASH_SPEC_X1 + (((int32_t)i * dx_bot) / den_plot);
-        int32_t y_bot = (int32_t)UI_SPLASH_SPEC_Y1 + (((int32_t)i * dy_bot) / den_plot);
-        uint16_t y_frac = ui_splash_spec_y_frac(ui_splash_spec_db_at_bin(fft_buf, bin_count, bin));
-        int32_t px = x_bot + (((x_top - x_bot) * (int32_t)y_frac) / 1024);
-        int32_t py = y_bot + (((y_top - y_bot) * (int32_t)y_frac) / 1024);
-        uint16_t curr_px = ui_splash_clamp_u16(px, w_lim);
-        uint16_t curr_py = ui_splash_clamp_u16(py, h_lim);
+        int32_t const x_top =
+            kSplashSpectrumQuad[0U].x + ((static_cast<int32_t>(i) * dx_top) / den_plot);
+        int32_t const y_top =
+            kSplashSpectrumQuad[0U].y + ((static_cast<int32_t>(i) * dy_top) / den_plot);
+        int32_t const x_bottom =
+            kSplashSpectrumQuad[1U].x +
+            ((static_cast<int32_t>(i) * dx_bottom) / den_plot);
+        int32_t const y_bottom =
+            kSplashSpectrumQuad[1U].y +
+            ((static_cast<int32_t>(i) * dy_bottom) / den_plot);
+        uint16_t const y_fraction =
+            ui_splash_spec_y_frac(ui_splash_spec_db_at_bin(fft_buf, bin_count, bin));
+        int32_t const px =
+            x_bottom + (((x_top - x_bottom) * static_cast<int32_t>(y_fraction)) / 1024);
+        int32_t const py =
+            y_bottom + (((y_top - y_bottom) * static_cast<int32_t>(y_fraction)) / 1024);
+        uint16_t const curr_px = ui_splash_clamp_u16(px, w_lim);
+        uint16_t const curr_py = ui_splash_clamp_u16(py, h_lim);
 
         if(i > 0U)
         {
@@ -1025,36 +868,43 @@ static void ui_draw_splash_freq_overlay(uint32_t freq_hz)
     char text[20];
     if(freq_hz >= 1000000U)
     {
-        unsigned long mhz = (unsigned long)(freq_hz / 1000000U);
-        unsigned long mhz_frac = (unsigned long)((freq_hz % 1000000U) / 100000U);
-        snprintf(text, sizeof(text), "%lu.%lu MHz", mhz, mhz_frac);
+        unsigned long const mhz = static_cast<unsigned long>(freq_hz / 1000000U);
+        unsigned long const mhz_frac =
+            static_cast<unsigned long>((freq_hz % 1000000U) / 100000U);
+        std::snprintf(text, sizeof(text), "%lu.%lu MHz", mhz, mhz_frac);
     }
     else if(freq_hz >= 1000U)
     {
-        unsigned long khz = (unsigned long)(freq_hz / 1000U);
-        unsigned long khz_frac = (unsigned long)((freq_hz % 1000U) / 100U);
-        snprintf(text, sizeof(text), "%lu.%lu kHz", khz, khz_frac);
+        unsigned long const khz = static_cast<unsigned long>(freq_hz / 1000U);
+        unsigned long const khz_frac =
+            static_cast<unsigned long>((freq_hz % 1000U) / 100U);
+        std::snprintf(text, sizeof(text), "%lu.%lu kHz", khz, khz_frac);
     }
     else
     {
-        snprintf(text, sizeof(text), "%lu Hz", (unsigned long)freq_hz);
+        std::snprintf(text,
+                      sizeof(text),
+                      "%lu Hz",
+                      static_cast<unsigned long>(freq_hz));
     }
 
-    uint16_t text_fg = (s_splash_appearance == UI_SPLASH_APPEARANCE_INVERTED) ? BLACK : WHITE;
-    uint16_t text_bg = (s_splash_appearance == UI_SPLASH_APPEARANCE_INVERTED) ? WHITE : BLACK;
+    auto const [text_fg, text_bg] = ui_splash_colors();
+    ui_splash_fill_quad(kSplashTextQuad, text_bg);
 
-    ui_splash_fill_quad(&s_splash_quad_mhz, text_bg);
-
-    size_t text_len = strlen(text);
-    int32_t top_span_x = (int32_t)UI_SPLASH_TEXT_X1 - (int32_t)UI_SPLASH_TEXT_X0;
-    int32_t text_span_x = (int32_t)text_len * UI_SPLASH_TEXT_BASELINE_DX;
-    int32_t start_x = (int32_t)UI_SPLASH_TEXT_X0 + ((top_span_x - text_span_x) / 2);
-    int32_t start_y = (int32_t)UI_SPLASH_TEXT_Y0 + 12;
+    size_t const text_len = std::strlen(text);
+    int32_t const top_span_x =
+        static_cast<int32_t>(kSplashTextQuad[1U].x) - kSplashTextQuad[0U].x;
+    int32_t const text_span_x =
+        static_cast<int32_t>(text_len) * kSplashTextBaselineDx;
+    int32_t const horizontal_offset = (top_span_x - text_span_x) / 2;
+    int32_t const start_x = kSplashTextQuad[0U].x + horizontal_offset;
+    int32_t start_y = kSplashTextQuad[0U].y + 12;
 
     if(top_span_x > 0)
     {
-        start_y += (((top_span_x - text_span_x) / 2) * ((int32_t)UI_SPLASH_TEXT_Y1 - (int32_t)UI_SPLASH_TEXT_Y0)) /
-                   top_span_x;
+        int32_t const top_span_y =
+            static_cast<int32_t>(kSplashTextQuad[1U].y) - kSplashTextQuad[0U].y;
+        start_y += (horizontal_offset * top_span_y) / top_span_x;
     }
 
     ST7789_WriteStringSlanted(start_x,
@@ -1062,10 +912,10 @@ static void ui_draw_splash_freq_overlay(uint32_t freq_hz)
                               text,
                               Font_11x18,
                               text_fg,
-                              UI_SPLASH_TEXT_BASELINE_DX,
-                              UI_SPLASH_TEXT_BASELINE_DY,
-                              UI_SPLASH_TEXT_SHEAR_NUM,
-                              UI_SPLASH_TEXT_SHEAR_DEN);
+                              kSplashTextBaselineDx,
+                              kSplashTextBaselineDy,
+                              kSplashTextShearNumerator,
+                              kSplashTextShearDenominator);
 }
 
 static void ui_draw_splash_fullscreen_landscape(uint32_t freq_hz)
@@ -1073,10 +923,7 @@ static void ui_draw_splash_fullscreen_landscape(uint32_t freq_hz)
     s_splash_wave_poly_valid = false;
     s_splash_spec_poly_valid = false;
 
-    uint16_t bitmap_fg;
-    uint16_t bitmap_bg;
-
-    ui_splash_colors(&bitmap_fg, &bitmap_bg);
+    auto const [bitmap_fg, bitmap_bg] = ui_splash_colors();
 
     ST7789_Fill_Color(bitmap_bg);
     ST7789_DrawBitmap1bpp(0U,
@@ -1091,13 +938,11 @@ static void ui_draw_splash_fullscreen_landscape(uint32_t freq_hz)
     ui_draw_splash_spectrum();
 }
 
-static void ui_apply_encoder_delta(int16_t delta, uint32_t freq_hz, uint32_t *next_freq_hz)
+static uint32_t ui_apply_encoder_delta(int16_t delta, uint32_t freq_hz)
 {
-    *next_freq_hz = freq_hz;
-
     if(delta == 0)
     {
-        return;
+        return freq_hz;
     }
 
     switch(s_active_control)
@@ -1113,14 +958,18 @@ static void ui_apply_encoder_delta(int16_t delta, uint32_t freq_hz, uint32_t *ne
 
             if(usb_hw_set_clk_freq_hz(requested_freq_hz) == READY)
             {
-                *next_freq_hz = si5351_hw_clk0_get_freq_hz();
+                return si5351_hw_clk0_get_freq_hz();
             }
             break;
         }
 
         case UI_CONTROL_VOLUME:
         {
-            uint8_t volume = ui_apply_delta_u8(s_volume, delta, 0U, UI_VOLUME_MAX);
+            uint8_t const volume =
+                ui_apply_delta(s_volume,
+                               delta,
+                               uint8_t{0U},
+                               static_cast<uint8_t>(UI_VOLUME_MAX));
 
             if(volume != s_volume)
             {
@@ -1134,15 +983,15 @@ static void ui_apply_encoder_delta(int16_t delta, uint32_t freq_hz, uint32_t *ne
         {
             if(delta > 0)
             {
-                s_demod_mode = (s_demod_mode == (demodulation_mode_t)(DEMODULATION_MODE_COUNT - 1))
+                s_demod_mode = (s_demod_mode == static_cast<demodulation_mode_t>(DEMODULATION_MODE_COUNT - 1))
                     ? DEMODULATION_MODE_WBFM
-                    : (demodulation_mode_t)(s_demod_mode + 1);
+                    : static_cast<demodulation_mode_t>(s_demod_mode + 1);
             }
             else
             {
                 s_demod_mode = (s_demod_mode == DEMODULATION_MODE_WBFM)
-                    ? (demodulation_mode_t)(DEMODULATION_MODE_COUNT - 1)
-                    : (demodulation_mode_t)(s_demod_mode - 1);
+                    ? static_cast<demodulation_mode_t>(DEMODULATION_MODE_COUNT - 1)
+                    : static_cast<demodulation_mode_t>(s_demod_mode - 1);
             }
 
             demod_set_mode(s_demod_mode);
@@ -1151,7 +1000,11 @@ static void ui_apply_encoder_delta(int16_t delta, uint32_t freq_hz, uint32_t *ne
 
         case UI_CONTROL_TLV320_GAIN:
         {
-            int8_t gain_db_x2 = ui_apply_delta_i8(s_tlv320_gain_db_x2, delta, UI_TLV320_GAIN_MIN_DB_X2, UI_TLV320_GAIN_MAX_DB_X2);
+            int8_t const gain_db_x2 =
+                ui_apply_delta(s_tlv320_gain_db_x2,
+                               delta,
+                               static_cast<int8_t>(UI_TLV320_GAIN_MIN_DB_X2),
+                               static_cast<int8_t>(UI_TLV320_GAIN_MAX_DB_X2));
 
             if((gain_db_x2 != s_tlv320_gain_db_x2) && (usb_hw_set_tlv320_gain_db_x2(gain_db_x2) == READY))
             {
@@ -1164,6 +1017,8 @@ static void ui_apply_encoder_delta(int16_t delta, uint32_t freq_hz, uint32_t *ne
         default:
             break;
     }
+
+    return freq_hz;
 }
 
 void UI_Init(void)
@@ -1195,7 +1050,7 @@ void UI_Init(void)
 
 bool UI_ShouldDrawFft(void)
 {
-    return (bool)(s_display_mode == UI_DISPLAY_WATERFALL);
+    return s_display_mode == UI_DISPLAY_WATERFALL;
 }
 
 void UI_Draw(void)
@@ -1207,12 +1062,12 @@ void UI_Draw(void)
 
     if(s_display_mode == UI_DISPLAY_WATERFALL)
     {
-        ui_apply_encoder_delta(encoder_delta, freq_hz, &freq_hz);
+        freq_hz = ui_apply_encoder_delta(encoder_delta, freq_hz);
     }
     else if(encoder_delta != 0)
     {
         uint32_t requested_freq_hz =
-            ui_apply_frequency_delta(freq_hz, encoder_delta, UI_SPLASH_FREQ_STEP_HZ);
+            ui_apply_frequency_delta(freq_hz, encoder_delta, kSplashFrequencyStepHz);
 
         if(usb_hw_set_clk_freq_hz(requested_freq_hz) == READY)
         {
@@ -1254,7 +1109,7 @@ void UI_Draw(void)
 
     if(s_display_mode == UI_DISPLAY_SPLASH)
     {
-        static PeriodicTrigger s_splash_wave_trigger{UI_SPLASH_WAVE_PERIOD_MS, []() {
+        static PeriodicTrigger s_splash_wave_trigger{kSplashWavePeriodMs, []() {
             ui_draw_splash_waveform();
             ui_draw_splash_spectrum();
         }};
