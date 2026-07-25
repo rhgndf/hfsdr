@@ -57,10 +57,10 @@ static BaseType_t pfic_has_enabled_pending_irq(void)
     return pdFALSE;
 }
 
-void vPortYield(void)
+void vPortYieldFromISR(void)
 {
     NVIC_SetPendingIRQ(Software_IRQn);
-    /* Publish the PFIC MMIO write before execution can continue past a yield. */
+    /* Publish the PFIC request before returning from the current ISR. */
     __asm volatile("fence iorw, iorw" ::: "memory");
 }
 

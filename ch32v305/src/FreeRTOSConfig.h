@@ -15,8 +15,8 @@
 #define configMINIMAL_STACK_SIZE                   144U
 #define configMAX_TASK_NAME_LEN                    16
 #define configTICK_TYPE_WIDTH_IN_BITS              TICK_TYPE_WIDTH_32_BITS
-#define configIDLE_SHOULD_YIELD                    0
-#define configTASK_NOTIFICATION_ARRAY_ENTRIES      1
+#define configIDLE_SHOULD_YIELD                    1
+#define configTASK_NOTIFICATION_ARRAY_ENTRIES      2
 #define configQUEUE_REGISTRY_SIZE                  0
 #define configENABLE_BACKWARD_COMPATIBILITY        0
 #define configNUM_THREAD_LOCAL_STORAGE_POINTERS    0
@@ -64,7 +64,7 @@
 #define INCLUDE_uxTaskPriorityGet                  0
 #define INCLUDE_vTaskDelete                        0
 #define INCLUDE_vTaskSuspend                       1
-#define INCLUDE_vTaskDelayUntil                    0
+#define INCLUDE_vTaskDelayUntil                    1
 #define INCLUDE_vTaskDelay                         1
 #define INCLUDE_xTaskAbortDelay                    0
 #define INCLUDE_xTaskGetHandle                     0

@@ -42,6 +42,7 @@ extern "C" {
 #include "feature/blinky/blinky.h"
 #include "demod/demod.h"
 #include "ui/ui.h"
+#include "ui/hw_state.h"
 }
 
 #include "feature/iq_calibration/iq_calibration.h"
@@ -161,7 +162,7 @@ static void TLV320_I2S_Poll(void)
                (unsigned long)bytes_per_sec,
                (unsigned long)vendor_words_per_sec,
                (unsigned long)vendor_dropped_words_per_sec,
-               (unsigned long)si5351_hw_clk0_get_freq_hz());
+               (unsigned long)hw_state_get_frequency());
 
         last_word_count = words_now;
         last_vendor_total_word_count = vendor_words_now;
@@ -301,7 +302,7 @@ static void Application_Task(void *parameters)
     i2c_hw_init();
     si5351_init();
     
-    if(si5351_hw_clk0_set_freq_hz(InitialCalibrationFreq) == READY)
+    if(si5351_hw_clk0_set_freq_hz(InitialCalibrationFreq))
     {
         printf("Si5351: LO CLK0/CLK1 = %lu Hz, CLK1 = +90 deg\r\n",
                (unsigned long)InitialCalibrationFreq);
@@ -356,7 +357,7 @@ static void Application_Task(void *parameters)
     while(s_i2s_bitslip_check)
     {
         TLV320_I2S_CheckBitslip();
-        vPortYield();
+        portYIELD();
     }
     (void)tlv320adc6120_ch1_mute(false);
     trng_hw_deinit();
@@ -364,14 +365,20 @@ static void Application_Task(void *parameters)
     ST7789_Fill_Color(BLACK);
     i2s_sync_check_disable();
 
-    (void)tlv320adc6120_hw_set_ch_gain_db_x2(-100);
-    /*while(iq_calibration_run())
+    /*(void)tlv320adc6120_hw_set_ch_gain_db_x2(-100);
+    while(iq_calibration_run())
     {
         iq_calibration_display();
     }*/
 
     (void)tlv320adc6120_hw_set_ch_gain_db_x2(0);
-    usb_hw_set_clk_freq_hz(InitialFMFreq);
+    si5351_hw_clk0_set_freq_hz(InitialFMFreq);
+
+    hw_state_publish_boot_state(InitialFMFreq,
+                                InitialFMFreq,
+                                READY,
+                                0);
+
     UI_Init();
     watchdog_kick();
 
@@ -387,6 +394,7 @@ static void Application_Task(void *parameters)
         //SDCardPoll();
         //demod::rds_poll();
         watchdog_kick();
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
 }
 
@@ -423,6 +431,8 @@ int main(void)
                           s_usb_task_stack,
                           &s_usb_task_tcb);
     configASSERT(usb_task_handle != nullptr);
+
+    hw_state_init();
 
     g_application_task_handle =
         xTaskCreateStatic(Application_Task,

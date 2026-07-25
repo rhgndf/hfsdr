@@ -11,13 +11,15 @@ extern "C" {
 
 void i2c_hw_init(void);
 ErrorStatus i2c_hw_write_register(uint8_t addr_7bit, uint8_t reg, uint8_t value);
-/* Write reg then len data bytes in one I2C transaction (Si5351 multisynth blocks, etc.). */
+/* Write reg then len data bytes in one I2C transaction.  The coalesced
+ * register/payload buffer permits at most 15 payload bytes. */
 ErrorStatus i2c_hw_write_register_burst(uint8_t addr_7bit, uint8_t reg, const uint8_t *data, size_t len);
 ErrorStatus i2c_hw_read_register(uint8_t addr_7bit, uint8_t reg, uint8_t *value);
 ErrorStatus i2c_hw_scan_bus_at(uint8_t addr_7bit);
 
 /* 16-bit register address variants (high byte first). For chips like CST328 that
- * use a 16-bit command/register space. data may be NULL when len == 0. */
+ * use a 16-bit command/register space. data may be NULL when len == 0; writes
+ * permit at most 14 payload bytes. */
 ErrorStatus i2c_hw_write_register16(uint8_t addr_7bit, uint16_t reg16, const uint8_t *data, size_t len);
 ErrorStatus i2c_hw_read_register16(uint8_t addr_7bit, uint16_t reg16, uint8_t *data, size_t len);
 

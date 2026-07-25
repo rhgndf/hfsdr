@@ -1,13 +1,52 @@
 #pragma once
 
 extern "C" {
+#include "FreeRTOS.h"
 #include "debug.h"
+#include "semphr.h"
 }
 
 #include <cstdint>
 #include <functional>
 #include <type_traits>
 #include <utility>
+
+class FreeRTOSLock
+{
+public:
+    FreeRTOSLock() = default;
+    FreeRTOSLock(const FreeRTOSLock &) = delete;
+    FreeRTOSLock &operator=(const FreeRTOSLock &) = delete;
+    FreeRTOSLock(FreeRTOSLock &&) = delete;
+    FreeRTOSLock &operator=(FreeRTOSLock &&) = delete;
+
+    void init() noexcept
+    {
+        configASSERT(m_mutex == nullptr);
+        m_mutex = xSemaphoreCreateMutexStatic(&m_mutex_storage);
+        configASSERT(m_mutex != nullptr);
+    }
+
+    void lock() noexcept
+    {
+        configASSERT(m_mutex != nullptr);
+        BaseType_t const taken = xSemaphoreTake(m_mutex, portMAX_DELAY);
+        configASSERT(taken == pdTRUE);
+        (void)taken;
+    }
+
+    void unlock() noexcept
+    {
+        configASSERT(m_mutex != nullptr);
+        BaseType_t const given = xSemaphoreGive(m_mutex);
+        configASSERT(given == pdTRUE);
+        (void)given;
+    }
+
+private:
+    StaticSemaphore_t m_mutex_storage{};
+    SemaphoreHandle_t m_mutex = nullptr;
+};
 
 inline uint64_t ticks_from_ms(uint32_t ms) noexcept
 {

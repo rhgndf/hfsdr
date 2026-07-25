@@ -8,11 +8,11 @@
  * requested frequency it programs CLK0 and CLK1 from PLLA with the same output
  * divider, and derives CLK1 with a 90-degree phase offset relative to CLK0.
  * It uses the Si5351 phase registers when the requested frequency is high
- * enough, and a TIM6-timed temporary divider offset below that range. The final
+ * enough, and a task-timed temporary divider offset below that range. The final
  * low-frequency state keeps CLK0/CLK1 on equal integer MultiSynth dividers.
  *
- * si5351_hw_clk0_set_freq_hz(): quadrature CLK0/CLK1 output in Hz. Frequencies
- * below about 3.17 MHz complete their final CLK1 divider update from TIM6_IRQHandler.
+ * si5351_hw_clk0_set_freq_hz(): quadrature CLK0/CLK1 output in Hz. Returns the
+ * actual programmed frequency, or zero on failure.
  */
 
 #ifndef SI5351_XTAL_FREQ_HZ
@@ -23,12 +23,12 @@
 
 /* Si5351A practical lower clock-output limit. */
 #define SI5351_MIN_OUTPUT_HZ 2500U
+#define SI5351_MAX_OUTPUT_HZ 225000000U
 
 #include "debug.h"
 
 ErrorStatus si5351_init();
-ErrorStatus si5351_hw_clk0_set_freq_hz(uint32_t hz);
-uint32_t si5351_hw_clk0_get_freq_hz();
+uint32_t si5351_hw_clk0_set_freq_hz(uint32_t hz);
 ErrorStatus si5351_hw_get_plla_lock(uint8_t *locked);
 
 #endif

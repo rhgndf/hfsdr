@@ -33,16 +33,16 @@ typedef portUBASE_TYPE TickType_t;
 #define portCRITICAL_NESTING_IN_TCB 0
 #define portHAS_NESTED_INTERRUPTS    1
 
-void vPortYield(void);
+void vPortYieldFromISR(void);
 void vPortSuppressTicksAndSleep(TickType_t expected_idle_time);
 
-#define portYIELD()              vPortYield()
+#define portYIELD()              __asm volatile("ecall" ::: "memory")
 #define portYIELD_FROM_ISR(switch_required)                      \
     do                                                           \
     {                                                            \
         if((switch_required) != pdFALSE)                         \
         {                                                        \
-            vPortYield();                                        \
+            vPortYieldFromISR();                                 \
         }                                                        \
     } while(0)
 #define portEND_SWITCHING_ISR(switch_required) \

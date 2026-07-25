@@ -1,7 +1,9 @@
 /*
- * CH32V30x PFIC software-interrupt bridge for the upstream FreeRTOS RISC-V
- * context port.  Task stack initialization, first-task startup, and context
- * frame save/restore remain owned by FreeRTOS-Kernel's portASM.S.
+ * CH32V30x exception/interrupt bridges for the upstream FreeRTOS RISC-V
+ * context port.  Task yields use the synchronous machine-mode ecall exception;
+ * ISR-requested switches use the low-priority PFIC software interrupt.  Task
+ * stack initialization, first-task startup, and context frame save/restore
+ * remain owned by FreeRTOS-Kernel's portASM.S.
  */
 
 #include "portContext.h"
@@ -111,7 +113,32 @@ portIRQ_WRAPPER DMA1_Channel4_IRQHandler, DMA1_Channel4_IRQHandler_Body
 portIRQ_WRAPPER DMA2_Channel2_IRQHandler, DMA2_Channel2_IRQHandler_Body
 portIRQ_WRAPPER EXTI15_10_IRQHandler, EXTI15_10_IRQHandler_Body
 portIRQ_WRAPPER TIM10_CC_IRQHandler, TIM10_CC_IRQHandler_Body
-portIRQ_WRAPPER TIM6_IRQHandler, TIM6_IRQHandler_Body
+portIRQ_WRAPPER I2C2_EV_IRQHandler, I2C2_EV_IRQHandler_Body
+portIRQ_WRAPPER I2C2_ER_IRQHandler, I2C2_ER_IRQHandler_Body
+
+.global Ecall_M_Mode_Handler
+.type Ecall_M_Mode_Handler, @function
+.section .text.Ecall_M_Mode_Handler, "ax", @progbits
+.p2align 2
+Ecall_M_Mode_Handler:
+    /*
+     * ecall is synchronous, so the exception-context macro advances mepc past
+     * the ecall before saving it in the outgoing task's context.
+     */
+    portcontextSAVE_EXCEPTION_CONTEXT
+
+    /*
+     * The PFIC hardware stack captured the yielding task.  Tell it that mret
+     * will return with a different task's context; GIHWSTKNEN is cleared
+     * automatically when the exception returns.
+     */
+    li t0, 0x20
+    csrs 0x804, t0
+    fence.i
+
+    call vTaskSwitchContext
+    portcontextRESTORE_CONTEXT
+.size Ecall_M_Mode_Handler, .-Ecall_M_Mode_Handler
 
 .global SW_Handler
 .type SW_Handler, @function

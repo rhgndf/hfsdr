@@ -2,8 +2,8 @@
 
 #include "debug.h"
 #include "hw/pinout.h"
-#include "hw/si5351.h"
 #include "hw/usb.h"
+#include "ui/hw_state.h"
 
 typedef enum
 {
@@ -122,7 +122,7 @@ static void led_update_activity_gates(uint64_t now_tick)
 {
     uint32_t vendor_total_words_now = usb_hw_vendor_total_words();
     uint32_t vendor_delta_words = vendor_total_words_now - g_led_ctrl.last_vendor_total_words;
-    uint32_t freq_now_hz = si5351_hw_clk0_get_freq_hz();
+    uint32_t freq_now_hz = hw_state_get_frequency();
 
     if(vendor_delta_words > 0U)
     {
@@ -278,7 +278,7 @@ void blinky_init(void)
     g_led_ctrl.usb_data_seen = 0U;
     g_led_ctrl.freq_changed_seen = 0U;
     g_led_ctrl.last_vendor_total_words = usb_hw_vendor_total_words();
-    g_led_ctrl.initial_frequency_hz = si5351_hw_clk0_get_freq_hz();
+    g_led_ctrl.initial_frequency_hz = hw_state_get_frequency();
     g_led_ctrl.activity_window_until_tick = 0U;
     g_led_ctrl.activity_led1_until_tick = 0U;
     g_led_ctrl.sw_pwm_phase = 0U;

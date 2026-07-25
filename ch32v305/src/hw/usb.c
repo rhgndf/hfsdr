@@ -7,8 +7,8 @@
 
 #include "debug.h"
 #include "si5351.h"
-#include "tlv320adc6120.h"
 #include "tusb.h"
+#include "ui/hw_state.h"
 #include "usb_descriptors.h"
 
 #define USB_ECHO_BUF_SIZE  512
@@ -24,9 +24,6 @@ static uint8_t usb_hw_clk_freq_req[USB_HW_CLK_FREQ_PAYLOAD_SIZE];
 static uint8_t usb_hw_clk_freq_state[USB_HW_CLK_FREQ_STATE_SIZE];
 static uint8_t usb_hw_tlv320_gain_req[USB_HW_TLV320_GAIN_REQ_SIZE];
 static uint8_t usb_hw_pll_lock_state[USB_HW_PLL_LOCK_STATE_SIZE];
-static ErrorStatus usb_hw_clk_freq_status = NoREADY;
-static int8_t usb_hw_tlv320_gain_db_x2 = 0;
-static ErrorStatus usb_hw_tlv320_gain_status = NoREADY;
 static volatile uint32_t usb_hw_vendor_total_word_count = 0U;
 static volatile uint32_t usb_hw_vendor_dropped_word_count = 0U;
 static tusb_desc_webusb_url_t const desc_url = {
@@ -73,8 +70,8 @@ static void usb_u64_to_le(uint64_t value, uint8_t *buf)
 
 static void usb_hw_prepare_clk_freq_state(void)
 {
-    usb_hw_clk_freq_state[0] = (uint8_t)usb_hw_clk_freq_status;
-    usb_u64_to_le((uint64_t)si5351_hw_clk0_get_freq_hz(), &usb_hw_clk_freq_state[1]);
+    usb_hw_clk_freq_state[0] = (uint8_t)hw_state_get_frequency_status();
+    usb_u64_to_le((uint64_t)hw_state_get_frequency(), &usb_hw_clk_freq_state[1]);
 }
 
 ErrorStatus usb_hw_get_pll_lock(uint8_t *locked)
@@ -125,28 +122,6 @@ uint32_t usb_hw_vendor_total_words(void)
 uint32_t usb_hw_vendor_dropped_words(void)
 {
     return usb_hw_vendor_dropped_word_count;
-}
-
-ErrorStatus usb_hw_set_clk_freq_hz(uint32_t hz)
-{
-    return si5351_hw_clk0_set_freq_hz(hz);
-}
-
-ErrorStatus usb_hw_set_tlv320_gain_db_x2(int8_t gain_db_x2)
-{
-
-    usb_hw_tlv320_gain_status = tlv320adc6120_hw_set_ch_gain_db_x2(gain_db_x2);
-    if(usb_hw_tlv320_gain_status == READY)
-    {
-        usb_hw_tlv320_gain_db_x2 = gain_db_x2;
-    }
-
-    return usb_hw_tlv320_gain_status;
-}
-
-ErrorStatus usb_hw_get_clk_freq_status(void)
-{
-    return usb_hw_clk_freq_status;
 }
 
 void usb_task(void *parameters)
@@ -255,10 +230,10 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
                         uint64_t wire_frequency_hz = usb_u64_from_le(usb_hw_clk_freq_req);
                         if(wire_frequency_hz > UINT32_MAX)
                         {
-                            usb_hw_clk_freq_status = NoREADY;
                             return false;
                         }
-                        return (usb_hw_set_clk_freq_hz((uint32_t)wire_frequency_hz) == READY);
+                        hw_state_set_frequency((uint32_t)wire_frequency_hz);
+                        return true;
                     }
                     return true;
 
@@ -300,7 +275,8 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
                     }
                     if(stage == CONTROL_STAGE_DATA)
                     {
-                        return (usb_hw_set_tlv320_gain_db_x2((int8_t)usb_hw_tlv320_gain_req[0]) == READY);
+                        hw_state_set_gain_x2((int8_t)usb_hw_tlv320_gain_req[0]);
+                        return true;
                     }
                     return true;
 

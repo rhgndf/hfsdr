@@ -1,13 +1,10 @@
 #include "si5351.h"
 
-#include "freertos/port_isr.h"
 #include "hw/i2c.h"
 
+#include "FreeRTOS.h"
+#include "task.h"
 #include "debug.h"
-
-#include "ch32v30x_misc.h"
-#include "ch32v30x_rcc.h"
-#include "ch32v30x_tim.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -16,7 +13,6 @@
 #define SI5351_FREQ_MULT 100U
 
 /* Si5351 / Etherkit limits (Hz at output, before R-div scaling in algorithm). */
-#define SI5351_CLKOUT_MAX_HZ   225000000U
 #define SI5351_PLL_VCO_MIN_HZ  400000000U
 #define SI5351_PLL_TARGET_HZ   900000000U
 #define SI5351_PLL_VCO_MAX_HZ  1000000000U
@@ -28,8 +24,6 @@
 #define SI5351_PLL_A_MAX       90U
 #define SI5351_PHASE_REG_MIN_OUTPUT_HZ 3174604U
 #define SI5351_TEMP_OFFSET_HZ  250U
-#define SI5351_TIM6_MAX_TICKS  65536UL
-#define SI5351_TIM6_PRESCALER_DIV_MAX 65536UL
 #define SI5351_PLL_LOCK_POLL_HZ 1000UL
 #define SI5351_PLL_LOCK_POLLS 100U
 
@@ -87,23 +81,6 @@ struct si5351_output_config
     uint8_t phase_offset;
     struct si5351_ms ms;
 };
-
-enum si5351_tim6_state
-{
-    SI5351_TIM6_IDLE = 0,
-    SI5351_TIM6_WAIT_PLL_LOCK = 1,
-    SI5351_TIM6_ARMED_FINALIZE_CLK1 = 2
-};
-
-static uint32_t si5351_actual_frequency_hz;
-static volatile enum si5351_tim6_state si5351_tim6_state;
-static volatile uint32_t si5351_tim6_phase_ticks;
-static volatile uint32_t si5351_tim6_lock_polls_remaining;
-static volatile ErrorStatus si5351_tim6_last_status = READY;
-static uint8_t si5351_tim6_temp_ms1[8];
-static uint8_t si5351_tim6_temp_clk1_ctrl;
-static uint8_t si5351_tim6_final_ms1[8];
-static uint8_t si5351_tim6_final_clk1_ctrl;
 
 static ErrorStatus si5351_enable_quadrature_outputs(void);
 
@@ -292,7 +269,7 @@ static uint32_t si5351_select_temp_b1_denominator(uint64_t final_output_scaled, 
      *
      * Pick c ~= (f_final - delta) / (delta * a) using scaled integer Hz.
      * Clamp c >= 2 so b/c stays below 1 and the temporary integer part
-     * remains a. TIM6 is later timed from the actual chosen-c delta.
+     * remains a. The task delay is later derived from the actual chosen-c delta.
      */
     uint64_t target_delta_scaled = (uint64_t)SI5351_TEMP_OFFSET_HZ * SI5351_FREQ_MULT;
     if((target_delta_scaled == 0U) || (div == 0U) || (final_output_scaled <= target_delta_scaled))
@@ -342,7 +319,8 @@ static ErrorStatus si5351_calc_fixed_div_b1_output_ms(uint64_t vco_scaled,
 
 static ErrorStatus si5351_calculate_clk0_config(uint64_t freq_scaled, uint32_t max_output_div,
                                                 bool allow_r_div, struct si5351_pll_config *pll_conf,
-                                                struct si5351_output_config *out_conf)
+                                                struct si5351_output_config *out_conf,
+                                                uint32_t *actual_frequency_hz)
 {
     const uint64_t xtal_scaled = (uint64_t)SI5351_XTAL_FREQ_HZ * SI5351_FREQ_MULT;
     uint64_t output_clock_scaled = freq_scaled;
@@ -388,132 +366,36 @@ static ErrorStatus si5351_calculate_clk0_config(uint64_t freq_scaled, uint32_t m
     pll_conf->denom = base_den;
     pll_conf->ms = si5351_calc_pll_ms(pll_conf);
     uint64_t actual_vco_scaled = si5351_pll_actual_vco_scaled(pll_conf);
-    uint64_t actual_frequency_hz =
+    uint64_t actual_hz_64 =
         actual_vco_scaled /
         ((uint64_t)calculated_div * (uint64_t)out_conf->r_div_factor * SI5351_FREQ_MULT);
-    if(actual_frequency_hz > UINT32_MAX)
+    if(actual_hz_64 > UINT32_MAX)
     {
         return NoREADY;
     }
-    si5351_actual_frequency_hz = (uint32_t)actual_frequency_hz;
+    *actual_frequency_hz = (uint32_t)actual_hz_64;
     return READY;
 }
 
-static uint32_t si5351_tim6_counter_clock_hz(void)
+static TickType_t si5351_phase_delay_ticks(uint64_t delta_scaled)
 {
-    RCC_ClocksTypeDef clk = {0};
-
-    RCC_GetClocksFreq(&clk);
-    uint32_t pclk1 = clk.PCLK1_Frequency;
-    uint32_t ppre1 = (RCC->CFGR0 & RCC_PPRE1) >> 8;
-    if(ppre1 != 0U)
-    {
-        return pclk1 * 2U;
-    }
-    return pclk1;
-}
-
-static ErrorStatus si5351_tim6_arm_ticks(uint32_t raw_ticks)
-{
-    if(raw_ticks == 0U)
-    {
-        return NoREADY;
-    }
-
-    /*
-     * raw_ticks is measured at the APB timer input clock. Pick the smallest
-     * prescaler divisor that lets the one-shot period fit in the 16-bit ARR;
-     * this keeps the delay single-arm while preserving maximum timer resolution.
-     */
-    uint32_t prescaler_div = ((raw_ticks - 1U) >> 16) + 1U;
-    if(prescaler_div > SI5351_TIM6_PRESCALER_DIV_MAX)
-    {
-        return NoREADY;
-    }
-
-    uint32_t ticks = ((raw_ticks - 1U) / prescaler_div) + 1U;
-    if(ticks > SI5351_TIM6_MAX_TICKS)
-    {
-        return NoREADY;
-    }
-
-    TIM_Cmd(TIM6, DISABLE);
-    TIM_PrescalerConfig(TIM6, (uint16_t)(prescaler_div - 1U), TIM_PSCReloadMode_Immediate);
-    TIM_SetCounter(TIM6, 0U);
-    TIM_SetAutoreload(TIM6, (uint16_t)(ticks - 1U));
-    TIM_ClearFlag(TIM6, TIM_FLAG_Update);
-    TIM_ITConfig(TIM6, TIM_IT_Update, ENABLE);
-    TIM_Cmd(TIM6, ENABLE);
-    return READY;
-}
-
-static void si5351_tim6_cancel(void)
-{
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM6, ENABLE);
-    TIM_Cmd(TIM6, DISABLE);
-    TIM_ITConfig(TIM6, TIM_IT_Update, DISABLE);
-    TIM_ClearFlag(TIM6, TIM_FLAG_Update);
-    NVIC_ClearPendingIRQ(TIM6_IRQn);
-    si5351_tim6_state = SI5351_TIM6_IDLE;
-    si5351_tim6_phase_ticks = 0U;
-    si5351_tim6_lock_polls_remaining = 0U;
-}
-
-static void si5351_tim6_init(void)
-{
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM6, ENABLE);
-    TIM_DeInit(TIM6);
-
-    TIM_TimeBaseInitTypeDef tim = {0};
-    TIM_TimeBaseStructInit(&tim);
-    tim.TIM_Period = 0xFFFFU;
-    tim.TIM_Prescaler = 0U;
-    tim.TIM_ClockDivision = TIM_CKD_DIV1;
-    tim.TIM_CounterMode = TIM_CounterMode_Up;
-    TIM_TimeBaseInit(TIM6, &tim);
-    TIM_SelectOnePulseMode(TIM6, TIM_OPMode_Single);
-    TIM_ClearFlag(TIM6, TIM_FLAG_Update);
-    TIM_ITConfig(TIM6, TIM_IT_Update, DISABLE);
-
-    NVIC_InitTypeDef nvic = {0};
-    nvic.NVIC_IRQChannel = TIM6_IRQn;
-    nvic.NVIC_IRQChannelPreemptionPriority = 0;
-    nvic.NVIC_IRQChannelSubPriority = 0;
-    nvic.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Init(&nvic);
-}
-
-static uint32_t si5351_tim6_phase_delay_ticks(uint64_t delta_scaled)
-{
-    uint32_t timclk = si5351_tim6_counter_clock_hz();
     if(delta_scaled == 0U)
     {
         return 0U;
     }
 
-    uint64_t ticks = ((uint64_t)timclk * SI5351_FREQ_MULT) / (4ULL * delta_scaled);
-    if(ticks > 0xFFFFFFFFULL)
+    uint64_t denominator = 4ULL * delta_scaled;
+    uint64_t numerator = (uint64_t)configTICK_RATE_HZ * SI5351_FREQ_MULT;
+    uint64_t ticks = (numerator + denominator - 1U) / denominator;
+    if(ticks > portMAX_DELAY)
     {
         return 0U;
     }
-
-    uint32_t delay_ticks = (uint32_t)ticks;
-    if(delay_ticks == 0U)
+    if(ticks == 0U)
     {
-        delay_ticks = 1U;
+        ticks = 1U;
     }
-    return delay_ticks;
-}
-
-static uint32_t si5351_tim6_pll_lock_poll_ticks(void)
-{
-    uint32_t timclk = si5351_tim6_counter_clock_hz();
-    uint32_t poll_ticks = timclk / SI5351_PLL_LOCK_POLL_HZ;
-    if(poll_ticks == 0U)
-    {
-        poll_ticks = 1U;
-    }
-    return poll_ticks;
+    return (TickType_t)ticks;
 }
 
 static ErrorStatus si5351_write_clk1_ms_and_ctrl(const uint8_t ms1[8], uint8_t clk1_ctrl)
@@ -525,119 +407,29 @@ static ErrorStatus si5351_write_clk1_ms_and_ctrl(const uint8_t ms1[8], uint8_t c
     return i2c_hw_write_register(SI5351_I2C_ADDR_7BIT, SI5351_REG_CLK1_CTRL, clk1_ctrl);
 }
 
-static ErrorStatus si5351_tim6_start_pll_lock_wait(const uint8_t temp_ms1[8], uint8_t temp_clk1_ctrl,
-                                                   const uint8_t final_ms1[8], uint8_t final_clk1_ctrl,
-                                                   uint32_t phase_ticks)
+static ErrorStatus si5351_wait_plla_lock(void)
 {
-    if(phase_ticks == 0U)
+    TickType_t wake = xTaskGetTickCount();
+    TickType_t poll_ticks = pdMS_TO_TICKS(1000U / SI5351_PLL_LOCK_POLL_HZ);
+    if(poll_ticks == 0U)
     {
-        return NoREADY;
+        poll_ticks = 1U;
     }
 
-    for(uint32_t i = 0U; i < 8U; ++i)
+    for(uint32_t poll = 0U; poll < SI5351_PLL_LOCK_POLLS; ++poll)
     {
-        si5351_tim6_temp_ms1[i] = temp_ms1[i];
-        si5351_tim6_final_ms1[i] = final_ms1[i];
-    }
-    si5351_tim6_temp_clk1_ctrl = temp_clk1_ctrl;
-    si5351_tim6_final_clk1_ctrl = final_clk1_ctrl;
-    si5351_tim6_phase_ticks = phase_ticks;
-
-    si5351_tim6_state = SI5351_TIM6_WAIT_PLL_LOCK;
-    si5351_tim6_last_status = READY;
-    si5351_tim6_lock_polls_remaining = SI5351_PLL_LOCK_POLLS;
-    return si5351_tim6_arm_ticks(si5351_tim6_pll_lock_poll_ticks());
-}
-
-static void si5351_tim6_finalize_clk1(void)
-{
-    TIM_Cmd(TIM6, DISABLE);
-    TIM_ITConfig(TIM6, TIM_IT_Update, DISABLE);
-    si5351_tim6_state = SI5351_TIM6_IDLE;
-    si5351_tim6_last_status = si5351_write_clk1_ms_and_ctrl(si5351_tim6_final_ms1, si5351_tim6_final_clk1_ctrl);
-}
-
-static void si5351_tim6_handle_pll_lock_wait(void)
-{
-    uint8_t locked;
-    if(si5351_hw_get_plla_lock(&locked) != READY)
-    {
-        si5351_tim6_last_status = NoREADY;
-        si5351_tim6_cancel();
-        return;
-    }
-
-    if(locked == 0U)
-    {
-        if(si5351_tim6_lock_polls_remaining == 0U)
+        uint8_t locked;
+        if(si5351_hw_get_plla_lock(&locked) != READY)
         {
-            si5351_tim6_last_status = NoREADY;
-            si5351_tim6_cancel();
-            return;
+            return NoREADY;
         }
-
-        --si5351_tim6_lock_polls_remaining;
-        if(si5351_tim6_arm_ticks(si5351_tim6_pll_lock_poll_ticks()) != READY)
+        if(locked != 0U)
         {
-            si5351_tim6_last_status = NoREADY;
-            si5351_tim6_cancel();
+            return READY;
         }
-        return;
+        vTaskDelayUntil(&wake, poll_ticks);
     }
-
-    if(si5351_enable_quadrature_outputs() != READY)
-    {
-        si5351_tim6_last_status = NoREADY;
-        si5351_tim6_cancel();
-        return;
-    }
-
-    si5351_tim6_state = SI5351_TIM6_ARMED_FINALIZE_CLK1;
-    if(si5351_tim6_arm_ticks(si5351_tim6_phase_ticks) != READY)
-    {
-        si5351_tim6_last_status = NoREADY;
-        si5351_tim6_cancel();
-    }
-    
-    if(si5351_write_clk1_ms_and_ctrl(si5351_tim6_temp_ms1, si5351_tim6_temp_clk1_ctrl) != READY)
-    {
-        si5351_tim6_last_status = NoREADY;
-        si5351_tim6_cancel();
-        return;
-    }
-
-}
-
-static void si5351_tim6_handle_finalize_wait(void)
-{
-    si5351_tim6_finalize_clk1();
-}
-
-PORT_ISR_BODY(TIM6_IRQHandler)
-{
-    if(TIM_GetITStatus(TIM6, TIM_IT_Update) == RESET)
-    {
-        return;
-    }
-
-    TIM_ClearITPendingBit(TIM6, TIM_IT_Update);
-
-    switch(si5351_tim6_state)
-    {
-    case SI5351_TIM6_WAIT_PLL_LOCK:
-        si5351_tim6_handle_pll_lock_wait();
-        break;
-
-    case SI5351_TIM6_ARMED_FINALIZE_CLK1:
-        si5351_tim6_handle_finalize_wait();
-        break;
-
-    case SI5351_TIM6_IDLE:
-    default:
-        TIM_Cmd(TIM6, DISABLE);
-        TIM_ITConfig(TIM6, TIM_IT_Update, DISABLE);
-        break;
-    }
+    return NoREADY;
 }
 
 static ErrorStatus si5351_wait_sys_init(void)
@@ -748,7 +540,7 @@ static ErrorStatus si5351_write_common_quadrature_config(const struct si5351_pll
 static ErrorStatus si5351_prepare_lagging_clk1_temp_config(const struct si5351_pll_config *pll_conf,
                                                            const struct si5351_output_config *final_conf,
                                                            struct si5351_output_config *temp_conf,
-                                                           uint32_t *phase_ticks)
+                                                           TickType_t *phase_ticks)
 {
     if((pll_conf == 0) || (final_conf == 0) || (temp_conf == 0) || (phase_ticks == 0))
     {
@@ -781,7 +573,7 @@ static ErrorStatus si5351_prepare_lagging_clk1_temp_config(const struct si5351_p
     }
 
     uint64_t delta_scaled = final_output_scaled - actual_temp_output_scaled;
-    uint32_t ticks = si5351_tim6_phase_delay_ticks(delta_scaled);
+    TickType_t ticks = si5351_phase_delay_ticks(delta_scaled);
     if(ticks == 0U)
     {
         return NoREADY;
@@ -805,23 +597,24 @@ static ErrorStatus si5351_enable_quadrature_outputs(void)
     return READY;
 }
 
-static ErrorStatus si5351_hw_clk0_phase_register_set_freq_hz(uint32_t hz)
+static uint32_t si5351_hw_clk0_phase_register_set_freq_hz(uint32_t hz)
 {
     struct si5351_pll_config pll_conf;
     struct si5351_output_config clk0_conf;
     struct si5351_output_config clk1_conf;
+    uint32_t actual_frequency_hz;
 
     uint64_t freq_scaled = (uint64_t)hz * SI5351_FREQ_MULT;
     if(si5351_calculate_clk0_config(freq_scaled, SI5351_PHASE_REG_MS_MAX, false,
-                                    &pll_conf, &clk0_conf) != READY)
+                                    &pll_conf, &clk0_conf, &actual_frequency_hz) != READY)
     {
-        return NoREADY;
+        return 0U;
     }
 
     uint32_t phase_offset = (uint32_t)clk0_conf.div * (uint32_t)clk0_conf.r_div_factor;
     if(si5351_validate_phase_offset(phase_offset) != READY)
     {
-        return NoREADY;
+        return 0U;
     }
 
     clk1_conf = clk0_conf;
@@ -831,13 +624,17 @@ static ErrorStatus si5351_hw_clk0_phase_register_set_freq_hz(uint32_t hz)
 
     if(si5351_write_common_quadrature_config(&pll_conf, &clk0_conf, &clk1_conf) != READY)
     {
-        return NoREADY;
+        return 0U;
     }
 
-    return si5351_enable_quadrature_outputs();
+    if(si5351_enable_quadrature_outputs() != READY)
+    {
+        return 0U;
+    }
+    return actual_frequency_hz;
 }
 
-static ErrorStatus si5351_hw_clk0_timed_set_freq_hz(uint32_t hz)
+static uint32_t si5351_hw_clk0_timed_set_freq_hz(uint32_t hz)
 {
     struct si5351_pll_config pll_conf;
     struct si5351_output_config clk0_conf;
@@ -845,13 +642,14 @@ static ErrorStatus si5351_hw_clk0_timed_set_freq_hz(uint32_t hz)
     struct si5351_output_config clk1_temp_conf;
     uint8_t clk1_final_buf[8];
     uint8_t clk1_temp_buf[8];
-    uint32_t phase_ticks;
+    TickType_t phase_ticks;
+    uint32_t actual_frequency_hz;
 
     uint64_t freq_scaled = (uint64_t)hz * SI5351_FREQ_MULT;
     if(si5351_calculate_clk0_config(freq_scaled, SI5351_MULTISYNTH_A_MAX, true,
-                                    &pll_conf, &clk0_conf) != READY)
+                                    &pll_conf, &clk0_conf, &actual_frequency_hz) != READY)
     {
-        return NoREADY;
+        return 0U;
     }
 
     clk1_final_conf = clk0_conf;
@@ -863,7 +661,7 @@ static ErrorStatus si5351_hw_clk0_timed_set_freq_hz(uint32_t hz)
     if(si5351_prepare_lagging_clk1_temp_config(&pll_conf, &clk1_final_conf,
                                                &clk1_temp_conf, &phase_ticks) != READY)
     {
-        return NoREADY;
+        return 0U;
     }
 
     si5351_pack_output_ms(&clk1_final_conf, clk1_final_buf);
@@ -871,33 +669,49 @@ static ErrorStatus si5351_hw_clk0_timed_set_freq_hz(uint32_t hz)
 
     if(si5351_write_common_quadrature_config(&pll_conf, &clk0_conf, &clk1_final_conf) != READY)
     {
-        return NoREADY;
+        return 0U;
     }
 
     uint8_t clk1_temp_ctrl = si5351_clk_ctrl_value(&clk1_temp_conf);
-    return si5351_tim6_start_pll_lock_wait(clk1_temp_buf, clk1_temp_ctrl,
-                                           clk1_final_buf, si5351_clk_ctrl_value(&clk1_final_conf),
-                                           phase_ticks);
+    if(si5351_wait_plla_lock() != READY)
+    {
+        return 0U;
+    }
+    if(si5351_enable_quadrature_outputs() != READY)
+    {
+        return 0U;
+    }
+
+    TickType_t wake = xTaskGetTickCount();
+    if(si5351_write_clk1_ms_and_ctrl(clk1_temp_buf, clk1_temp_ctrl) != READY)
+    {
+        return 0U;
+    }
+    vTaskDelayUntil(&wake, phase_ticks);
+    if(si5351_write_clk1_ms_and_ctrl(clk1_final_buf,
+                                    si5351_clk_ctrl_value(&clk1_final_conf)) != READY)
+    {
+        return 0U;
+    }
+    return actual_frequency_hz;
 }
 
-static ErrorStatus si5351_hw_clk0_quadrature_set_freq_hz(uint32_t hz)
+static uint32_t si5351_hw_clk0_quadrature_set_freq_hz(uint32_t hz)
 {
     if(hz == 0U)
     {
-        return NoREADY;
+        return 0U;
     }
 
     if(hz < SI5351_MIN_OUTPUT_HZ)
     {
-        return NoREADY;
+        return 0U;
     }
 
-    if(hz > SI5351_CLKOUT_MAX_HZ)
+    if(hz > SI5351_MAX_OUTPUT_HZ)
     {
-        return NoREADY;
+        return 0U;
     }
-
-    si5351_tim6_cancel();
 
     if(hz >= SI5351_PHASE_REG_MIN_OUTPUT_HZ)
     {
@@ -909,8 +723,6 @@ static ErrorStatus si5351_hw_clk0_quadrature_set_freq_hz(uint32_t hz)
 
 ErrorStatus si5351_init()
 {
-    si5351_tim6_init();
-
     if(si5351_wait_sys_init() != READY)
     {
         return NoREADY;
@@ -933,24 +745,19 @@ ErrorStatus si5351_init()
     return READY;
 }
 
-ErrorStatus si5351_hw_clk0_set_freq_hz(uint32_t hz)
+uint32_t si5351_hw_clk0_set_freq_hz(uint32_t hz)
 {
     // I2C will randomly fail, quick hack to make it working
     // We should actually reduce clock speed though
     for(int i = 0; i < 3; i++)
     {
-        ErrorStatus ret = si5351_hw_clk0_quadrature_set_freq_hz(hz);
-        if(ret == READY)
+        uint32_t actual_frequency_hz = si5351_hw_clk0_quadrature_set_freq_hz(hz);
+        if(actual_frequency_hz != 0U)
         {
-            return READY;
+            return actual_frequency_hz;
         }
     }
-    return NoREADY;
-}
-
-uint32_t si5351_hw_clk0_get_freq_hz()
-{
-    return si5351_actual_frequency_hz;
+    return 0U;
 }
 
 ErrorStatus si5351_hw_get_plla_lock(uint8_t *locked)

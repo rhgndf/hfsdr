@@ -14,6 +14,7 @@ extern "C" {
 #include "hw/i2s.h"
 #include "hw/si5351.h"
 #include "hw/tlv320adc6120.h"
+#include "ui/hw_state.h"
 }
 
 #include "utils/complex_dsp.h"
@@ -376,7 +377,7 @@ static bool calibration_start(void)
     s_phase_found_best = false;
     s_gain_cursor = kRelativeGainMinDbX10;
 
-    int32_t target_if_hz = kCalibrationSignalHz - (int32_t)si5351_hw_clk0_get_freq_hz();
+    int32_t target_if_hz = kCalibrationSignalHz - (int32_t)hw_state_get_frequency();
     if(target_if_hz == 0)
     {
         return finish_with_failure("zero IF");

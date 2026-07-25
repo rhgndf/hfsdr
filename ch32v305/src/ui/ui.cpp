@@ -7,12 +7,12 @@ extern "C" {
 #include "hw/i2s.h"
 #include "hw/si5351.h"
 #include "hw/tlv320adc6120.h"
-#include "hw/usb.h"
 }
 
 #include "demod/demod.h"
 #include "hw/display/st7789.h"
 #include "ui/fft.h"
+#include "ui/hw_state.h"
 #include "utils/utils.h"
 
 #include "ch32v30x.h"
@@ -54,7 +54,6 @@ extern "C" {
 #define UI_AUDIO_GAIN_MAX_Q16 (32UL << 8)
 #define UI_TLV320_GAIN_MIN_DB_X2     TLV320ADC6120_CH_GAIN_MIN_DB_X2
 #define UI_TLV320_GAIN_MAX_DB_X2     ((int8_t)TLV320ADC6120_CH_GAIN_MAX_DB_X2)
-#define UI_TLV320_GAIN_DEFAULT_DB_X2 0
 
 /* Match fft.cpp waterfall band (portrait). */
 #define UI_WATERFALL_TOP     80U
@@ -154,7 +153,6 @@ static int8_t s_displayed_tlv320_gain_db_x2 = INT8_MAX;
 static demodulation_mode_t s_demod_mode = DEMODULATION_MODE_WBFM;
 static demodulation_mode_t s_displayed_demod_mode = DEMODULATION_MODE_COUNT;
 static uint8_t s_volume = UI_VOLUME_DEFAULT;
-static int8_t s_tlv320_gain_db_x2 = UI_TLV320_GAIN_DEFAULT_DB_X2;
 static bool s_redraw_all = true;
 static volatile bool s_recording = false;
 static bool s_displayed_recording = false;
@@ -221,15 +219,14 @@ static uint8_t ui_frequency_digit_power(ui_control_t control)
 
 static uint32_t ui_apply_frequency_delta(uint32_t freq_hz, int16_t delta, uint32_t step_hz)
 {
-    int64_t next_freq_hz = (int64_t)freq_hz + ((int64_t)delta * (int64_t)step_hz);
+    int64_t const next_freq_hz =
+        static_cast<int64_t>(freq_hz) +
+        (static_cast<int64_t>(delta) * static_cast<int64_t>(step_hz));
 
-    if((next_freq_hz < (int64_t)SI5351_MIN_OUTPUT_HZ) ||
-       (next_freq_hz > (int64_t)UINT32_MAX))
-    {
-        return freq_hz;
-    }
-
-    return (uint32_t)next_freq_hz;
+    return static_cast<uint32_t>(
+        std::clamp(next_freq_hz,
+                   static_cast<int64_t>(SI5351_MIN_OUTPUT_HZ),
+                   static_cast<int64_t>(SI5351_MAX_OUTPUT_HZ)));
 }
 
 template<typename T>
@@ -437,7 +434,7 @@ static void ui_draw_progress_row(uint16_t y,
     }
 }
 
-static void ui_draw_header(uint32_t freq_hz)
+static void ui_draw_header(uint32_t freq_hz, int8_t gain_db_x2)
 {
     if(s_redraw_all)
     {
@@ -460,14 +457,14 @@ static void ui_draw_header(uint32_t freq_hz)
                          s_active_control == UI_CONTROL_VOLUME);
     ui_draw_progress_row(UI_GAIN_ROW_Y,
                          "GAIN",
-                         s_tlv320_gain_db_x2,
+                         gain_db_x2,
                          UI_TLV320_GAIN_MIN_DB_X2,
                          UI_TLV320_GAIN_MAX_DB_X2,
                          s_active_control == UI_CONTROL_TLV320_GAIN);
 
     s_displayed_freq_hz = freq_hz;
     s_displayed_volume = s_volume;
-    s_displayed_tlv320_gain_db_x2 = s_tlv320_gain_db_x2;
+    s_displayed_tlv320_gain_db_x2 = gain_db_x2;
     s_displayed_demod_mode = s_demod_mode;
     s_displayed_active_control = s_active_control;
     s_redraw_all = false;
@@ -953,12 +950,15 @@ static uint32_t ui_apply_encoder_delta(int16_t delta, uint32_t freq_hz)
         case UI_CONTROL_FREQ_1_MHZ:
         case UI_CONTROL_FREQ_10_MHZ:
         {
+            uint32_t const requested_frequency = hw_state_get_requested_frequency();
             uint32_t requested_freq_hz =
-                ui_apply_frequency_delta(freq_hz, delta, ui_frequency_step_hz(s_active_control));
+                ui_apply_frequency_delta(requested_frequency,
+                                         delta,
+                                         ui_frequency_step_hz(s_active_control));
 
-            if(usb_hw_set_clk_freq_hz(requested_freq_hz) == READY)
+            if(requested_freq_hz != requested_frequency)
             {
-                return si5351_hw_clk0_get_freq_hz();
+                hw_state_set_frequency(requested_freq_hz);
             }
             break;
         }
@@ -1000,15 +1000,16 @@ static uint32_t ui_apply_encoder_delta(int16_t delta, uint32_t freq_hz)
 
         case UI_CONTROL_TLV320_GAIN:
         {
+            int8_t const requested_gain = hw_state_get_gain_x2();
             int8_t const gain_db_x2 =
-                ui_apply_delta(s_tlv320_gain_db_x2,
+                ui_apply_delta(requested_gain,
                                delta,
                                static_cast<int8_t>(UI_TLV320_GAIN_MIN_DB_X2),
                                static_cast<int8_t>(UI_TLV320_GAIN_MAX_DB_X2));
 
-            if((gain_db_x2 != s_tlv320_gain_db_x2) && (usb_hw_set_tlv320_gain_db_x2(gain_db_x2) == READY))
+            if(gain_db_x2 != requested_gain)
             {
-                s_tlv320_gain_db_x2 = gain_db_x2;
+                hw_state_set_gain_x2(gain_db_x2);
             }
             break;
         }
@@ -1031,7 +1032,6 @@ void UI_Init(void)
     s_displayed_active_control = UI_CONTROL_COUNT;
     s_active_control = UI_CONTROL_FREQ_10_MHZ;
     s_volume = UI_VOLUME_DEFAULT;
-    s_tlv320_gain_db_x2 = UI_TLV320_GAIN_DEFAULT_DB_X2;
     s_redraw_all = true;
     s_recording = false;
     s_displayed_recording = false;
@@ -1056,7 +1056,8 @@ bool UI_ShouldDrawFft(void)
 void UI_Draw(void)
 {
     int16_t encoder_delta = encoder_take_delta();
-    uint32_t freq_hz = si5351_hw_clk0_get_freq_hz();
+    uint32_t freq_hz = hw_state_get_frequency();
+    int8_t gain_db_x2 = hw_state_get_gain_x2();
 
     ui_sync_display_hw_for_mode();
 
@@ -1067,11 +1068,13 @@ void UI_Draw(void)
     else if(encoder_delta != 0)
     {
         uint32_t requested_freq_hz =
-            ui_apply_frequency_delta(freq_hz, encoder_delta, kSplashFrequencyStepHz);
+            ui_apply_frequency_delta(hw_state_get_requested_frequency(),
+                                     encoder_delta,
+                                     kSplashFrequencyStepHz);
 
-        if(usb_hw_set_clk_freq_hz(requested_freq_hz) == READY)
+        if(requested_freq_hz != hw_state_get_requested_frequency())
         {
-            freq_hz = si5351_hw_clk0_get_freq_hz();
+            hw_state_set_frequency(requested_freq_hz);
         }
     }
 
@@ -1080,11 +1083,11 @@ void UI_Draw(void)
         if(s_redraw_all ||
             (freq_hz != s_displayed_freq_hz) ||
             (s_volume != s_displayed_volume) ||
-            (s_tlv320_gain_db_x2 != s_displayed_tlv320_gain_db_x2) ||
+            (gain_db_x2 != s_displayed_tlv320_gain_db_x2) ||
             (s_demod_mode != s_displayed_demod_mode) ||
             (s_active_control != s_displayed_active_control))
         {
-            ui_draw_header(freq_hz);
+            ui_draw_header(freq_hz, gain_db_x2);
         }
 
         ui_update_recording_indicator();
