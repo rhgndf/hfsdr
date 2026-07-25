@@ -50,8 +50,8 @@ public:
     }
 
 private:
-    const uint32_t trigger_ms;
     uint64_t last_trigger_tick = 0U;
+    const uint32_t trigger_ms;
     Callable f;
 };
 

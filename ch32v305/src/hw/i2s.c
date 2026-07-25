@@ -160,6 +160,7 @@ static void i2s_process_buf(volatile uint16_t *src_words)
     s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
     audio_usb_mic_write(src_words, I2S_RX_DMA_CHUNK_WORDS);
     demod_process(src_words, I2S_RX_DMA_CHUNK_WORDS);
+    dac_hw_stream_adjust_buffer();
 }
 
 void i2s_task(void *parameters)

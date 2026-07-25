@@ -348,7 +348,6 @@ static void Application_Task(void *parameters)
     PeriodicTrigger SysTickReportUSB{1000U, SysTick_Report_USB_EverySecond};
     PeriodicTrigger ADCPoll{1000U, ADC_Poll};
     PeriodicTrigger SDCardPoll{1000U, SDCard_Poll};
-    PeriodicTrigger DACBufferAdjust{1000U, dac_hw_stream_adjust_buffer};
     si5351_hw_clk0_set_freq_hz(InitialCalibrationFreq);
 
     trng_hw_init();
@@ -379,14 +378,13 @@ static void Application_Task(void *parameters)
     while(1)
     {
         I2SPoll();
-        DACBufferAdjust();
         //I2CBusScan();
         //SysTickReportUSB();
         UI_Draw();
         //ADCPoll();
         //cst328_hw_poll();
         blinky_task();
-        SDCardPoll();
+        //SDCardPoll();
         //demod::rds_poll();
         watchdog_kick();
     }
