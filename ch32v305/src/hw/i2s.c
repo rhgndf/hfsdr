@@ -11,6 +11,7 @@
 #include "dac.h"
 #include "freertos/port_isr.h"
 #include "main.h"
+#include "recording.h"
 #include "pinout.h"
 #include "usb.h"
 
@@ -121,16 +122,24 @@ static void i2s_bitslip_detect(volatile uint16_t const *src_words)
     }
 
     volatile uint32_t const *src32 = (volatile uint32_t const *)(uintptr_t)src_words;
+    bool ch2_nonzero = true;
+    bool ch1_zero = true;
     for(size_t i = 0; i < I2S_RX_DMA_CHUNK_WORDS / 2U; i++)
     {
         uint32_t raw = src32[i];
         uint32_t sample_32 = (raw << 16) | (raw >> 16);
-        bool should_be_ch1_mute = (i & 1U) == 0U;
-        if(should_be_ch1_mute && (sample_32 != 0U))
-        {
-            s_i2s_needs_reset = true;
-            return;
+        if((i & 1U) == 0) {
+            // CH1
+            ch1_zero &= sample_32 == 0;
+        } else {
+            // CH2
+            ch2_nonzero &= sample_32 != 0;
         }
+    }
+    if(! (ch2_nonzero && ch1_zero))
+    {
+        s_i2s_needs_reset = true;
+        return;
     }
 }
 
@@ -157,6 +166,8 @@ static void i2s_process_buf(volatile uint16_t *src_words)
         }
     }
     s_fft_sample_cnt = fft_idx;
+
+    recording_submit_i2s(src_words, I2S_RX_DMA_CHUNK_WORDS);
 
     s_rx_word_count += I2S_RX_DMA_CHUNK_WORDS;
     audio_usb_mic_write(src_words, I2S_RX_DMA_CHUNK_WORDS);

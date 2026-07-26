@@ -10,6 +10,35 @@
 
 namespace sdcard {
 
+enum class SDIOWriteStage : uint32_t
+{
+    None,
+    InvalidBuffer,
+    BeforeCommand,
+    Command,
+    Data,
+    StopCommand,
+    AfterData,
+};
+
+struct SDIOWriteDiagnostics
+{
+    SDIOWriteStage stage = SDIOWriteStage::None;
+    uintptr_t buffer = 0U;
+    uint32_t length = 0U;
+    uint32_t address = 0U;
+    uint32_t command_events = 0U;
+    uint32_t response = 0U;
+    uint32_t data_events = 0U;
+    uint32_t expected_data_events = 0U;
+    uint32_t status = 0U;
+    uint32_t data_count = 0U;
+    uint32_t fifo_count = 0U;
+    uint32_t data_control = 0U;
+    uint32_t dma_remaining = 0U;
+    uint32_t dma_config = 0U;
+};
+
 class SDIOTransport {
 public:
     static constexpr std::size_t max_blocks_per_transfer =
@@ -27,5 +56,7 @@ private:
 
     uint16_t rca_ = 0U;
 };
+
+SDIOWriteDiagnostics const& last_write_diagnostics();
 
 } // namespace sdcard

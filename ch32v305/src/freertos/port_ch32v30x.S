@@ -115,6 +115,8 @@ portIRQ_WRAPPER EXTI15_10_IRQHandler, EXTI15_10_IRQHandler_Body
 portIRQ_WRAPPER TIM10_CC_IRQHandler, TIM10_CC_IRQHandler_Body
 portIRQ_WRAPPER I2C2_EV_IRQHandler, I2C2_EV_IRQHandler_Body
 portIRQ_WRAPPER I2C2_ER_IRQHandler, I2C2_ER_IRQHandler_Body
+portIRQ_WRAPPER SDIO_IRQHandler, SDIO_IRQHandler_Body
+portIRQ_WRAPPER DMA2_Channel4_IRQHandler, DMA2_Channel4_IRQHandler_Body
 
 .global Ecall_M_Mode_Handler
 .type Ecall_M_Mode_Handler, @function

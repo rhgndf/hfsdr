@@ -103,11 +103,7 @@ void hw_state_task(void *parameters)
         (void)xTaskNotifyWait(0U, UINT32_MAX, &notification, portMAX_DELAY);
         if((notification & FrequencyPending) != 0U)
         {
-            uint32_t frequency_hz;
-            frequency_hz = s_requested_frequency;
-
-            uint64_t t1 = xTaskGetTickCount();
-            uint32_t actual_hz = si5351_hw_clk0_set_freq_hz(frequency_hz);
+            uint32_t actual_hz = si5351_hw_clk0_set_freq_hz(s_requested_frequency);
             if(actual_hz != 0U)
             {
                 s_frequency = actual_hz;

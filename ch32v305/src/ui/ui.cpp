@@ -11,6 +11,7 @@ extern "C" {
 
 #include "demod/demod.h"
 #include "hw/display/st7789.h"
+#include "recording.h"
 #include "ui/fft.h"
 #include "ui/hw_state.h"
 #include "utils/utils.h"
@@ -154,7 +155,6 @@ static demodulation_mode_t s_demod_mode = DEMODULATION_MODE_WBFM;
 static demodulation_mode_t s_displayed_demod_mode = DEMODULATION_MODE_COUNT;
 static uint8_t s_volume = UI_VOLUME_DEFAULT;
 static bool s_redraw_all = true;
-static volatile bool s_recording = false;
 static bool s_displayed_recording = false;
 static bool s_recording_blink_inverted = false;
 
@@ -296,7 +296,7 @@ extern "C" void ui_handle_button_press(void)
 
 extern "C" void ui_handle_button_long_press(void)
 {
-    s_recording = !s_recording;
+    recording_request_toggle_from_isr();
 }
 
 static void ui_draw_selected_frequency_digit(void)
@@ -384,7 +384,7 @@ static void ui_draw_recording_indicator(bool recording)
 
 static void ui_update_recording_indicator(void)
 {
-    bool const recording = s_recording;
+    bool const recording = recording_is_active();
 
     if(recording != s_displayed_recording)
     {
@@ -442,7 +442,7 @@ static void ui_draw_header(uint32_t freq_hz, int8_t gain_db_x2)
     }
 
     ui_draw_mode_control();
-    bool const recording = s_recording;
+    bool const recording = recording_is_active();
     if(recording != s_displayed_recording)
     {
         s_recording_blink_inverted = false;
@@ -1033,7 +1033,6 @@ void UI_Init(void)
     s_active_control = UI_CONTROL_FREQ_10_MHZ;
     s_volume = UI_VOLUME_DEFAULT;
     s_redraw_all = true;
-    s_recording = false;
     s_displayed_recording = false;
     s_recording_blink_inverted = false;
     s_display_mode = UI_DISPLAY_SPLASH;
@@ -1093,7 +1092,7 @@ void UI_Draw(void)
         ui_update_recording_indicator();
 
         static PeriodicTrigger RecordingBlink{UI_REC_BLINK_MS, []() {
-            if(!s_recording)
+            if(!recording_is_active())
             {
                 return;
             }

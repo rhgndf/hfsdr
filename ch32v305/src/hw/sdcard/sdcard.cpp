@@ -7,9 +7,7 @@ extern "C" {
 #include "bitbang.h"
 
 #include <algorithm>
-#include <array>
 #include <concepts>
-#include <cstring>
 #include <expected>
 #include <limits>
 
@@ -55,11 +53,7 @@ public:
 
     ErrorStatus read_sector(uint32_t sector, std::span<uint8_t, 512> buf)
     {
-        if(!initialized ||
-           (!sdhc && sector > std::numeric_limits<uint32_t>::max() / 512U))
-            return NoREADY;
-        uint32_t addr = sdhc ? sector : sector * 512U;
-        return transport.read_blocks(addr, buf);
+        return read_sectors(sector, buf);
     }
 
     ErrorStatus read_sectors(uint32_t start_sector, std::span<uint8_t> buf)
@@ -79,6 +73,7 @@ public:
         {
             uint32_t sector = start_sector + static_cast<uint32_t>(block_offset);
             uint32_t addr = sdhc ? sector : sector * 512U;
+
             std::size_t blocks_remaining =
                 static_cast<std::size_t>(block_count) - block_offset;
             std::size_t blocks_this_transfer =
@@ -117,17 +112,6 @@ public:
         {
             uint32_t sector = start_sector + static_cast<uint32_t>(block_offset);
             uint32_t addr = sdhc ? sector : sector * 512U;
-            const uint8_t* source = buf.data() + block_offset * 512U;
-            bool aligned = (reinterpret_cast<uintptr_t>(source) & 3U) == 0U;
-
-            if(!aligned)
-            {
-                std::memcpy(write_bounce.data(), source, write_bounce.size());
-                if(transport.write_blocks(addr, write_bounce) != READY)
-                    return NoREADY;
-                ++block_offset;
-                continue;
-            }
 
             std::size_t blocks_remaining =
                 static_cast<std::size_t>(block_count) - block_offset;
@@ -154,7 +138,6 @@ private:
     bool initialized = false;
     bool sdhc = false;
     CID card_cid = {};
-    alignas(4) std::array<uint8_t, 512> write_bounce{};
 };
 
 // --- compile-time transport selection -------------------------------------

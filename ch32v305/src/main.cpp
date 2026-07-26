@@ -47,7 +47,7 @@ extern "C" {
 
 #include "feature/iq_calibration/iq_calibration.h"
 #include "demod/rds.h"
-#include "hw/sdcard/sdcard.h"
+#include "recording.h"
 #include "utils/utils.h"
 #include "freertos/task_stacks.h"
 
@@ -257,33 +257,6 @@ static void ADC_Poll(void)
            temp_raw, (long)temp_c);
 }
 
-static void SDCard_Poll(void)
-{
-    if(sdcard::detect() != READY)
-    {
-        auto s = sdcard::status();
-        printf("SD: status=%s bus=%u-bit clk=%lu Hz hs=%u\r\n",
-               s.detected ? "detected" : "not detected",
-               s.bus_width_bits,
-               (unsigned long)s.clock_hz,
-               s.high_speed ? 1U : 0U);
-        printf("SD: not detected\r\n");
-        return;
-    }
-
-    auto& c = sdcard::cid();
-    printf("SD: %s %s MID=0x%02X PRV=%u.%u PSN=%lu %u/%02u\r\n",
-           c.oid.data(), c.pnm.data(), c.mid,
-           c.prv_major, c.prv_minor,
-           (unsigned long)c.psn, c.mdt_year, c.mdt_month);
-    auto s = sdcard::status();
-    printf("SD: status=%s bus=%u-bit clk=%lu Hz hs=%u\r\n",
-           s.detected ? "detected" : "not detected",
-           s.bus_width_bits,
-           (unsigned long)s.clock_hz,
-           s.high_speed ? 1U : 0U);
-}
-
 static void Application_Task(void *parameters)
 {
     (void)parameters;
@@ -342,13 +315,10 @@ static void Application_Task(void *parameters)
 
     blinky_init();
 
-    sdcard::init();
-
     PeriodicTrigger I2SPoll{1000U, TLV320_I2S_Poll};
     PeriodicTrigger I2CBusScan{1000U, Scan_I2CBus_EverySecond};
     PeriodicTrigger SysTickReportUSB{1000U, SysTick_Report_USB_EverySecond};
     PeriodicTrigger ADCPoll{1000U, ADC_Poll};
-    PeriodicTrigger SDCardPoll{1000U, SDCard_Poll};
     si5351_hw_clk0_set_freq_hz(InitialCalibrationFreq);
 
     trng_hw_init();
@@ -391,7 +361,6 @@ static void Application_Task(void *parameters)
         //ADCPoll();
         //cst328_hw_poll();
         blinky_task();
-        //SDCardPoll();
         //demod::rds_poll();
         watchdog_kick();
         vTaskDelay(pdMS_TO_TICKS(2));
@@ -433,6 +402,7 @@ int main(void)
     configASSERT(usb_task_handle != nullptr);
 
     hw_state_init();
+    recording_init();
 
     g_application_task_handle =
         xTaskCreateStatic(Application_Task,

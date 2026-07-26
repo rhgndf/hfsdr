@@ -1,8 +1,14 @@
 extern "C" {
+#include "FreeRTOS.h"
+#include "task.h"
+
+#include "freertos/port_isr.h"
+
 #include "debug.h"
 #include "hw/pinout.h"
 #include "ch32v30x_dma.h"
 #include "ch32v30x_gpio.h"
+#include "ch32v30x_misc.h"
 #include "ch32v30x_rcc.h"
 #include "ch32v30x_sdio.h"
 #include "system_ch32v30x.h"
@@ -15,13 +21,14 @@ extern "C" {
 namespace sdcard {
 namespace {
 
-constexpr uint32_t CMD_TIMEOUT    = 0x00010000U;
-constexpr uint32_t DATA_TIMEOUT   = 0x00100000U;
-constexpr uint32_t FIFO_TIMEOUT   = 0x10000000U;
-constexpr uint32_t DMA_TIMEOUT    = 0x10000000U;
-constexpr uint32_t PROGRAM_TIMEOUT = 0x00100000U;
-constexpr uint32_t ICR_ALL        = 0x00C007FFU;
-constexpr uint32_t ACMD41_RETRIES = 1000U;
+constexpr uint32_t DATA_TIMEOUT = UINT32_MAX;
+constexpr uint32_t ICR_ALL      = 0x00C007FFU;
+
+constexpr UBaseType_t SDIO_NOTIFICATION_INDEX = 0U;
+constexpr TickType_t COMMAND_TIMEOUT_TICKS = pdMS_TO_TICKS(100U);
+constexpr TickType_t DATA_WAIT_TIMEOUT_TICKS = pdMS_TO_TICKS(1000U);
+constexpr TickType_t CARD_READY_TIMEOUT_TICKS = pdMS_TO_TICKS(1000U);
+constexpr TickType_t ACMD41_TIMEOUT_TICKS = pdMS_TO_TICKS(1000U);
 
 constexpr uint32_t CMD8_ARG       = (1U << 8) | 0xAAU;
 constexpr uint32_t CMD8_CHECK     = 0xAAU;
@@ -41,12 +48,205 @@ constexpr uint32_t DATA_ERROR_FLAGS = SDIO_FLAG_RXOVERR |
                                       SDIO_FLAG_DCRCFAIL |
                                       SDIO_FLAG_DTIMEOUT |
                                       SDIO_FLAG_STBITERR;
+constexpr uint32_t COMMAND_FLAGS = SDIO_FLAG_CMDSENT |
+                                   SDIO_FLAG_CMDREND |
+                                   SDIO_FLAG_CCRCFAIL |
+                                   SDIO_FLAG_CTIMEOUT;
+constexpr uint32_t DATA_FLAGS = DATA_ERROR_FLAGS |
+                                SDIO_FLAG_DATAEND |
+                                SDIO_FLAG_DBCKEND;
+constexpr uint32_t WAITABLE_SDIO_FLAGS = COMMAND_FLAGS | DATA_FLAGS;
+
+constexpr uint32_t DMA_COMPLETE_EVENT = 1UL << 30;
+constexpr uint32_t DMA_ERROR_EVENT    = 1UL << 31;
+
+static_assert(configTASK_NOTIFICATION_ARRAY_ENTRIES > SDIO_NOTIFICATION_INDEX);
+static_assert(COMMAND_TIMEOUT_TICKS > 0U);
+static_assert(DATA_WAIT_TIMEOUT_TICKS > 0U);
+static_assert(CARD_READY_TIMEOUT_TICKS > 0U);
+static_assert(ACMD41_TIMEOUT_TICKS > 0U);
 
 Status s_status = {.detected = false, .bus_width_bits = 1, .clock_hz = 400000U, .high_speed = false};
+TaskHandle_t s_waiting_task = nullptr;
+volatile bool s_start_write_data_on_command_complete = false;
+volatile bool s_stop_write_on_data_end = false;
+uint32_t s_last_command_events = 0U;
+SDIOWriteDiagnostics s_last_write_diagnostics;
 
-void clear_flags()
+struct DMAWaitDiagnostics
 {
-    SDIO->ICR = ICR_ALL;
+    uint32_t events = 0U;
+    uint32_t expected_events = 0U;
+    uint32_t status = 0U;
+    uint32_t data_count = 0U;
+    uint32_t fifo_count = 0U;
+    uint32_t data_control = 0U;
+    uint32_t dma_remaining = 0U;
+    uint32_t dma_config = 0U;
+};
+
+DMAWaitDiagnostics s_last_dma_wait_diagnostics;
+
+void clear_flags(uint32_t flags)
+{
+    SDIO->ICR = flags & ICR_ALL;
+}
+
+void clear_all_flags()
+{
+    clear_flags(ICR_ALL);
+}
+
+void clear_task_notification(TaskHandle_t task)
+{
+    (void)xTaskNotifyStateClearIndexed(task, SDIO_NOTIFICATION_INDEX);
+    (void)ulTaskNotifyValueClearIndexed(task,
+                                        SDIO_NOTIFICATION_INDEX,
+                                        UINT32_MAX);
+}
+
+uint32_t capture_dma_events()
+{
+    uint32_t events = 0U;
+    if(DMA_GetFlagStatus(DMA2_FLAG_TC4) != RESET)
+    {
+        events |= DMA_COMPLETE_EVENT;
+    }
+    if(DMA_GetFlagStatus(DMA2_FLAG_TE4) != RESET)
+    {
+        events |= DMA_ERROR_EVENT;
+    }
+    if(events != 0U)
+    {
+        DMA_ClearFlag(DMA2_FLAG_GL4);
+    }
+    return events;
+}
+
+uint32_t capture_wait_events(uint32_t sdio_mask, bool include_dma)
+{
+    uint32_t events = SDIO->STA & sdio_mask;
+    if(events != 0U)
+    {
+        clear_flags(events);
+    }
+    if(include_dma)
+    {
+        events |= capture_dma_events();
+    }
+    return events;
+}
+
+uint32_t arm_wait(uint32_t sdio_mask,
+                  bool include_dma,
+                  bool capture_existing)
+{
+    TaskHandle_t const current_task = xTaskGetCurrentTaskHandle();
+    configASSERT(current_task != nullptr);
+    configASSERT(s_waiting_task == nullptr);
+    clear_task_notification(current_task);
+
+    taskENTER_CRITICAL();
+    s_waiting_task = current_task;
+
+    uint32_t events = capture_existing
+                          ? capture_wait_events(sdio_mask, include_dma)
+                          : 0U;
+
+    SDIO->MASK |= sdio_mask;
+    if(include_dma)
+    {
+        DMA_ITConfig(DMA2_Channel4, DMA_IT_TC | DMA_IT_TE, ENABLE);
+    }
+    taskEXIT_CRITICAL();
+    return events;
+}
+
+void disarm_wait(uint32_t sdio_mask, bool include_dma)
+{
+    TaskHandle_t const current_task = xTaskGetCurrentTaskHandle();
+    uint32_t const cleanup_mask =
+        include_dma ? DATA_FLAGS : sdio_mask;
+
+    taskENTER_CRITICAL();
+    SDIO->MASK &= ~cleanup_mask;
+    if(include_dma)
+    {
+        DMA_ITConfig(DMA2_Channel4, DMA_IT_TC | DMA_IT_TE, DISABLE);
+    }
+    s_waiting_task = nullptr;
+    clear_flags(cleanup_mask);
+    if(include_dma)
+    {
+        DMA_ClearFlag(DMA2_FLAG_GL4);
+        NVIC_ClearPendingIRQ(DMA2_Channel4_IRQn);
+    }
+    NVIC_ClearPendingIRQ(SDIO_IRQn);
+    taskEXIT_CRITICAL();
+
+    clear_task_notification(current_task);
+}
+
+bool events_complete(uint32_t events,
+                     uint32_t success_mask,
+                     uint32_t error_mask,
+                     bool require_all_success)
+{
+    if((events & error_mask) != 0U)
+    {
+        return true;
+    }
+    if(require_all_success)
+    {
+        return (events & success_mask) == success_mask;
+    }
+    return (events & success_mask) != 0U;
+}
+
+uint32_t wait_for_events(uint32_t initial_events,
+                         uint32_t success_mask,
+                         uint32_t error_mask,
+                         bool require_all_success,
+                         TickType_t timeout_ticks,
+                         uint32_t sdio_mask,
+                         bool include_dma)
+{
+    uint32_t events = initial_events;
+    TickType_t const start_tick = xTaskGetTickCount();
+
+    while(!events_complete(events,
+                           success_mask,
+                           error_mask,
+                           require_all_success))
+    {
+        TickType_t const elapsed_ticks = xTaskGetTickCount() - start_tick;
+        if(elapsed_ticks >= timeout_ticks)
+        {
+            taskENTER_CRITICAL();
+            events |= capture_wait_events(sdio_mask, include_dma);
+            taskEXIT_CRITICAL();
+            break;
+        }
+
+        uint32_t notification = 0U;
+        BaseType_t const notified =
+            xTaskNotifyWaitIndexed(SDIO_NOTIFICATION_INDEX,
+                                   0U,
+                                   UINT32_MAX,
+                                   &notification,
+                                   timeout_ticks - elapsed_ticks);
+        events |= notification;
+
+        if(notified != pdTRUE)
+        {
+            taskENTER_CRITICAL();
+            events |= capture_wait_events(sdio_mask, include_dma);
+            taskEXIT_CRITICAL();
+            break;
+        }
+    }
+
+    return events;
 }
 
 uint32_t clock_hz_from_div(uint32_t div)
@@ -62,22 +262,15 @@ uint32_t div_for_max_hz(uint32_t max_hz)
 
 void reset_data_path()
 {
+    s_start_write_data_on_command_complete = false;
+    s_stop_write_on_data_end = false;
     SDIO->DCTRL = 0x0;
-
-    SDIO_DataInitTypeDef data = {};
-    data.SDIO_DataTimeOut   = DATA_TIMEOUT;
-    data.SDIO_DataLength    = 0;
-    data.SDIO_DataBlockSize = SDIO_DataBlockSize_1b;
-    data.SDIO_TransferDir   = SDIO_TransferDir_ToCard;
-    data.SDIO_TransferMode  = SDIO_TransferMode_Block;
-    data.SDIO_DPSM          = SDIO_DPSM_Enable;
-    SDIO_DataConfig(&data);
-
-    clear_flags();
+    clear_all_flags();
 }
 
 void stop_dma()
 {
+    DMA_ITConfig(DMA2_Channel4, DMA_IT_TC | DMA_IT_TE, DISABLE);
     SDIO_DMACmd(DISABLE);
     DMA_Cmd(DMA2_Channel4, DISABLE);
 }
@@ -86,6 +279,7 @@ void configure_dma_read(std::span<uint8_t> buf)
 {
     stop_dma();
     DMA_ClearFlag(DMA2_FLAG_GL4);
+    NVIC_ClearPendingIRQ(DMA2_Channel4_IRQn);
 
     DMA_InitTypeDef dma = {};
     dma.DMA_PeripheralBaseAddr = reinterpret_cast<uint32_t>(&SDIO->FIFO);
@@ -106,6 +300,7 @@ void configure_dma_write(std::span<const uint8_t> buf)
 {
     stop_dma();
     DMA_ClearFlag(DMA2_FLAG_GL4);
+    NVIC_ClearPendingIRQ(DMA2_Channel4_IRQn);
 
     DMA_InitTypeDef dma = {};
     dma.DMA_PeripheralBaseAddr = reinterpret_cast<uint32_t>(&SDIO->FIFO);
@@ -169,7 +364,10 @@ void reset_slow()
 {
     uint32_t clock_div = div_for_max_hz(400'000U);
 
+    configASSERT(s_waiting_task == nullptr);
     RCC_AHBPeriphClockCmd(RCC_AHBPeriph_SDIO | RCC_AHBPeriph_DMA2, ENABLE);
+    stop_dma();
+    SDIO->MASK = 0U;
     SDIO_DeInit();
 
     SDIO_InitTypeDef sdio = {};
@@ -187,7 +385,29 @@ void reset_slow()
                 .bus_width_bits = 1,
                 .clock_hz = clock_hz_from_div(clock_div),
                 .high_speed = false};
-    Delay_Ms(2);
+    vTaskDelay(pdMS_TO_TICKS(2U));
+}
+
+void init_interrupts()
+{
+    SDIO->MASK = 0U;
+    DMA_ITConfig(DMA2_Channel4, DMA_IT_TC | DMA_IT_TE, DISABLE);
+    clear_all_flags();
+    DMA_ClearFlag(DMA2_FLAG_GL4);
+    NVIC_ClearPendingIRQ(SDIO_IRQn);
+    NVIC_ClearPendingIRQ(DMA2_Channel4_IRQn);
+
+    NVIC_InitTypeDef irq = {};
+    irq.NVIC_IRQChannelPreemptionPriority = 2U;
+    irq.NVIC_IRQChannelCmd = ENABLE;
+
+    irq.NVIC_IRQChannel = SDIO_IRQn;
+    irq.NVIC_IRQChannelSubPriority = 0U;
+    NVIC_Init(&irq);
+
+    irq.NVIC_IRQChannel = DMA2_Channel4_IRQn;
+    irq.NVIC_IRQChannelSubPriority = 1U;
+    NVIC_Init(&irq);
 }
 
 void switch_fast()
@@ -237,223 +457,251 @@ void switch_high_speed_clock()
 
 // --- command helpers (native SD mode) -------------------------------------
 
-auto cmd_none(uint32_t idx, uint32_t arg) -> std::expected<void, ErrorStatus>
+uint32_t execute_command(uint32_t idx,
+                         uint32_t arg,
+                         uint32_t response,
+                         uint32_t success_flags,
+                         uint32_t error_flags)
 {
-    clear_flags();
+    uint32_t const irq_mask = success_flags | error_flags;
+
+    SDIO->MASK &= ~COMMAND_FLAGS;
+    clear_flags(COMMAND_FLAGS);
+    NVIC_ClearPendingIRQ(SDIO_IRQn);
+    (void)arm_wait(irq_mask, false, false);
 
     SDIO_CmdInitTypeDef c = {};
     c.SDIO_Argument = arg;
     c.SDIO_CmdIndex = idx;
-    c.SDIO_Response = SDIO_Response_No;
+    c.SDIO_Response = response;
     c.SDIO_Wait     = SDIO_Wait_No;
     c.SDIO_CPSM     = SDIO_CPSM_Enable;
     SDIO_SendCommand(&c);
 
-    for(uint32_t t = CMD_TIMEOUT; t; --t)
-        if(SDIO->STA & SDIO_FLAG_CMDSENT)
-        {
-            clear_flags();
-            return {};
-        }
+    uint32_t const events =
+        wait_for_events(0U,
+                        success_flags,
+                        error_flags,
+                        false,
+                        COMMAND_TIMEOUT_TICKS,
+                        irq_mask,
+                        false);
+    disarm_wait(irq_mask, false);
+    s_last_command_events = events;
+    return events;
+}
 
-    clear_flags();
+void send_stop_command()
+{
+    /*
+     * CMD12 must follow DATAEND promptly. Leave its response flags unmasked:
+     * they remain latched until the task arms its command wait and collects
+     * either the already-complete response or the subsequent interrupt.
+     */
+    SDIO->MASK &= ~COMMAND_FLAGS;
+    clear_flags(COMMAND_FLAGS);
+
+    SDIO_CmdInitTypeDef command = {};
+    command.SDIO_Argument = 0U;
+    command.SDIO_CmdIndex = 12U;
+    command.SDIO_Response = SDIO_Response_Short;
+    command.SDIO_Wait     = SDIO_Wait_No;
+    command.SDIO_CPSM     = SDIO_CPSM_Enable;
+    SDIO_SendCommand(&command);
+}
+
+void start_pending_stop_from_task()
+{
+    taskENTER_CRITICAL();
+    if(s_stop_write_on_data_end)
+    {
+        s_stop_write_on_data_end = false;
+        send_stop_command();
+    }
+    taskEXIT_CRITICAL();
+}
+
+auto wait_started_r1(uint32_t idx) -> std::expected<uint32_t, ErrorStatus>
+{
+    constexpr uint32_t success_flags = SDIO_FLAG_CMDREND;
+    constexpr uint32_t error_flags =
+        SDIO_FLAG_CTIMEOUT | SDIO_FLAG_CCRCFAIL;
+    constexpr uint32_t irq_mask = success_flags | error_flags;
+
+    uint32_t const initial_events = arm_wait(irq_mask, false, true);
+    uint32_t const events =
+        wait_for_events(initial_events,
+                        success_flags,
+                        error_flags,
+                        false,
+                        COMMAND_TIMEOUT_TICKS,
+                        irq_mask,
+                        false);
+    disarm_wait(irq_mask, false);
+    s_last_command_events = events;
+
+    if((events & success_flags) != 0U &&
+       (events & error_flags) == 0U &&
+       SDIO_GetCommandResponse() == idx)
+    {
+        return SDIO_GetResponse(SDIO_RESP1);
+    }
+    return std::unexpected(NoREADY);
+}
+
+auto cmd_none(uint32_t idx, uint32_t arg) -> std::expected<void, ErrorStatus>
+{
+    uint32_t const events =
+        execute_command(idx,
+                        arg,
+                        SDIO_Response_No,
+                        SDIO_FLAG_CMDSENT,
+                        0U);
+    if((events & SDIO_FLAG_CMDSENT) != 0U)
+    {
+        return {};
+    }
     return std::unexpected(NoREADY);
 }
 
 auto cmd_r1(uint32_t idx, uint32_t arg) -> std::expected<uint32_t, ErrorStatus>
 {
-    clear_flags();
-
-    SDIO_CmdInitTypeDef c = {};
-    c.SDIO_Argument = arg;
-    c.SDIO_CmdIndex = idx;
-    c.SDIO_Response = SDIO_Response_Short;
-    c.SDIO_Wait     = SDIO_Wait_No;
-    c.SDIO_CPSM     = SDIO_CPSM_Enable;
-    SDIO_SendCommand(&c);
-
-    for(uint32_t t = CMD_TIMEOUT; t; --t)
+    uint32_t const events =
+        execute_command(idx,
+                        arg,
+                        SDIO_Response_Short,
+                        SDIO_FLAG_CMDREND,
+                        SDIO_FLAG_CTIMEOUT | SDIO_FLAG_CCRCFAIL);
+    if((events & SDIO_FLAG_CMDREND) != 0U &&
+       (events & (SDIO_FLAG_CTIMEOUT | SDIO_FLAG_CCRCFAIL)) == 0U)
     {
-        uint32_t sta = SDIO->STA;
-        if(sta & SDIO_FLAG_CTIMEOUT) break;
-        if(sta & SDIO_FLAG_CCRCFAIL) break;
-        if(sta & SDIO_FLAG_CMDREND)
-        {
-            auto resp = SDIO_GetResponse(SDIO_RESP1);
-            clear_flags();
-            return resp;
-        }
+        return SDIO_GetResponse(SDIO_RESP1);
     }
-
-    clear_flags();
     return std::unexpected(NoREADY);
 }
 
 // R3/R7: accepts CCRCFAIL as success (R3 has no CRC, R7 may differ)
 auto cmd_r3(uint32_t idx, uint32_t arg) -> std::expected<uint32_t, ErrorStatus>
 {
-    clear_flags();
-
-    SDIO_CmdInitTypeDef c = {};
-    c.SDIO_Argument = arg;
-    c.SDIO_CmdIndex = idx;
-    c.SDIO_Response = SDIO_Response_Short;
-    c.SDIO_Wait     = SDIO_Wait_No;
-    c.SDIO_CPSM     = SDIO_CPSM_Enable;
-    SDIO_SendCommand(&c);
-
-    for(uint32_t t = CMD_TIMEOUT; t; --t)
+    uint32_t const success_flags =
+        SDIO_FLAG_CMDREND | SDIO_FLAG_CCRCFAIL;
+    uint32_t const events =
+        execute_command(idx,
+                        arg,
+                        SDIO_Response_Short,
+                        success_flags,
+                        SDIO_FLAG_CTIMEOUT);
+    if((events & success_flags) != 0U &&
+       (events & SDIO_FLAG_CTIMEOUT) == 0U)
     {
-        uint32_t sta = SDIO->STA;
-        if(sta & SDIO_FLAG_CTIMEOUT)
-        {
-            clear_flags();
-            return std::unexpected(NoREADY);
-        }
-        if(sta & (SDIO_FLAG_CMDREND | SDIO_FLAG_CCRCFAIL))
-        {
-            auto resp = SDIO_GetResponse(SDIO_RESP1);
-            clear_flags();
-            return resp;
-        }
+        return SDIO_GetResponse(SDIO_RESP1);
     }
-
-    clear_flags();
     return std::unexpected(NoREADY);
 }
 
 auto cmd_r2(uint32_t idx, uint32_t arg) -> std::expected<R2, ErrorStatus>
 {
-    clear_flags();
-
-    SDIO_CmdInitTypeDef c = {};
-    c.SDIO_Argument = arg;
-    c.SDIO_CmdIndex = idx;
-    c.SDIO_Response = SDIO_Response_Long;
-    c.SDIO_Wait     = SDIO_Wait_No;
-    c.SDIO_CPSM     = SDIO_CPSM_Enable;
-    SDIO_SendCommand(&c);
-
-    for(uint32_t t = CMD_TIMEOUT; t; --t)
+    uint32_t const success_flags =
+        SDIO_FLAG_CMDREND | SDIO_FLAG_CCRCFAIL;
+    uint32_t const events =
+        execute_command(idx,
+                        arg,
+                        SDIO_Response_Long,
+                        success_flags,
+                        SDIO_FLAG_CTIMEOUT);
+    if((events & success_flags) != 0U &&
+       (events & SDIO_FLAG_CTIMEOUT) == 0U)
     {
-        uint32_t sta = SDIO->STA;
-        if(sta & SDIO_FLAG_CTIMEOUT)
-        {
-            clear_flags();
-            return std::unexpected(NoREADY);
-        }
-        if(sta & (SDIO_FLAG_CMDREND | SDIO_FLAG_CCRCFAIL))
-        {
-            R2 r = {{
-                SDIO_GetResponse(SDIO_RESP1),
-                SDIO_GetResponse(SDIO_RESP2),
-                SDIO_GetResponse(SDIO_RESP3),
-                SDIO_GetResponse(SDIO_RESP4),
-            }};
-            clear_flags();
-            return r;
-        }
+        return R2{{
+            SDIO_GetResponse(SDIO_RESP1),
+            SDIO_GetResponse(SDIO_RESP2),
+            SDIO_GetResponse(SDIO_RESP3),
+            SDIO_GetResponse(SDIO_RESP4),
+        }};
     }
-
-    clear_flags();
     return std::unexpected(NoREADY);
 }
 
-ErrorStatus read_fifo(std::span<uint8_t> buf, uint32_t end_flag)
+struct DMAWait
 {
-    uint32_t count = 0U;
-    uint32_t timeout = FIFO_TIMEOUT;
+    uint32_t end_flag;
+    uint32_t irq_mask;
+    uint32_t initial_events;
+};
 
-    auto store_word = [&](uint32_t word) {
-        if(count + 4U <= buf.size())
-        {
-            buf[count]     = static_cast<uint8_t>(word);
-            buf[count + 1] = static_cast<uint8_t>(word >> 8);
-            buf[count + 2] = static_cast<uint8_t>(word >> 16);
-            buf[count + 3] = static_cast<uint8_t>(word >> 24);
-            count += 4U;
-        }
+DMAWait arm_dma_wait(uint32_t end_flag)
+{
+    uint32_t const irq_mask = DATA_ERROR_FLAGS | end_flag;
+    return {
+        .end_flag = end_flag,
+        .irq_mask = irq_mask,
+        .initial_events = arm_wait(irq_mask, true, true),
     };
-
-    while(!(SDIO->STA & (DATA_ERROR_FLAGS | end_flag)) && timeout)
-    {
-        uint32_t sta = SDIO->STA;
-        if(sta & SDIO_FLAG_RXFIFOHF)
-        {
-            for(int i = 0; i < 8; ++i)
-                store_word(SDIO->FIFO);
-            timeout = FIFO_TIMEOUT;
-        }
-        else if(sta & SDIO_FLAG_RXDAVL)
-        {
-            store_word(SDIO->FIFO);
-            timeout = FIFO_TIMEOUT;
-        }
-        else
-        {
-            --timeout;
-        }
-    }
-
-    while(SDIO->STA & SDIO_FLAG_RXDAVL)
-        store_word(SDIO->FIFO);
-
-    if(!timeout || (SDIO->STA & DATA_ERROR_FLAGS))
-    {
-        clear_flags();
-        return NoREADY;
-    }
-
-    if(count != buf.size())
-    {
-        clear_flags();
-        return NoREADY;
-    }
-
-    clear_flags();
-    return READY;
 }
 
-ErrorStatus wait_dma_transfer(uint32_t end_flag)
+ErrorStatus complete_dma_wait(DMAWait const& wait)
 {
-    uint32_t timeout = DMA_TIMEOUT;
-    while(timeout)
-    {
-        if(DMA_GetFlagStatus(DMA2_FLAG_TE4) != RESET)
-            break;
+    uint32_t const success_mask = DMA_COMPLETE_EVENT | wait.end_flag;
+    uint32_t const error_mask = DMA_ERROR_EVENT | DATA_ERROR_FLAGS;
+    uint32_t const events =
+        wait_for_events(wait.initial_events,
+                        success_mask,
+                        error_mask,
+                        true,
+                        DATA_WAIT_TIMEOUT_TICKS,
+                        wait.irq_mask,
+                        true);
 
-        uint32_t sta = SDIO->STA;
-        if(sta & DATA_ERROR_FLAGS)
-            break;
+    bool const ok = (events & error_mask) == 0U &&
+                    (events & success_mask) == success_mask &&
+                    DMA_GetCurrDataCounter(DMA2_Channel4) == 0U;
 
-        if(DMA_GetFlagStatus(DMA2_FLAG_TC4) != RESET)
-        {
-            while(!(SDIO->STA & (DATA_ERROR_FLAGS | end_flag)) && timeout)
-                --timeout;
-            break;
-        }
+    s_last_dma_wait_diagnostics = {
+        .events = events,
+        .expected_events = success_mask,
+        .status = SDIO->STA,
+        .data_count = SDIO->DCOUNT,
+        .fifo_count = SDIO->FIFOCNT,
+        .data_control = SDIO->DCTRL,
+        .dma_remaining = DMA_GetCurrDataCounter(DMA2_Channel4),
+        .dma_config = DMA2_Channel4->CFGR,
+    };
 
-        --timeout;
-    }
-
-    bool ok = timeout &&
-              DMA_GetFlagStatus(DMA2_FLAG_TE4) == RESET &&
-              (SDIO->STA & DATA_ERROR_FLAGS) == 0U &&
-              (SDIO->STA & end_flag) &&
-              DMA_GetCurrDataCounter(DMA2_Channel4) == 0U;
-
+    disarm_wait(wait.irq_mask, true);
     stop_dma();
-    DMA_ClearFlag(DMA2_FLAG_GL4);
-    clear_flags();
     return ok ? READY : NoREADY;
+}
+
+void record_write_stage(SDIOWriteStage stage, uint32_t response = 0U)
+{
+    s_last_write_diagnostics.stage = stage;
+    s_last_write_diagnostics.command_events = s_last_command_events;
+    s_last_write_diagnostics.response = response;
+}
+
+void record_write_data_diagnostics()
+{
+    s_last_write_diagnostics.data_events =
+        s_last_dma_wait_diagnostics.events;
+    s_last_write_diagnostics.expected_data_events =
+        s_last_dma_wait_diagnostics.expected_events;
+    s_last_write_diagnostics.status =
+        s_last_dma_wait_diagnostics.status;
+    s_last_write_diagnostics.data_count =
+        s_last_dma_wait_diagnostics.data_count;
+    s_last_write_diagnostics.fifo_count =
+        s_last_dma_wait_diagnostics.fifo_count;
+    s_last_write_diagnostics.data_control =
+        s_last_dma_wait_diagnostics.data_control;
+    s_last_write_diagnostics.dma_remaining =
+        s_last_dma_wait_diagnostics.dma_remaining;
+    s_last_write_diagnostics.dma_config =
+        s_last_dma_wait_diagnostics.dma_config;
 }
 
 ErrorStatus read_switch_status(uint32_t arg, std::span<uint8_t, 64> status)
 {
-    clear_flags();
     reset_data_path();
-    SDIO->DCTRL = 0x0;
-
     configure_dma_read(status);
 
     SDIO_DataInitTypeDef data = {};
@@ -465,22 +713,33 @@ ErrorStatus read_switch_status(uint32_t arg, std::span<uint8_t, 64> status)
     data.SDIO_DPSM          = SDIO_DPSM_Enable;
     SDIO_DataConfig(&data);
 
+    /*
+     * Configure the new data path before enabling RX DMA. Enabling DMA first
+     * can consume a word left in the FIFO by the preceding CMD6 transfer.
+     */
+    SDIO_DMACmd(ENABLE);
+    DMA_Cmd(DMA2_Channel4, ENABLE);
+
     auto r = cmd_r1(6, arg);
     if(!r)
     {
         stop_dma();
+        reset_data_path();
         return NoREADY;
     }
 
-    SDIO_DMACmd(ENABLE);
-    DMA_Cmd(DMA2_Channel4, ENABLE);
-
-    return wait_dma_transfer(SDIO_FLAG_DBCKEND);
+    DMAWait const wait = arm_dma_wait(SDIO_FLAG_DBCKEND);
+    ErrorStatus const result = complete_dma_wait(wait);
+    if(result != READY)
+    {
+        reset_data_path();
+    }
+    return result;
 }
 
 bool switch_card_high_speed()
 {
-    std::array<uint8_t, 64> status = {};
+    alignas(4) std::array<uint8_t, 64> status = {};
 
     if(read_switch_status(CMD6_CHECK_HS, status) != READY)
         return false;
@@ -509,6 +768,7 @@ void SDIOTransport::init()
 {
     init_gpio_1bit();
     reset_slow();
+    init_interrupts();
 }
 
 auto SDIOTransport::detect() -> std::expected<DetectResult, ErrorStatus>
@@ -532,7 +792,10 @@ auto SDIOTransport::detect() -> std::expected<DetectResult, ErrorStatus>
     bool sdhc = false;
     bool ready = false;
 
-    for(uint32_t i = 0; i < ACMD41_RETRIES && !ready; ++i)
+    TickType_t const acmd41_start_tick = xTaskGetTickCount();
+    while(!ready &&
+          (xTaskGetTickCount() - acmd41_start_tick) <
+              ACMD41_TIMEOUT_TICKS)
     {
         if(!cmd_r1(55, 0))
             return std::unexpected(NoREADY);
@@ -547,7 +810,7 @@ auto SDIOTransport::detect() -> std::expected<DetectResult, ErrorStatus>
         }
         else
         {
-            Delay_Ms(1);
+            vTaskDelay(pdMS_TO_TICKS(1U));
         }
     }
 
@@ -581,18 +844,19 @@ auto SDIOTransport::detect() -> std::expected<DetectResult, ErrorStatus>
     return DetectResult{parse_cid(*cid_r2), sdhc};
 }
 
-// DMA is required at high clock speeds — FIFO polling can't keep up and causes timeouts.
+// DMA is required at high clock speeds; all callers provide an aligned buffer.
 ErrorStatus SDIOTransport::read_blocks(uint32_t addr, std::span<uint8_t> buf)
 {
-    bool multi = buf.size() > 512U;
-    bool use_dma = dma_buffer_aligned(buf);
+    if(buf.empty() || buf.size() % 512U != 0U ||
+       buf.size() > max_blocks_per_transfer * 512U ||
+       !dma_buffer_aligned(buf))
+    {
+        return NoREADY;
+    }
+    bool const multi = buf.size() > 512U;
 
-    clear_flags();
     reset_data_path();
-    SDIO->DCTRL = 0x0;
-
-    if(use_dma)
-        configure_dma_read(buf);
+    configure_dma_read(buf);
 
     SDIO_DataInitTypeDef data = {};
     data.SDIO_DataTimeOut   = DATA_TIMEOUT;
@@ -603,25 +867,40 @@ ErrorStatus SDIOTransport::read_blocks(uint32_t addr, std::span<uint8_t> buf)
     data.SDIO_DPSM          = SDIO_DPSM_Enable;
     SDIO_DataConfig(&data);
 
+    /*
+     * Start DMA only after DataConfig has established a clean RX FIFO, but
+     * before CMD17/CMD18 so task scheduling cannot delay servicing the card.
+     */
+    SDIO_DMACmd(ENABLE);
+    DMA_Cmd(DMA2_Channel4, ENABLE);
+
     auto r = cmd_r1(multi ? 18U : 17U, addr);
     if(!r)
     {
         stop_dma();
+        reset_data_path();
         return NoREADY;
     }
 
-    if(use_dma)
-    {
-        SDIO_DMACmd(ENABLE);
-        DMA_Cmd(DMA2_Channel4, ENABLE);
-    }
-
-    uint32_t end_flag = multi ? SDIO_FLAG_DATAEND : SDIO_FLAG_DBCKEND;
-    ErrorStatus result =
-        use_dma ? wait_dma_transfer(end_flag) : read_fifo(buf, end_flag);
+    uint32_t const end_flag =
+        multi ? SDIO_FLAG_DATAEND : SDIO_FLAG_DBCKEND;
+    DMAWait const wait = arm_dma_wait(end_flag);
+    ErrorStatus result = complete_dma_wait(wait);
 
     if(multi)
-        cmd_r1(12, 0);
+    {
+        auto const stop_response = cmd_r1(12U, 0U);
+        if(!stop_response ||
+           (*stop_response & R1_ERROR_MASK) != 0U)
+        {
+            result = NoREADY;
+        }
+    }
+
+    if(result != READY)
+    {
+        reset_data_path();
+    }
 
     return result;
 }
@@ -633,7 +912,9 @@ ErrorStatus SDIOTransport::wait_ready()
         return NoREADY;
     }
 
-    for(uint32_t timeout = PROGRAM_TIMEOUT; timeout != 0U; --timeout)
+    TickType_t const start_tick = xTaskGetTickCount();
+    while((xTaskGetTickCount() - start_tick) <
+          CARD_READY_TIMEOUT_TICKS)
     {
         auto response = cmd_r1(13U, static_cast<uint32_t>(rca_) << 16);
         if(!response || (*response & R1_ERROR_MASK) != 0U)
@@ -648,6 +929,8 @@ ErrorStatus SDIOTransport::wait_ready()
         {
             return READY;
         }
+
+        vTaskDelay(pdMS_TO_TICKS(1U));
     }
 
     return NoREADY;
@@ -656,63 +939,131 @@ ErrorStatus SDIOTransport::wait_ready()
 ErrorStatus SDIOTransport::write_blocks(uint32_t addr,
                                         std::span<const uint8_t> buf)
 {
+    s_last_write_diagnostics = {
+        .buffer = reinterpret_cast<uintptr_t>(buf.data()),
+        .length = static_cast<uint32_t>(buf.size()),
+        .address = addr,
+    };
+
     if(buf.empty() || buf.size() % 512U != 0U ||
        buf.size() > max_blocks_per_transfer * 512U ||
        !dma_buffer_aligned(buf))
     {
+        record_write_stage(SDIOWriteStage::InvalidBuffer);
         return NoREADY;
     }
     if(wait_ready() != READY)
     {
+        record_write_stage(SDIOWriteStage::BeforeCommand);
         return NoREADY;
     }
 
-    bool multi = buf.size() > 512U;
+    bool const multi = buf.size() > 512U;
+    if(multi)
+    {
+        auto const app_command =
+            cmd_r1(55U, static_cast<uint32_t>(rca_) << 16);
+        if(!app_command ||
+           (*app_command & R1_ERROR_MASK) != 0U)
+        {
+            record_write_stage(SDIOWriteStage::Command,
+                               app_command.value_or(0U));
+            return NoREADY;
+        }
 
-    clear_flags();
+        auto const preerase =
+            cmd_r1(23U,
+                   static_cast<uint32_t>(buf.size() / 512U));
+        if(!preerase || (*preerase & R1_ERROR_MASK) != 0U)
+        {
+            record_write_stage(SDIOWriteStage::Command,
+                               preerase.value_or(0U));
+            return NoREADY;
+        }
+    }
+
     reset_data_path();
-    SDIO->DCTRL = 0x0;
     configure_dma_write(buf);
 
-    auto response = cmd_r1(multi ? 25U : 24U, addr);
-    if(!response || (*response & R1_ERROR_MASK) != 0U)
-    {
-        stop_dma();
-        return NoREADY;
-    }
-
-    // Arm DMA before enabling the data-path state machine. A fast card can
-    // otherwise request data before DMA is ready and raise TXUNDERR.
-    SDIO_DMACmd(ENABLE);
-    DMA_Cmd(DMA2_Channel4, ENABLE);
-
+    /*
+     * Set up the data registers and DMA channel before CMD24/CMD25. The
+     * recording task is lower priority than the I2S task, so it is not
+     * guaranteed to run soon enough after the command-response interrupt to
+     * start the data phase itself. CMDREND starts DTEN and then DMAEN in the
+     * SDIO ISR instead.
+     */
     SDIO_DataInitTypeDef data = {};
     data.SDIO_DataTimeOut   = DATA_TIMEOUT;
     data.SDIO_DataLength    = static_cast<uint32_t>(buf.size());
     data.SDIO_DataBlockSize = SDIO_DataBlockSize_512b;
     data.SDIO_TransferDir   = SDIO_TransferDir_ToCard;
     data.SDIO_TransferMode  = SDIO_TransferMode_Block;
-    data.SDIO_DPSM          = SDIO_DPSM_Enable;
+    data.SDIO_DPSM          = SDIO_DPSM_Disable;
     SDIO_DataConfig(&data);
 
-    ErrorStatus result = wait_dma_transfer(SDIO_FLAG_DATAEND);
+    /*
+     * Arm the channel, but leave SDIO DMA requests disabled. Enabling DMAEN
+     * here lets DMA preload the FIFO before DTEN loads the data counter,
+     * which can leave DCOUNT offset by the preloaded words.
+     */
+    DMA_Cmd(DMA2_Channel4, ENABLE);
+    s_start_write_data_on_command_complete = true;
+    s_stop_write_on_data_end = multi;
+
+    auto response = cmd_r1(multi ? 25U : 24U, addr);
+    s_start_write_data_on_command_complete = false;
+    if(!response || (*response & R1_ERROR_MASK) != 0U)
+    {
+        s_stop_write_on_data_end = false;
+        record_write_stage(SDIOWriteStage::Command,
+                           response.value_or(0U));
+        stop_dma();
+        return NoREADY;
+    }
+
+    uint32_t const end_flag =
+        multi ? SDIO_FLAG_DATAEND : SDIO_FLAG_DBCKEND;
+    DMAWait const wait = arm_dma_wait(end_flag);
+    if((wait.initial_events & SDIO_FLAG_DATAEND) != 0U)
+    {
+        start_pending_stop_from_task();
+    }
+
+    ErrorStatus result = complete_dma_wait(wait);
+    record_write_data_diagnostics();
 
     if(multi)
     {
-        auto stop_response = cmd_r1(12U, 0U);
+        // Also abort an errored transfer that never reached DATAEND.
+        start_pending_stop_from_task();
+        auto const stop_response = wait_started_r1(12U);
         if(!stop_response || (*stop_response & R1_ERROR_MASK) != 0U)
         {
+            record_write_stage(SDIOWriteStage::StopCommand,
+                               stop_response.value_or(0U));
             result = NoREADY;
         }
     }
 
     if(result != READY)
     {
+        if(s_last_write_diagnostics.stage !=
+           SDIOWriteStage::StopCommand)
+        {
+            record_write_stage(SDIOWriteStage::Data,
+                               *response);
+        }
         reset_data_path();
         return NoREADY;
     }
 
-    return wait_ready();
+    ErrorStatus const ready = wait_ready();
+    if(ready != READY)
+    {
+        record_write_stage(SDIOWriteStage::AfterData,
+                           *response);
+    }
+    return ready;
 }
 
 ErrorStatus SDIOTransport::sync()
@@ -724,5 +1075,76 @@ Status SDIOTransport::status() const
 {
     return s_status;
 }
+
+SDIOWriteDiagnostics const& last_write_diagnostics()
+{
+    return s_last_write_diagnostics;
+}
+
+extern "C" {
+
+PORT_ISR_BODY(SDIO_IRQHandler)
+{
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    uint32_t const events =
+        SDIO->STA & SDIO->MASK & WAITABLE_SDIO_FLAGS;
+    if(events != 0U)
+    {
+        if(s_start_write_data_on_command_complete &&
+           (events & SDIO_FLAG_CMDREND) != 0U)
+        {
+            s_start_write_data_on_command_complete = false;
+            SDIO->DCTRL |= SDIO_DPSM_Enable;
+            SDIO_DMACmd(ENABLE);
+        }
+
+        if(s_stop_write_on_data_end &&
+           (events & SDIO_FLAG_DATAEND) != 0U)
+        {
+            s_stop_write_on_data_end = false;
+            send_stop_command();
+        }
+
+        clear_flags(events);
+        TaskHandle_t const waiting_task = s_waiting_task;
+        if(waiting_task != nullptr)
+        {
+            (void)xTaskNotifyIndexedFromISR(waiting_task,
+                                            SDIO_NOTIFICATION_INDEX,
+                                            events,
+                                            eSetBits,
+                                            &higher_priority_task_woken);
+        }
+    }
+    portYIELD_FROM_ISR(higher_priority_task_woken);
+}
+
+PORT_ISR_BODY(DMA2_Channel4_IRQHandler)
+{
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    uint32_t events = 0U;
+    if(DMA_GetITStatus(DMA2_IT_TC4) != RESET)
+    {
+        events |= DMA_COMPLETE_EVENT;
+    }
+    if(DMA_GetITStatus(DMA2_IT_TE4) != RESET)
+    {
+        events |= DMA_ERROR_EVENT;
+    }
+
+    DMA_ClearITPendingBit(DMA2_IT_GL4);
+    TaskHandle_t const waiting_task = s_waiting_task;
+    if(events != 0U && waiting_task != nullptr)
+    {
+        (void)xTaskNotifyIndexedFromISR(waiting_task,
+                                        SDIO_NOTIFICATION_INDEX,
+                                        events,
+                                        eSetBits,
+                                        &higher_priority_task_woken);
+    }
+    portYIELD_FROM_ISR(higher_priority_task_woken);
+}
+
+} // extern "C"
 
 } // namespace sdcard

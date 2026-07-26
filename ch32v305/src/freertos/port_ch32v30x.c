@@ -42,6 +42,19 @@ static void systick_compare_write(uint64_t deadline)
     compare_words[1] = (uint32_t)(deadline >> 32);
     compare_words[0] = (uint32_t)deadline;
     __asm volatile("fence iorw, iorw" ::: "memory");
+
+    /*
+     * Unlike RISC-V mtimecmp, this SysTick only documents an equality
+     * condition.  If CNT reaches or passes the final compare value while the
+     * 64-bit value is being published, the hardware cannot assert it later.
+     * Pend SysTick explicitly so the handler accounts for the elapsed boundary
+     * instead of waiting for the 64-bit counter to wrap.
+     */
+    if(systick_count_read() >= deadline)
+    {
+        NVIC_SetPendingIRQ(SysTicK_IRQn);
+        __asm volatile("fence iorw, iorw" ::: "memory");
+    }
 }
 
 static BaseType_t pfic_has_enabled_pending_irq(void)
