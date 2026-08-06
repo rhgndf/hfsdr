@@ -21,6 +21,7 @@ extern "C" {
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <new>
 #include <span>
 #include <type_traits>
 
@@ -33,6 +34,8 @@ constexpr uint32_t kDataPending = 1U;
 
 constexpr size_t kSectorBytes = 512U;
 constexpr size_t kRingBytes = 4U * 1024U;
+/* Fixed text, two maximum-width uint32_t values, and the null terminator. */
+constexpr size_t kFilenameBytes = 38U;
 constexpr size_t kI2sChunkWordCount = kSectorBytes / sizeof(uint16_t);
 constexpr uint32_t kWavJunkBytes = 460U;
 
@@ -95,10 +98,10 @@ static_assert(offsetof(WavHeader, data_size) == 508U);
 
 struct RingBuffer
 {
-    alignas(uint32_t) std::array<std::byte, kRingBytes> bytes{};
-    uint32_t read_bytes = 0U;
-    uint32_t write_bytes = 0U;
-    uint32_t dropped = 0U;
+    alignas(uint32_t) std::array<std::byte, kRingBytes> bytes;
+    uint32_t read_bytes;
+    uint32_t write_bytes;
+    uint32_t dropped;
 
     void reset()
     {
@@ -122,8 +125,6 @@ struct Session
 {
     FATFS filesystem{};
     FIL file{};
-    WavHeader header{};
-    std::array<char, 64U> filename{};
     uint32_t data_bytes = 0U;
     bool file_open = false;
 };
@@ -134,12 +135,15 @@ StackType_t s_task_stack[RECORDING_TASK_STACK_WORDS]
 TaskHandle_t s_task_handle = nullptr;
 
 Session s_session;
-RingBuffer s_ring;
+static union
+{
+    RingBuffer s_ring{};
+    WavHeader s_wav_header;
+};
 volatile RecorderState s_state = RecorderState::Idle;
 
 void clear_session()
 {
-    s_session.filename.fill('\0');
     s_session.data_bytes = 0U;
     s_session.file_open = false;
     s_ring.reset();
@@ -147,7 +151,7 @@ void clear_session()
 
 void initialize_header()
 {
-    s_session.header = {
+    s_wav_header = {
         .riff_tag = {'R', 'I', 'F', 'F'},
         .riff_size = kSectorBytes - 8U,
         .wave_tag = {'W', 'A', 'V', 'E'},
@@ -224,23 +228,33 @@ bool write_file(std::span<std::byte const> bytes,
 
 bool write_header()
 {
-    s_session.header.riff_size =
-        kSectorBytes - 8U + s_session.data_bytes;
-    s_session.header.data_size = s_session.data_bytes;
-    return write_file(std::as_bytes(
-        std::span{&s_session.header, 1U}));
+    configASSERT(s_ring.empty());
+
+    uint32_t const read_bytes = s_ring.read_bytes;
+    uint32_t const write_bytes = s_ring.write_bytes;
+    uint32_t const dropped = s_ring.dropped;
+    initialize_header();
+    s_wav_header.riff_size += s_session.data_bytes;
+    s_wav_header.data_size = s_session.data_bytes;
+    bool const written = write_file(
+        std::as_bytes(std::span{&s_wav_header, 1U}));
+    ::new (static_cast<void *>(&s_ring)) RingBuffer;
+    s_ring.read_bytes = read_bytes;
+    s_ring.write_bytes = write_bytes;
+    s_ring.dropped = dropped;
+    return written;
 }
 
-void cancel_session(bool remove_file)
+void cancel_session(char const *remove_path = nullptr)
 {
     if(s_session.file_open)
     {
         (void)f_close(&s_session.file);
         s_session.file_open = false;
     }
-    if(remove_file && (s_session.filename.front() != '\0'))
+    if((remove_path != nullptr) && (remove_path[0] != '\0'))
     {
-        (void)f_unlink(s_session.filename.data());
+        (void)f_unlink(remove_path);
     }
 
     unmount();
@@ -252,7 +266,7 @@ void finish_session()
 {
     if(!s_session.file_open)
     {
-        cancel_session(false);
+        cancel_session();
         return;
     }
 
@@ -288,8 +302,7 @@ void finish_session()
                   total_input_bytes);
 
     std::printf(
-        "Recording: stopped %s, %lu PCM bytes, %lu.%02lu%% dropped%s\r\n",
-        s_session.filename.data(),
+        "Recording: stopped, %lu PCM bytes, %lu.%02lu%% dropped%s\r\n",
         static_cast<unsigned long>(s_session.data_bytes),
         static_cast<unsigned long>(dropped_percent_x100 / 100U),
         static_cast<unsigned long>(dropped_percent_x100 % 100U),
@@ -299,18 +312,18 @@ void finish_session()
     s_state = RecorderState::Idle;
 }
 
-bool open_output_file(uint32_t frequency_hz)
+bool open_output_file(uint32_t frequency_hz, std::span<char> filename)
 {
     for(uint32_t counter = 0U;; ++counter)
     {
         int const length =
-            std::snprintf(s_session.filename.data(),
-                          s_session.filename.size(),
+            std::snprintf(filename.data(),
+                          filename.size(),
                           "0:/hfsdr-%lu-IQ-%lu.wav",
                           static_cast<unsigned long>(frequency_hz),
                           static_cast<unsigned long>(counter));
         if((length < 0) ||
-           (static_cast<size_t>(length) >= s_session.filename.size()))
+           (static_cast<size_t>(length) >= filename.size()))
         {
             std::printf("Recording: filename is too long\r\n");
             return false;
@@ -318,7 +331,7 @@ bool open_output_file(uint32_t frequency_hz)
 
         FRESULT const result =
             f_open(&s_session.file,
-                   s_session.filename.data(),
+                   filename.data(),
                    FA_WRITE | FA_CREATE_NEW);
         if(result == FR_OK)
         {
@@ -380,14 +393,14 @@ bool drain_ring()
 
 bool start_session()
 {
+    std::array<char, kFilenameBytes> filename{};
     clear_session();
-    initialize_header();
     (void)f_mount(nullptr, "0:", 0U);
 
     if(sdcard::detect() != READY)
     {
         std::printf("Recording: SD card not detected\r\n");
-        cancel_session(false);
+        cancel_session();
         return false;
     }
 
@@ -397,26 +410,26 @@ bool start_session()
     {
         std::printf("Recording: f_mount failed (%u)\r\n",
                     static_cast<unsigned int>(mount_result));
-        cancel_session(false);
+        cancel_session();
         return false;
     }
 
     uint32_t const frequency_hz = hw_state_get_frequency();
-    if(!open_output_file(frequency_hz))
+    if(!open_output_file(frequency_hz, filename))
     {
-        cancel_session(false);
+        cancel_session();
         return false;
     }
     if(!write_header())
     {
-        cancel_session(true);
+        cancel_session(filename.data());
         return false;
     }
 
     s_state = RecorderState::Recording;
 
     std::printf("Recording: started %s, %lu Hz IQ PCM\r\n",
-                s_session.filename.data(),
+                filename.data(),
                 static_cast<unsigned long>(frequency_hz));
     return true;
 }

@@ -22,7 +22,7 @@
 #define SI5351_I2C_ADDR_7BIT 0x60U
 
 /* Si5351A practical lower clock-output limit. */
-#define SI5351_MIN_OUTPUT_HZ 2500U
+#define SI5351_MIN_OUTPUT_HZ 2000U
 #define SI5351_MAX_OUTPUT_HZ 225000000U
 
 #include "debug.h"
