@@ -21,7 +21,7 @@ extern "C" {
 #include <cstdio>
 #include <cstring>
 #include <limits>
-#include <new>
+#include <memory>
 #include <span>
 #include <type_traits>
 
@@ -34,8 +34,6 @@ constexpr uint32_t kDataPending = 1U;
 
 constexpr size_t kSectorBytes = 512U;
 constexpr size_t kRingBytes = 4U * 1024U;
-/* Fixed text, two maximum-width uint32_t values, and the null terminator. */
-constexpr size_t kFilenameBytes = 38U;
 constexpr size_t kI2sChunkWordCount = kSectorBytes / sizeof(uint16_t);
 constexpr uint32_t kWavJunkBytes = 460U;
 
@@ -103,6 +101,8 @@ struct RingBuffer
     uint32_t write_bytes;
     uint32_t dropped;
 
+    RingBuffer() noexcept {}
+
     void reset()
     {
         read_bytes = 0U;
@@ -138,7 +138,11 @@ Session s_session;
 static union
 {
     RingBuffer s_ring{};
-    WavHeader s_wav_header;
+    struct
+    {
+        WavHeader s_wav_header;
+        char s_filename[64U];
+    } s_file;
 };
 volatile RecorderState s_state = RecorderState::Idle;
 
@@ -151,7 +155,7 @@ void clear_session()
 
 void initialize_header()
 {
-    s_wav_header = {
+    s_file.s_wav_header = {
         .riff_tag = {'R', 'I', 'F', 'F'},
         .riff_size = kSectorBytes - 8U,
         .wave_tag = {'W', 'A', 'V', 'E'},
@@ -228,17 +232,23 @@ bool write_file(std::span<std::byte const> bytes,
 
 bool write_header()
 {
+    initialize_header();
+    s_file.s_wav_header.riff_size += s_session.data_bytes;
+    s_file.s_wav_header.data_size = s_session.data_bytes;
+    return write_file(
+        std::as_bytes(std::span{&s_file.s_wav_header, 1U}));
+}
+
+bool update_header()
+{
     configASSERT(s_ring.empty());
 
     uint32_t const read_bytes = s_ring.read_bytes;
     uint32_t const write_bytes = s_ring.write_bytes;
     uint32_t const dropped = s_ring.dropped;
-    initialize_header();
-    s_wav_header.riff_size += s_session.data_bytes;
-    s_wav_header.data_size = s_session.data_bytes;
-    bool const written = write_file(
-        std::as_bytes(std::span{&s_wav_header, 1U}));
-    ::new (static_cast<void *>(&s_ring)) RingBuffer;
+    std::construct_at(&s_file);
+    bool const written = write_header();
+    std::construct_at(&s_ring);
     s_ring.read_bytes = read_bytes;
     s_ring.write_bytes = write_bytes;
     s_ring.dropped = dropped;
@@ -258,6 +268,7 @@ void cancel_session(char const *remove_path = nullptr)
     }
 
     unmount();
+    std::construct_at(&s_ring);
     clear_session();
     s_state = RecorderState::Idle;
 }
@@ -271,7 +282,7 @@ void finish_session()
     }
 
     bool const header_updated =
-        (f_lseek(&s_session.file, 0U) == FR_OK) && write_header();
+        (f_lseek(&s_session.file, 0U) == FR_OK) && update_header();
 
     FRESULT const sync_result = f_sync(&s_session.file);
     if(sync_result != FR_OK)
@@ -393,7 +404,6 @@ bool drain_ring()
 
 bool start_session()
 {
-    std::array<char, kFilenameBytes> filename{};
     clear_session();
     (void)f_mount(nullptr, "0:", 0U);
 
@@ -415,22 +425,24 @@ bool start_session()
     }
 
     uint32_t const frequency_hz = hw_state_get_frequency();
-    if(!open_output_file(frequency_hz, filename))
+    std::construct_at(&s_file);
+    if(!open_output_file(frequency_hz, s_file.s_filename))
     {
         cancel_session();
         return false;
     }
     if(!write_header())
     {
-        cancel_session(filename.data());
+        cancel_session(s_file.s_filename);
         return false;
     }
 
-    s_state = RecorderState::Recording;
-
     std::printf("Recording: started %s, %lu Hz IQ PCM\r\n",
-                filename.data(),
+                s_file.s_filename,
                 static_cast<unsigned long>(frequency_hz));
+    std::construct_at(&s_ring);
+    s_ring.reset();
+    s_state = RecorderState::Recording;
     return true;
 }
 
