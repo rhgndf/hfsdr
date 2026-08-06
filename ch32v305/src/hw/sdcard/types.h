@@ -1,9 +1,14 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace sdcard {
+
+inline constexpr std::size_t kSwitchStatusBytes = 64U;
+using SwitchStatus = std::span<uint8_t, kSwitchStatusBytes>;
 
 struct R2 { uint32_t w[4]; };
 
@@ -19,7 +24,6 @@ struct CID {
 };
 
 struct DetectResult {
-    CID cid;
     bool sdhc;
 };
 

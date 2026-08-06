@@ -198,8 +198,10 @@ void BitbangTransport::init()
     init_gpio_slow();
 }
 
-auto BitbangTransport::detect() -> std::expected<DetectResult, ErrorStatus>
+auto BitbangTransport::detect(SwitchStatus switch_status)
+    -> std::expected<DetectResult, ErrorStatus>
 {
+    (void)switch_status;
     init_gpio_slow();
 
     // CMD0: GO_IDLE_STATE — card enters SPI mode
@@ -252,7 +254,22 @@ auto BitbangTransport::detect() -> std::expected<DetectResult, ErrorStatus>
             sdhc = (ocr->payload & (1U << 30)) != 0;
     }
 
-    // CMD10: SEND_CID — R1 + data block (16 bytes)
+    // CMD16: SET_BLOCKLEN (SDSC only)
+    if(!sdhc)
+    {
+        cs_low();
+        auto r16 = spi_cmd(16, 512);
+        cs_high(); spi_xfer(0xFF);
+        if(!r16 || (*r16 & 0x7EU))
+            return std::unexpected(NoREADY);
+    }
+
+    switch_fast();
+    return DetectResult{sdhc};
+}
+
+auto BitbangTransport::read_cid() -> std::expected<CID, ErrorStatus>
+{
     cs_low();
     auto r10 = spi_cmd(10, 0);
     if(!r10 || (*r10 & 0x7EU))
@@ -275,19 +292,7 @@ auto BitbangTransport::detect() -> std::expected<DetectResult, ErrorStatus>
         (uint32_t(cid_raw[8])  << 24) | (uint32_t(cid_raw[9])  << 16) | (uint32_t(cid_raw[10]) << 8) | cid_raw[11],
         (uint32_t(cid_raw[12]) << 24) | (uint32_t(cid_raw[13]) << 16) | (uint32_t(cid_raw[14]) << 8) | cid_raw[15],
     }};
-
-    // CMD16: SET_BLOCKLEN (SDSC only)
-    if(!sdhc)
-    {
-        cs_low();
-        auto r16 = spi_cmd(16, 512);
-        cs_high(); spi_xfer(0xFF);
-        if(!r16 || (*r16 & 0x7EU))
-            return std::unexpected(NoREADY);
-    }
-
-    switch_fast();
-    return DetectResult{parse_cid(r2), sdhc};
+    return parse_cid(r2);
 }
 
 ErrorStatus BitbangTransport::read_blocks(uint32_t addr, std::span<uint8_t> buf)

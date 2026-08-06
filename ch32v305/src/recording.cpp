@@ -96,7 +96,12 @@ static_assert(offsetof(WavHeader, data_size) == 508U);
 
 struct RingBuffer
 {
-    alignas(uint32_t) std::array<std::byte, kRingBytes> bytes;
+    union
+    {
+        alignas(uint32_t) std::array<std::byte, kRingBytes> bytes;
+        alignas(uint32_t)
+            std::array<uint8_t, sdcard::kSwitchStatusBytes> sd_switch_status;
+    };
     uint32_t read_bytes;
     uint32_t write_bytes;
     uint32_t dropped;
@@ -120,6 +125,9 @@ struct RingBuffer
         return read_bytes == write_bytes;
     }
 };
+
+static_assert(sizeof(RingBuffer) ==
+              kRingBytes + 3U * sizeof(uint32_t));
 
 struct Session
 {
@@ -407,7 +415,8 @@ bool start_session()
     clear_session();
     (void)f_mount(nullptr, "0:", 0U);
 
-    if(sdcard::detect() != READY)
+    std::construct_at(&s_ring.sd_switch_status);
+    if(sdcard::detect(s_ring.sd_switch_status) != READY)
     {
         std::printf("Recording: SD card not detected\r\n");
         cancel_session();

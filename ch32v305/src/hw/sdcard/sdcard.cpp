@@ -15,10 +15,14 @@ namespace sdcard {
 namespace {
 
 template<typename T>
-concept SDTransport = requires(T t, uint32_t u, std::span<uint8_t> buf,
+concept SDTransport = requires(T t, uint32_t u,
+                               SwitchStatus switch_status,
+                               std::span<uint8_t> buf,
                                std::span<const uint8_t> const_buf) {
     { t.init() };
-    { t.detect() } -> std::same_as<std::expected<DetectResult, ErrorStatus>>;
+    { t.detect(switch_status) }
+        -> std::same_as<std::expected<DetectResult, ErrorStatus>>;
+    { t.read_cid() } -> std::same_as<std::expected<CID, ErrorStatus>>;
     { t.read_blocks(u, buf) } -> std::same_as<ErrorStatus>;
     { t.write_blocks(u, const_buf) } -> std::same_as<ErrorStatus>;
     { t.sync() } -> std::same_as<ErrorStatus>;
@@ -31,19 +35,23 @@ class SDCard {
 public:
     void init() { transport.init(); }
 
-    ErrorStatus detect()
+    ErrorStatus detect(SwitchStatus switch_status)
     {
         initialized = false;
-        auto result = transport.detect();
+        auto result = transport.detect(switch_status);
         if(!result) return NoREADY;
-        card_cid = result->cid;
         sdhc = result->sdhc;
         initialized = true;
         return READY;
     }
 
     bool detected() const { return initialized; }
-    const CID& get_cid() const { return card_cid; }
+    auto get_cid() -> std::expected<CID, ErrorStatus>
+    {
+        if(!initialized)
+            return std::unexpected(NoREADY);
+        return transport.read_cid();
+    }
     Status status() const
     {
         auto s = transport.status();
@@ -137,7 +145,6 @@ private:
     Transport transport{};
     bool initialized = false;
     bool sdhc = false;
-    CID card_cid = {};
 };
 
 // --- compile-time transport selection -------------------------------------
@@ -152,9 +159,9 @@ SD s_sd;
 // --- public free-function API (delegates to s_sd) -------------------------
 
 void init()                                                      { s_sd.init(); }
-ErrorStatus detect()                                             { return s_sd.detect(); }
+ErrorStatus detect(SwitchStatus b)                               { return s_sd.detect(b); }
 bool detected()                                                  { return s_sd.detected(); }
-const CID& cid()                                                 { return s_sd.get_cid(); }
+auto cid() -> std::expected<CID, ErrorStatus>                    { return s_sd.get_cid(); }
 Status status()                                                  { return s_sd.status(); }
 ErrorStatus read_sector(uint32_t s, std::span<uint8_t, 512> b)   { return s_sd.read_sector(s, b); }
 ErrorStatus read_sectors(uint32_t s, std::span<uint8_t> b)        { return s_sd.read_sectors(s, b); }

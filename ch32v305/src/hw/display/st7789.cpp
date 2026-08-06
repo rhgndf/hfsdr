@@ -14,6 +14,8 @@ static constexpr uint16_t ST7789_PANEL_LONG_SIDE = 320U;
 static constexpr uint16_t ST7789_PANEL_SHORT_SIDE = 240U;
 static constexpr size_t ST7789_RGB565_BYTES_PER_PIXEL = 2U;
 static constexpr uint16_t ST7789_BITMAP_CHUNK_PIXELS = 64U;
+static_assert(ST7789_BITMAP_BUFFER_BYTES ==
+              ST7789_BITMAP_CHUNK_PIXELS * ST7789_RGB565_BYTES_PER_PIXEL);
 
 static uint16_t s_scroll_top = 0U;
 static uint16_t s_scroll_bottom = ST7789_HEIGHT;
@@ -743,12 +745,12 @@ void ST7789_DrawImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint
  *        Maximum supported width is 320 (long axis of the panel).
  */
 void ST7789_DrawBitmap1bpp(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
-                           const uint8_t *bits, uint16_t fg, uint16_t bg)
+                           const uint8_t *bits, uint16_t fg, uint16_t bg,
+                           uint8_t *pixel_buf, size_t pixel_buf_size)
 {
-	std::array<uint8_t,
-	           ST7789_BITMAP_CHUNK_PIXELS * ST7789_RGB565_BYTES_PER_PIXEL> pixel_buf{};
-
-	if ((bits == nullptr) || (w == 0U) || (h == 0U) || (w > ST7789_PANEL_LONG_SIDE))
+	if ((bits == nullptr) || (pixel_buf == nullptr) ||
+	    (pixel_buf_size < ST7789_BITMAP_BUFFER_BYTES) ||
+	    (w == 0U) || (h == 0U) || (w > ST7789_PANEL_LONG_SIDE))
 		return;
 
 	const uint16_t row_bytes = (w + 7U) / 8U;
@@ -776,12 +778,12 @@ void ST7789_DrawBitmap1bpp(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
 				pixel_buf[2U * offset]      = bit ? fg_hi : bg_hi;
 				pixel_buf[2U * offset + 1U] = bit ? fg_lo : bg_lo;
 			}
-			ST7789_WriteData(pixel_buf.data(),
+			ST7789_WriteData(pixel_buf,
 			                 (size_t)pixel_count * ST7789_RGB565_BYTES_PER_PIXEL);
 		}
 	}
 
-	// pixel_buf is stack-backed and must outlive the final asynchronous DMA.
+	// The caller-owned buffer must outlive the final asynchronous DMA.
 	spi_hw_wait_dma();
 }
 

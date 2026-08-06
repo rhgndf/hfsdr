@@ -489,24 +489,22 @@ static ErrorStatus si5351_write_common_quadrature_config(const struct si5351_pll
                                                          const struct si5351_output_config *clk0_conf,
                                                          const struct si5351_output_config *clk1_conf)
 {
-    uint8_t pll_buf[8];
-    uint8_t ms0_buf[8];
-    uint8_t ms1_buf[8];
+    uint8_t params[8];
 
-    si5351_pack_ms(pll_conf->ms, pll_buf);
-    if(i2c_hw_write_register_burst(SI5351_I2C_ADDR_7BIT, SI5351_REG_PLL_A_PARAMS, pll_buf, sizeof(pll_buf)) != READY)
+    si5351_pack_ms(pll_conf->ms, params);
+    if(i2c_hw_write_register_burst(SI5351_I2C_ADDR_7BIT, SI5351_REG_PLL_A_PARAMS, params, sizeof(params)) != READY)
     {
         return NoREADY;
     }
 
-    si5351_pack_output_ms(clk0_conf, ms0_buf);
-    if(i2c_hw_write_register_burst(SI5351_I2C_ADDR_7BIT, SI5351_REG_MS0_PARAMS, ms0_buf, sizeof(ms0_buf)) != READY)
+    si5351_pack_output_ms(clk0_conf, params);
+    if(i2c_hw_write_register_burst(SI5351_I2C_ADDR_7BIT, SI5351_REG_MS0_PARAMS, params, sizeof(params)) != READY)
     {
         return NoREADY;
     }
 
-    si5351_pack_output_ms(clk1_conf, ms1_buf);
-    if(i2c_hw_write_register_burst(SI5351_I2C_ADDR_7BIT, SI5351_REG_MS1_PARAMS, ms1_buf, sizeof(ms1_buf)) != READY)
+    si5351_pack_output_ms(clk1_conf, params);
+    if(i2c_hw_write_register_burst(SI5351_I2C_ADDR_7BIT, SI5351_REG_MS1_PARAMS, params, sizeof(params)) != READY)
     {
         return NoREADY;
     }

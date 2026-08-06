@@ -69,12 +69,7 @@ DSTATUS disk_initialize(BYTE pdrv)
         return STA_NOINIT;
     }
 
-    if(!sdcard::detected() && sdcard::detect() != READY)
-    {
-        return unavailable_status();
-    }
-
-    return 0U;
+    return sdcard::detected() ? 0U : unavailable_status();
 }
 
 DRESULT disk_read(BYTE pdrv, BYTE* buffer, LBA_t sector, UINT count)

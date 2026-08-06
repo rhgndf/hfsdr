@@ -4,6 +4,7 @@
 #include "fonts.h"
 #include "hw/pinout.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 /* SPI: use spi_hw (SPI3). Init from ST7789_Init() via spi_hw_init(). */
@@ -125,6 +126,7 @@
 /* Advanced options */
 #define ST7789_COLOR_MODE_16bit 0x55    //  RGB565 (16bit)
 #define ST7789_COLOR_MODE_18bit 0x66    //  RGB666 (18bit)
+#define ST7789_BITMAP_BUFFER_BYTES 128U
 
 /* Basic operations — RST active-low (LOW = in reset, HIGH = run / released). */
 #define ST7789_RST_Assert()  GPIO_WriteBit(ST7789_RST_GPIO_PORT, ST7789_RST_GPIO_PIN, Bit_RESET)
@@ -156,7 +158,8 @@ void ST7789_DrawRectangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, ui
 void ST7789_DrawCircle(uint16_t x0, uint16_t y0, uint8_t r, uint16_t color);
 void ST7789_DrawImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t *data);
 void ST7789_DrawBitmap1bpp(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
-                           const uint8_t *bits, uint16_t fg, uint16_t bg);
+                           const uint8_t *bits, uint16_t fg, uint16_t bg,
+                           uint8_t *pixel_buf, size_t pixel_buf_size);
 void ST7789_InvertColors(uint8_t invert);
 
 /* Text functions. */

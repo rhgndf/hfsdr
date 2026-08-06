@@ -26,6 +26,7 @@ extern "C" {
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <optional>
 #include <utility>
 
@@ -99,6 +100,12 @@ struct SplashTracePoint
 
 static_assert(sizeof(SplashTracePoint) == 2U);
 
+struct SplashTraces
+{
+    std::array<SplashTracePoint, kSplashWaveDisplayColumns> wave;
+    std::array<SplashTracePoint, kSplashSpectrumDisplayColumns> spectrum;
+};
+
 static constexpr SplashQuad kSplashTextQuad{{
     {77U, 24U},
     {167U, 33U},
@@ -141,9 +148,12 @@ static ui_splash_appearance_t s_displayed_splash_appearance = UI_SPLASH_APPEARAN
 static uint8_t s_splash_button_phase = 0U;
 static uint32_t s_displayed_splash_freq_hz = UINT32_MAX;
 static int32_t s_splash_wave_display_peak = kSplashWaveMinimumPeak;
-static std::array<SplashTracePoint, kSplashWaveDisplayColumns> s_splash_wave_prev{};
+static union
+{
+    SplashTraces s_splash_traces{};
+    std::array<uint8_t, ST7789_BITMAP_BUFFER_BYTES> s_splash_bitmap_buffer;
+};
 static bool s_splash_wave_poly_valid = false;
-static std::array<SplashTracePoint, kSplashSpectrumDisplayColumns> s_splash_spec_prev{};
 static bool s_splash_spec_poly_valid = false;
 /* Last MADCTL value applied by UI (0xFF = never synced this session). */
 static uint8_t s_hw_madctl = 0xFFU;
@@ -651,7 +661,7 @@ static int32_t ui_waveform_get(size_t idx)
 static void ui_draw_splash_waveform(void)
 {
     auto const [scope_fill, trace_color] = ui_splash_colors();
-    size_t const display_cols = s_splash_wave_prev.size();
+    size_t const display_cols = s_splash_traces.wave.size();
     size_t const n = DAC_HW_STREAM_RING_SAMPLES;
     if((n < 2U) || (display_cols < 2U))
     {
@@ -696,7 +706,7 @@ static void ui_draw_splash_waveform(void)
 
     if(s_splash_wave_poly_valid)
     {
-        ui_splash_erase_trace(s_splash_wave_prev, scope_fill);
+        ui_splash_erase_trace(s_splash_traces.wave, scope_fill);
     }
     else
     {
@@ -740,7 +750,7 @@ static void ui_draw_splash_waveform(void)
         {
             ST7789_DrawLineFills(prev_px, prev_py, curr_px, curr_py, trace_color);
         }
-        s_splash_wave_prev[i] = ui_splash_trace_point(curr_px, curr_py);
+        s_splash_traces.wave[i] = ui_splash_trace_point(curr_px, curr_py);
         prev_px = curr_px;
         prev_py = curr_py;
     }
@@ -797,10 +807,10 @@ static void ui_draw_splash_spectrum(void)
         return;
     }
 
-    size_t const display_cols = s_splash_spec_prev.size();
+    size_t const display_cols = s_splash_traces.spectrum.size();
     if(s_splash_spec_poly_valid)
     {
-        ui_splash_erase_trace(s_splash_spec_prev, scope_fill);
+        ui_splash_erase_trace(s_splash_traces.spectrum, scope_fill);
     }
 
     uint16_t const w_lim = static_cast<uint16_t>(ST7789_GetWidth() - 1U);
@@ -850,7 +860,7 @@ static void ui_draw_splash_spectrum(void)
             ST7789_DrawLineFills(prev_px, prev_py, curr_px, curr_py, trace_color);
         }
 
-        s_splash_spec_prev[i] = ui_splash_trace_point(curr_px, curr_py);
+        s_splash_traces.spectrum[i] = ui_splash_trace_point(curr_px, curr_py);
         prev_px = curr_px;
         prev_py = curr_py;
         bin += bin_step;
@@ -923,13 +933,17 @@ static void ui_draw_splash_fullscreen_landscape(uint32_t freq_hz)
     auto const [bitmap_fg, bitmap_bg] = ui_splash_colors();
 
     ST7789_Fill_Color(bitmap_bg);
+    std::construct_at(&s_splash_bitmap_buffer);
     ST7789_DrawBitmap1bpp(0U,
                           0U,
                           splash_freq_screen_w,
                           splash_freq_screen_h,
                           splash_freq_screen,
                           bitmap_fg,
-                          bitmap_bg);
+                          bitmap_bg,
+                          s_splash_bitmap_buffer.data(),
+                          s_splash_bitmap_buffer.size());
+    std::construct_at(&s_splash_traces);
     ui_draw_splash_freq_overlay(freq_hz);
     ui_draw_splash_waveform();
     ui_draw_splash_spectrum();

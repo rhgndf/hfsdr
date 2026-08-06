@@ -12,7 +12,9 @@ namespace sdcard {
 class BitbangTransport {
 public:
     void init();
-    auto detect() -> std::expected<DetectResult, ErrorStatus>;
+    auto detect(SwitchStatus switch_status)
+        -> std::expected<DetectResult, ErrorStatus>;
+    auto read_cid() -> std::expected<CID, ErrorStatus>;
     ErrorStatus read_blocks(uint32_t addr, std::span<uint8_t> buf);
     Status status() const;
 };

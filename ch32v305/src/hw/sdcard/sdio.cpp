@@ -16,8 +16,6 @@ extern "C" {
 
 #include "sdio.h"
 
-#include <array>
-
 namespace sdcard {
 namespace {
 
@@ -622,6 +620,20 @@ auto cmd_r2(uint32_t idx, uint32_t arg) -> std::expected<R2, ErrorStatus>
     return std::unexpected(NoREADY);
 }
 
+bool cmd_r2_discard(uint32_t idx, uint32_t arg)
+{
+    uint32_t const success_flags =
+        SDIO_FLAG_CMDREND | SDIO_FLAG_CCRCFAIL;
+    uint32_t const events =
+        execute_command(idx,
+                        arg,
+                        SDIO_Response_Long,
+                        success_flags,
+                        SDIO_FLAG_CTIMEOUT);
+    return (events & success_flags) != 0U &&
+           (events & SDIO_FLAG_CTIMEOUT) == 0U;
+}
+
 struct DMAWait
 {
     uint32_t end_flag;
@@ -699,7 +711,7 @@ void record_write_data_diagnostics()
         s_last_dma_wait_diagnostics.dma_config;
 }
 
-ErrorStatus read_switch_status(uint32_t arg, std::span<uint8_t, 64> status)
+ErrorStatus read_switch_status(uint32_t arg, SwitchStatus status)
 {
     reset_data_path();
     configure_dma_read(status);
@@ -737,10 +749,8 @@ ErrorStatus read_switch_status(uint32_t arg, std::span<uint8_t, 64> status)
     return result;
 }
 
-bool switch_card_high_speed()
+bool switch_card_high_speed(SwitchStatus status)
 {
-    alignas(4) std::array<uint8_t, 64> status = {};
-
     if(read_switch_status(CMD6_CHECK_HS, status) != READY)
         return false;
 
@@ -749,7 +759,6 @@ bool switch_card_high_speed()
     if((group1_supported & (1U << 1)) == 0U)
         return false;
 
-    status = {};
     if(read_switch_status(CMD6_SWITCH_HS, status) != READY)
         return false;
 
@@ -771,7 +780,8 @@ void SDIOTransport::init()
     init_interrupts();
 }
 
-auto SDIOTransport::detect() -> std::expected<DetectResult, ErrorStatus>
+auto SDIOTransport::detect(SwitchStatus switch_status)
+    -> std::expected<DetectResult, ErrorStatus>
 {
     rca_ = 0U;
     init_gpio_1bit();
@@ -815,8 +825,8 @@ auto SDIOTransport::detect() -> std::expected<DetectResult, ErrorStatus>
     }
 
     if(!ready) return std::unexpected(NoREADY);
-    auto cid_r2 = cmd_r2(2, 0);
-    if(!cid_r2) return std::unexpected(NoREADY);
+    if(!cmd_r2_discard(2, 0))
+        return std::unexpected(NoREADY);
 
     auto rca_resp = cmd_r1(3, 0);
     if(!rca_resp) return std::unexpected(NoREADY);
@@ -833,7 +843,7 @@ auto SDIOTransport::detect() -> std::expected<DetectResult, ErrorStatus>
 
     switch_gpio_4bit();
     switch_fast();
-    if(switch_card_high_speed())
+    if(switch_card_high_speed(switch_status))
         switch_high_speed_clock();
 
     if(!sdhc)
@@ -841,7 +851,15 @@ auto SDIOTransport::detect() -> std::expected<DetectResult, ErrorStatus>
             return std::unexpected(NoREADY);
 
     rca_ = rca;
-    return DetectResult{parse_cid(*cid_r2), sdhc};
+    return DetectResult{sdhc};
+}
+
+auto SDIOTransport::read_cid() -> std::expected<CID, ErrorStatus>
+{
+    auto cid = cmd_r2(10, static_cast<uint32_t>(rca_) << 16);
+    if(!cid)
+        return std::unexpected(cid.error());
+    return parse_cid(*cid);
 }
 
 // DMA is required at high clock speeds; all callers provide an aligned buffer.
