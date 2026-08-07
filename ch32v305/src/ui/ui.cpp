@@ -145,7 +145,6 @@ static ui_display_mode_t s_display_mode = UI_DISPLAY_SPLASH;
 static bool s_splash_band_dirty = true;
 static ui_splash_appearance_t s_splash_appearance = UI_SPLASH_APPEARANCE_NORMAL;
 static ui_splash_appearance_t s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
-static uint8_t s_splash_button_phase = 0U;
 static uint32_t s_displayed_splash_freq_hz = UINT32_MAX;
 static int32_t s_splash_wave_display_peak = kSplashWaveMinimumPeak;
 static union
@@ -261,7 +260,7 @@ static void ui_splash_exit_to_waterfall(void)
     s_display_mode = UI_DISPLAY_WATERFALL;
     s_active_control = UI_CONTROL_FREQ_10_MHZ;
     s_splash_band_dirty = false;
-    s_splash_button_phase = 0U;
+    s_splash_appearance = UI_SPLASH_APPEARANCE_NORMAL;
     s_displayed_splash_freq_hz = UINT32_MAX;
     s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
     s_redraw_all = true;
@@ -275,16 +274,13 @@ extern "C" void ui_handle_button_press(void)
 {
     if(s_display_mode == UI_DISPLAY_SPLASH)
     {
-        s_splash_button_phase = (uint8_t)((s_splash_button_phase + 1U) % 3U);
-
-        if(s_splash_button_phase == 0U)
+        if(s_splash_appearance == UI_SPLASH_APPEARANCE_INVERTED)
         {
             ui_splash_exit_to_waterfall();
             return;
         }
 
-        s_splash_appearance = (s_splash_button_phase == 1U) ? UI_SPLASH_APPEARANCE_INVERTED
-                                                            : UI_SPLASH_APPEARANCE_NORMAL;
+        s_splash_appearance = UI_SPLASH_APPEARANCE_INVERTED;
         s_splash_band_dirty = true;
         s_displayed_splash_freq_hz = UINT32_MAX;
         s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
@@ -295,7 +291,7 @@ extern "C" void ui_handle_button_press(void)
     {
         s_display_mode = UI_DISPLAY_SPLASH;
         s_splash_band_dirty = true;
-        s_splash_button_phase = 0U;
+        s_splash_appearance = UI_SPLASH_APPEARANCE_NORMAL;
         s_displayed_splash_freq_hz = UINT32_MAX;
         s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
         return;
@@ -1051,7 +1047,7 @@ void UI_Init(void)
     s_recording_blink_inverted = false;
     s_display_mode = UI_DISPLAY_SPLASH;
     s_splash_band_dirty = true;
-    s_splash_button_phase = 0U;
+    s_splash_appearance = UI_SPLASH_APPEARANCE_NORMAL;
     s_displayed_splash_freq_hz = UINT32_MAX;
     s_displayed_splash_appearance = UI_SPLASH_APPEARANCE_COUNT;
     s_splash_spec_poly_valid = false;
