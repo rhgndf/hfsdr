@@ -10,10 +10,10 @@
  * Returning maskable ISRs use the dedicated 1.5 KiB IRQ stack instead of
  * application task stacks.
  */
-#define APP_TASK_STACK_WORDS    432U
-#define USB_TASK_STACK_WORDS    256U
+#define APP_TASK_STACK_WORDS    320U
+#define USB_TASK_STACK_WORDS    192U
 #define I2S_TASK_STACK_WORDS    192U
-#define HW_STATE_TASK_STACK_WORDS 256U
+#define HW_STATE_TASK_STACK_WORDS 192U
 #define RECORDING_TASK_STACK_WORDS 432U
 
 #endif

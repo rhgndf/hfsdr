@@ -12,7 +12,7 @@
 #define configEXPECTED_IDLE_TIME_BEFORE_SLEEP      2
 
 #define configMAX_PRIORITIES                       4
-#define configMINIMAL_STACK_SIZE                   144U
+#define configMINIMAL_STACK_SIZE                   112U
 #define configMAX_TASK_NAME_LEN                    16
 #define configTICK_TYPE_WIDTH_IN_BITS              TICK_TYPE_WIDTH_32_BITS
 #define configIDLE_SHOULD_YIELD                    1
@@ -68,7 +68,7 @@
 #define INCLUDE_vTaskDelayUntil                    1
 #define INCLUDE_vTaskDelay                         1
 #define INCLUDE_xTaskAbortDelay                    0
-#define INCLUDE_xTaskGetHandle                     0
+#define INCLUDE_xTaskGetHandle                     1
 #define INCLUDE_xTaskGetCurrentTaskHandle          1
 #define INCLUDE_xTaskGetSchedulerState             0
 #define INCLUDE_uxTaskGetStackHighWaterMark        1
