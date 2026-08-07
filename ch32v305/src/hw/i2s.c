@@ -94,6 +94,29 @@ static void i2s_hw_rx_flush(void)
             (SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_OVR) != RESET));
 }
 
+static bool i2s_wait_for_ws_falling_edge(void)
+{
+    uint32_t timeout = I2S_WS_SYNC_TIMEOUT_POLLS;
+
+    /*
+     * For some reason waiting for WS to be low before enabling fixes the bitslip issue
+     * Wait for falling edge to give the most time before we reach the i2s enable
+     */
+    while((timeout > 0U) &&
+          (GPIO_ReadInputDataBit(I2S_WS_GPIO_PORT, I2S_WS_GPIO_PIN) == Bit_RESET))
+    {
+        --timeout;
+    }
+
+    while((timeout > 0U) &&
+          (GPIO_ReadInputDataBit(I2S_WS_GPIO_PORT, I2S_WS_GPIO_PIN) != Bit_RESET))
+    {
+        --timeout;
+    }
+
+    return timeout > 0U;
+}
+
 static void i2s_hw_dma_irq_init(void)
 {
     NVIC_InitTypeDef nvic = {0};
@@ -239,6 +262,12 @@ static void i2s_dma_rx_start(void)
     DMA_ITConfig(I2S_RX_DMA_CHANNEL, DMA_IT_HT | DMA_IT_TC | DMA_IT_TE, ENABLE);
     DMA_Cmd(I2S_RX_DMA_CHANNEL, ENABLE);
     SPI_I2S_DMACmd(SPI2, SPI_I2S_DMAReq_Rx, ENABLE);
+
+    if(!i2s_wait_for_ws_falling_edge())
+    {
+        printf("I2S: WS falling-edge sync timeout; starting unsynchronized\r\n");
+    }
+
     I2S_Cmd(SPI2, ENABLE);
 }
 

@@ -323,11 +323,10 @@ static void Application_Task(void *parameters)
 
     trng_hw_init();
     (void)tlv320adc6120_ch1_mute(true);
-    Draw_I2S_Syncing_Status();
     while(s_i2s_bitslip_check)
     {
-        TLV320_I2S_CheckBitslip();
         portYIELD();
+        TLV320_I2S_CheckBitslip();
     }
     (void)tlv320adc6120_ch1_mute(false);
     trng_hw_deinit();
