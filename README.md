@@ -32,6 +32,7 @@ Connected to a PC
 
 ## Troubleshooting
 
+- **No firmware:** Enter the bootloader by holding down BOOT and pressing the RST button. Use `wchisp` to flash the elf file in the releases
 - **USB / stream flaky:** Unplug the board or reset it a few times. The host stack sometimes needs a power cycle before enumeration, WinUSB binding, or streaming stabilizes.
 - **Using with GNURadio/ Python Scripting:** See the driver and probe sections in [docs/host-guide.md](docs/host-guide.md).
 - **Reset:** Do not hold the reset button for too long 
